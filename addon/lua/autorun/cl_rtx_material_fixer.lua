@@ -90,7 +90,10 @@ local function MaterialFixups()
 	MaterialFixupInDir("materials/effects/")
 
 	FixupWater()
+	--WantsMaterialFixup = false
+end
 
+local function GUIFixups()
 	-- giving things a real texture makes remix less confused
 	FixupGUIMaterial(Material("vgui/white"), "materials/vgui/white.vmt")
 	FixupGUIMaterial(Material("vgui/white_additive"), "materials/vgui/white_additive.vmt") 
@@ -99,14 +102,16 @@ local function MaterialFixups()
 	FixupGUIMaterial(Material("VGUI_White"), "VGUI_White")
 	FixupGUIMaterial(Material("!VGUI_White"), "VGUI_White") -- Dynamically created in vgui2.dll I think.
 	FixupGUIMaterial(Material("!white"), "white")
-	--WantsMaterialFixup = false
 end
 
 CreateClientConVar(	"rtx_fixmaterials", 1,  true, false) 
+CreateClientConVar(	"rtx_fixgui", 1,  true, false) 
 local function RTXLoadMaterialFixer()
     concommand.Add( "rtx_fixmaterials_fixnow", MaterialFixups)
+    concommand.Add( "rtx_fixgui_fixnow", GUIFixups)
     -- start fixing up materials, can freeze the game :(
     if (GetConVar( "rtx_fixmaterials" ):GetBool()) then MaterialFixups() end
+    if (GetConVar( "rtx_fixgui" ):GetBool()) then GUIFixups() end
 end
 
 hook.Add( "InitPostEntity", "RTXReady_MaterialFixer", RTXLoadMaterialFixer)  
