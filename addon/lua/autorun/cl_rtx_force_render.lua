@@ -264,7 +264,8 @@ local function EnableCustomRendering()
     if isEnabled then return end
     isEnabled = true
 
-    RunConsoleCommand("r_drawworld", "0")
+    RunConsoleCommand("r_drawopaqueworld", "0")
+    RunConsoleCommand("r_drawtranslucentworld", "0")
     
     hook.Add("PreDrawOpaqueRenderables", "RTXCustomWorld", function()
         RenderCustomWorld(false)
@@ -279,7 +280,8 @@ local function DisableCustomRendering()
     if not isEnabled then return end
     isEnabled = false
 
-    RunConsoleCommand("r_drawworld", "1")
+    RunConsoleCommand("r_drawopaqueworld", "1")
+    RunConsoleCommand("r_drawtranslucentworld", "1")
     
     hook.Remove("PreDrawOpaqueRenderables", "RTXCustomWorld")
     hook.Remove("PreDrawTranslucentRenderables", "RTXCustomWorld")

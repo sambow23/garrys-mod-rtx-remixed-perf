@@ -5,7 +5,6 @@
 #include "materialsystem/imaterialsystem.h"
 #include <shaderapi/ishaderapi.h>
 #include "e_utils.h"
-#include <Windows.h>
 #include <d3d9.h>
 #include "rtx_lights/rtx_light_manager.h"
 #include "shader_fixes/shader_hooks.h"
@@ -152,6 +151,16 @@ LUA_FUNCTION(DrawRTXLights) {
         return 0;
     }
 }
+ 
+LUA_FUNCTION(ForceDrawSkybox) {
+    try { 
+        /// idk somehow drawskybox
+    }
+    catch (...) {
+        Msg("[RTX Remix Fixes] Exception in drawing skybox\n");
+        return 0;
+    }
+}
 
 void* FindD3D9Device() {
     auto shaderapidx = GetModuleHandle("shaderapidx9.dll");
@@ -227,6 +236,9 @@ GMOD_MODULE_OPEN() {
             
             LUA->PushCFunction(DrawRTXLights);
             LUA->SetField(-2, "DrawRTXLights");
+
+            LUA->PushCFunction(ForceDrawSkybox);
+            LUA->SetField(-2, "ForceDrawSkybox");
         LUA->Pop();
 
         return 0;
