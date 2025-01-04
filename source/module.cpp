@@ -219,7 +219,6 @@ GMOD_MODULE_OPEN() {
         // Configure RTX settings
         if (g_remix) {
             g_remix->SetConfigVariable("rtx.enableAdvancedMode", "1");
-            g_remix->SetConfigVariable("rtx.fallbackLightMode", "2");
             Msg("[RTX Remix Fixes] RTX configuration set\n");
         }
 
