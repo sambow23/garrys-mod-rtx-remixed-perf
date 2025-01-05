@@ -9,6 +9,7 @@
 #include "rtx_lights/rtx_light_manager.h"
 #include "shader_fixes/shader_hooks.h"
 #include "prop_fixes.h" 
+#include "culling_fixes.h" 
 
 #ifdef GMOD_MAIN
 extern IMaterialSystem* materials = NULL;
@@ -192,7 +193,8 @@ GMOD_MODULE_OPEN() {
     try {
         Msg("[RTX Remix Fixes 2] - Module loaded!\n"); 
 
-        // Initialize shader protection
+        // Initialize modules
+        CullingHooks::Instance().Initialize();
         ShaderAPIHooks::Instance().Initialize();
         ModelRenderHooks::Instance().Initialize();
 
@@ -252,7 +254,9 @@ GMOD_MODULE_CLOSE() {
     try {
         Msg("[RTX] Shutting down module...\n");
 
-                // Shutdown shader protection
+        // Shutdown modules
+        CullingHooks::Instance().Shutdown();
+
         ShaderAPIHooks::Instance().Shutdown();
         
         RTXLightManager::Instance().Shutdown();
