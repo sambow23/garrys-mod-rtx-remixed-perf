@@ -15,18 +15,14 @@ local renderStats = {draws = 0}
 local materialCache = {}
 
 -- Utility Functions
-local function IsSkyboxFace(face)
-    if not face then return false end
-    
-    local material = face:GetMaterial()
-    if not material then return false end
-    
-    local matName = material:GetName():lower()
-    
-    return matName:find("tools/toolsskybox") or
-           matName:find("skybox/") or
-           matName:find("sky_") or
-           false
+local function ShouldRenderFace(face)
+    invis = face:HasTexInfoFlag(0x0002) or -- SURF_SKY2D
+            face:HasTexInfoFlag(0x0004) or -- SURF_SKY
+            face:HasTexInfoFlag(0x0040) or -- SURF_TRIGGER
+            face:HasTexInfoFlag(0x0080) or -- SURF_NODRAW
+            face:HasTexInfoFlag(0x0200) or -- SURF_SKIP
+            false
+    return not invis
 end
 
 local function GetChunkKey(x, y, z)
@@ -142,7 +138,7 @@ local function BuildMapMeshes()
         if not leafFaces then continue end
 
         for _, face in pairs(leafFaces) do
-            if not face or not face:ShouldRender() or IsSkyboxFace(face) then continue end
+            if not face or not ShouldRenderFace(face) then continue end
             
             local vertices = face:GetVertexs()
             if not vertices or #vertices == 0 then continue end
