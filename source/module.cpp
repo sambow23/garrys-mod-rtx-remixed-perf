@@ -9,7 +9,7 @@
 #include "rtx_lights/rtx_light_manager.h"
 #include "shader_fixes/shader_hooks.h"
 #include "prop_fixes.h" 
-#include "culling_fixes.h" 
+#include "culling_fixes.h"
 
 #ifdef GMOD_MAIN
 extern IMaterialSystem* materials = NULL;
@@ -165,6 +165,9 @@ LUA_FUNCTION(ForceDrawSkybox) {
 
 #include "cbase.h" 
 #include "iviewrender.h" 
+#include <GarrysMod/Lua/LuaConVars.h>
+#include <GarrysMod/FactoryLoader.hpp>
+#include <GarrysMod/Lua/LuaShared.h>
 extern IViewRender *view = NULL;
 LUA_FUNCTION(DisableCulling) {
     view->DisableVis();
@@ -195,9 +198,11 @@ void* FindD3D9Device() {
     }
 
     return device;
-}
+} 
 
-GMOD_MODULE_OPEN() { 
+#include "globalconvars.h"
+GMOD_MODULE_OPEN() {
+    GlobalConvars::InitialiseConVars();
     try {
         Msg("[RTX Remix Fixes 2] - Module loaded!\n"); 
 
@@ -251,15 +256,14 @@ GMOD_MODULE_OPEN() {
 
             LUA->PushCFunction(DisableCulling);
             LUA->SetField(-2, "DisableCulling");
-        LUA->Pop();
-
-        return 0;
+        LUA->Pop();  
     }
     catch (...) {
         Error("[RTX] Exception in module initialization\n");
-        return 0;
     }
+    return 0;
 }
+
 
 GMOD_MODULE_CLOSE() {
     try {

@@ -1,10 +1,8 @@
 
-
 #pragma once
-#include <Windows.h>
-#include "engine/ivmodelrender.h"
-#include "model_types.h"
 #include "e_utils.h"
+
+
 class CullingHooks {
 public:
     static CullingHooks& Instance() {
