@@ -26,7 +26,7 @@ Define_method_Hook(bool, CViewRenderShouldForceNoVis, void*)
 {   
 	bool original = CViewRenderShouldForceNoVis_trampoline()(_this);
 	if (GlobalConvars::r_forcenovis && GlobalConvars::r_forcenovis->GetBool()) {
-		Msg("[Culling Fixes] Hi\n");
+		//Msg("[Culling Fixes] Hi\n");
 		return true;
 	}
 	return original;
