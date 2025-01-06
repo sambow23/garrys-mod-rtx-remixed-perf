@@ -26,7 +26,7 @@ Define_method_Hook(bool, CViewRenderShouldForceNoVis, void*)
 {   
 	bool original = CViewRenderShouldForceNoVis_trampoline()(_this);
 	if (GlobalConvars::r_forcenovis && GlobalConvars::r_forcenovis->GetBool()) {
-		//Msg("[Culling Fixes] Hi\n");
+		Msg("[Culling Fixes] Hi\n");
 		return true;
 	}
 	return original;
@@ -50,9 +50,11 @@ void CullingHooks::Initialize() {
 		// I cant find the signature, here's some possibilities??????????
 		// 8B 81 ?? ?? ?? ?? C3 CC CC CC CC CC CC CC CC CC 8B 81 ?? ?? ?? ?? C3 CC CC CC CC CC CC CC CC CC 85 D2 75
 		// 0F B6 81 ?? ?? ?? ?? C3 CC CC CC CC CC CC CC CC 8B 81 ?? ?? ?? ?? C3 CC CC CC CC CC CC CC CC CC 48 8B 81
-		// EDIT: its the second one maybe? it turns off the UI tho so maybe its the complete wrong thing LOL.
+		// 48 8D 81 4C 03 00 00 C3
+		// 0F B6 81 54 03 00 00 C3
+		// EDIT: its the 2nd/4th one, 2nd doesn't work, 4th works but will change with updates :(
 
-		static const char sign2[] = "0F B6 81 ? ? ? ? C3";
+		static const char sign2[] = "0F B6 81 54 03 00 00 C3";
 		auto CViewRenderShouldForceNoVis = ScanSign(client, sign2, sizeof(sign2) - 1);
 		if (!CViewRenderShouldForceNoVis) { Msg("[Culling Fixes] CViewRender::ShouldForceNoVis == NULL\n"); return; }
 		else {
