@@ -163,6 +163,14 @@ LUA_FUNCTION(ForceDrawSkybox) {
     }
 }
 
+#include "cbase.h" 
+#include "iviewrender.h" 
+extern IViewRender *view = NULL;
+LUA_FUNCTION(DisableCulling) {
+    view->DisableVis();
+    return 0;
+}
+
 void* FindD3D9Device() {
     auto shaderapidx = GetModuleHandle("shaderapidx9.dll");
     if (!shaderapidx) {
@@ -240,6 +248,9 @@ GMOD_MODULE_OPEN() {
 
             LUA->PushCFunction(ForceDrawSkybox);
             LUA->SetField(-2, "ForceDrawSkybox");
+
+            LUA->PushCFunction(DisableCulling);
+            LUA->SetField(-2, "DisableCulling");
         LUA->Pop();
 
         return 0;

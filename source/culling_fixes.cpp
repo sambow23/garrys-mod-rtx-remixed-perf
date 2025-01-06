@@ -5,14 +5,19 @@
 #include "materialsystem/materialsystem_config.h"
 #include "interfaces/interfaces.h"  
 #include "culling_fixes.h"  
+#include "cdll_client_int.h"
+#include "view.h"
+#include "cbase.h"
+#include "viewrender.h"  
 
 using namespace GarrysMod::Lua;
 
-Define_method_Hook(IMaterial*, CViewRenderRender, void*, vrect_t* rect)
-{ 
-	//IMaterial* pMaterial = ppMaterials[index];
-	IMaterial* pMaterial = CViewRenderRender_trampoline()(_this, rect); 
-	return pMaterial;
+Define_method_Hook(void*, CViewRenderRender, void*, vrect_t* rect)
+{
+	view->DisableVis();
+	CViewRender::GetMainView()->DisableVis();
+	CViewRenderRender_trampoline()(_this, rect); 
+	return nullptr;
 }
 
 static StudioRenderConfig_t s_StudioRenderConfig;
@@ -31,7 +36,7 @@ void CullingHooks::Initialize() {
 			 
 	}
 	catch (...) {
-		Msg("[Prop Fixes] Exception in CullingHooks::Initialize\n");
+		Msg("[Culling Fixes] Exception in CullingHooks::Initialize\n");
 	}
 }
 
