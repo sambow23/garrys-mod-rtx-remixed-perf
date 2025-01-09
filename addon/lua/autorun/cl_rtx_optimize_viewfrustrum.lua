@@ -1,3 +1,6 @@
+-- Optimize the view frustrum to work better with RTX Remix. This code is pretty heavy but it's the current solution we have until we get proper engine patches.
+-- MAJOR THANK YOU to the creator of NikNaks, a lot of this would not be possible without it.
+
 -- ConVars
 local cv_disable_culling = CreateClientConVar("disable_frustum_culling", "1", true, false, "Disable frustum culling")
 local cv_bounds_size = CreateClientConVar("frustum_bounds_size", "10000", true, false, "Size of render bounds when culling is disabled (default: 1000)")
@@ -10,6 +13,9 @@ local cv_smart_radius = CreateClientConVar("pvs_smart_radius", "1", true, false,
 local cv_min_radius = CreateClientConVar("pvs_min_radius", "512", true, false, "Minimum radius for nearby entity rendering")
 local cv_max_radius = CreateClientConVar("pvs_max_radius", "2048", true, false, "Maximum radius for nearby entity rendering")
 local cv_view_distance = CreateClientConVar("pvs_view_distance", "2048", true, false, "How far to extend radius in view direction")
+local cv_static_prop_enabled = CreateClientConVar("disable_frustum_culling_static_props", "1", true, false, "Include static props in frustum culling disable")
+local cv_static_prop_distance = CreateClientConVar("frustum_static_prop_distance", "8000", true, false, "Maximum distance to process static props")
+local cv_static_prop_batch = CreateClientConVar("frustum_static_prop_batch", "100", true, false, "How many static props to process per frame")
 
 -- Cache variables
 local lastPVSUpdate = 0
@@ -27,6 +33,18 @@ local isOpenArea = false
 local currentRadius = cv_min_radius:GetFloat()
 local lastAreaCheck = 0
 local AREA_CHECK_INTERVAL = 0.5
+
+-- Cache for static props
+local cached_static_props = {}
+local static_prop_queue = {}
+local is_processing_props = false
+local last_distance_check = 0
+local DISTANCE_CHECK_INTERVAL = 1 -- Check distances every second
+
+local function IsInRange(pos, range)
+    local playerPos = LocalPlayer():GetPos()
+    return pos:DistToSqr(playerPos) <= (range * range)
+end
 
 local function DrawDebugRadius()
     if not cv_enable_pvs:GetBool() then return end
@@ -196,6 +214,9 @@ local function SetHugeRenderBounds(ent)
     -- Only set bounds for visible entities
     if ent:GetNoDraw() then return end
     
+    -- Skip static props if disabled
+    if ent.IsStaticProp and not cv_static_prop_enabled:GetBool() then return end
+    
     -- Check if entity is renderable (has a model)
     local model = ent:GetModel()
     if not model or model == "" then return end
@@ -209,13 +230,102 @@ local function SetHugeRenderBounds(ent)
     
     -- Set huge bounds if entity should be rendered
     if ShouldRenderEntity(ent) then
-        local bounds_size = cv_bounds_size:GetFloat()
-        local mins = Vector(-bounds_size, -bounds_size, -bounds_size)
-        local maxs = Vector(bounds_size, bounds_size, bounds_size)
-        ent:SetRenderBounds(mins, maxs)
+        if ent.IsStaticProp then
+            -- Use model-based bounds for static props
+            local mins, maxs = ent:GetModelBounds()
+            if mins and maxs then
+                local bounds_size = cv_bounds_size:GetFloat()
+                mins = mins * bounds_size
+                maxs = maxs * bounds_size
+                ent:SetRenderBounds(mins, maxs)
+            end
+        else
+            -- Use standard huge bounds for regular entities
+            local bounds_size = cv_bounds_size:GetFloat()
+            local mins = Vector(-bounds_size, -bounds_size, -bounds_size)
+            local maxs = Vector(bounds_size, bounds_size, bounds_size)
+            ent:SetRenderBounds(mins, maxs)
+        end
     else
         -- Set minimal bounds if entity shouldn't be rendered
         ent:SetRenderBounds(Vector(-1, -1, -1), Vector(1, 1, 1))
+    end
+end
+
+local function ProcessStaticPropBatch()
+    if #static_prop_queue == 0 then
+        is_processing_props = false
+        return
+    end
+    
+    local batch_size = math.min(cv_static_prop_batch:GetInt(), #static_prop_queue)
+    local range = cv_static_prop_distance:GetFloat()
+    local playerPos = LocalPlayer():GetPos()
+    
+    for i = 1, batch_size do
+        local prop = table.remove(static_prop_queue, 1)
+        if not prop.OriginalStaticProp then continue end
+        
+        -- Only process props within range
+        if IsInRange(prop.OriginalStaticProp:GetPos(), range) then
+            SetHugeRenderBounds(prop)
+        end
+    end
+    
+    if #static_prop_queue > 0 then
+        timer.Simple(0, ProcessStaticPropBatch)
+    else
+        is_processing_props = false
+    end
+end
+
+local function CreateStaticPropEntity(staticProp)
+    -- Skip props that are too far
+    if not IsInRange(staticProp:GetPos(), cv_static_prop_distance:GetFloat()) then
+        return
+    end
+
+    local ent = ClientsideModel(staticProp:GetModel())
+    if not IsValid(ent) then return end
+    
+    ent:SetPos(staticProp:GetPos())
+    ent:SetAngles(staticProp:GetAngles())
+    ent:SetModelScale(staticProp:GetScale())
+    ent:SetColor(staticProp:GetColor())
+    ent:SetRenderMode(RENDERMODE_NORMAL)
+    
+    -- Store minimal required data
+    ent.IsStaticProp = true
+    ent.OriginalStaticProp = {
+        GetPos = function() return staticProp:GetPos() end,
+        GetModel = function() return staticProp:GetModel() end
+    }
+    
+    return ent
+end
+
+-- Function to initialize static props
+local function InitializeStaticProps()
+    if not NikNaks or not NikNaks.CurrentMap then return end
+    
+    -- Clear existing props
+    for _, ent in pairs(cached_static_props) do
+        if IsValid(ent) then ent:Remove() end
+    end
+    cached_static_props = {}
+    static_prop_queue = {}
+    
+    -- Create props within range
+    local range = cv_static_prop_distance:GetFloat()
+    local playerPos = LocalPlayer():GetPos()
+    
+    for _, staticProp in pairs(NikNaks.CurrentMap:GetStaticProps()) do
+        if IsInRange(staticProp:GetPos(), range) then
+            local ent = CreateStaticPropEntity(staticProp)
+            if IsValid(ent) then
+                table.insert(cached_static_props, ent)
+            end
+        end
     end
 end
 
@@ -316,7 +426,7 @@ hook.Add("Think", "UpdateRenderBounds", function()
     
     next_update = curTime + cv_update_frequency:GetFloat()
     
-    -- Only process dynamic entities that actually have bones
+    -- Process dynamic entities
     local dynamic_entities = {}
     for _, ent in ipairs(ents.GetAll()) do
         if IsValid(ent) and 
@@ -326,7 +436,36 @@ hook.Add("Think", "UpdateRenderBounds", function()
         end
     end
     
+    -- Process static props periodically
+    if cv_static_prop_enabled:GetBool() and curTime > last_distance_check + DISTANCE_CHECK_INTERVAL then
+        last_distance_check = curTime
+        static_prop_queue = table.Copy(cached_static_props)
+        
+        if not is_processing_props and #static_prop_queue > 0 then
+            is_processing_props = true
+            ProcessStaticPropBatch()
+        end
+    end
+    
     QueueEntitiesForProcessing(dynamic_entities)
+end)
+
+hook.Add("InitPostEntity", "InitializeStaticProps", function()
+    InitializeStaticProps()
+    
+    -- Setup original render bounds override
+    local meta = FindMetaTable("Entity")
+    if not meta then return end
+    
+    local originalSetupBones = meta.SetupBones
+    if originalSetupBones then
+        function meta:SetupBones()
+            if cv_disable_culling:GetBool() and (self:GetBoneCount() and self:GetBoneCount() > 0 or self.IsStaticProp) then
+                SetHugeRenderBounds(self)
+            end
+            return originalSetupBones(self)
+        end
+    end
 end)
 
 -- Optimized bone setup hook
@@ -345,6 +484,15 @@ hook.Add("InitPostEntity", "SetupRenderBoundsOverride", function()
         end
     end
 end)
+
+-- Add command to refresh static props
+concommand.Add("refresh_static_props", function()
+    InitializeStaticProps()
+    print("Static props refreshed")
+end)
+
+-- Update static props when map changes
+hook.Add("OnReloaded", "RefreshStaticProps", InitializeStaticProps)
 
 -- Debug command to print entity info
 concommand.Add("debug_render_bounds", function()
@@ -390,4 +538,22 @@ concommand.Add("debug_render_bounds", function()
     print("Total entities: " .. total_entities)
     print("Entities in range: " .. processed_entities)
     print("Entities with bones: " .. bone_entities)
+end)
+
+concommand.Add("debug_static_props", function()
+    print("\nStatic Props Debug Info:")
+    print("Total cached props: " .. #cached_static_props)
+    print("Props in process queue: " .. #static_prop_queue)
+    print("Processing enabled: " .. tostring(cv_static_prop_enabled:GetBool()))
+    print("Max process distance: " .. cv_static_prop_distance:GetFloat())
+    print("Batch size: " .. cv_static_prop_batch:GetInt())
+    
+    local propsInRange = 0
+    local range = cv_static_prop_distance:GetFloat()
+    for _, prop in pairs(cached_static_props) do
+        if IsValid(prop) and IsInRange(prop:GetPos(), range) then
+            propsInRange = propsInRange + 1
+        end
+    end
+    print("Props in range: " .. propsInRange)
 end)
