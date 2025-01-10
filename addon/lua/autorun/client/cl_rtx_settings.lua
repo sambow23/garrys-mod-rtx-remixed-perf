@@ -4,8 +4,8 @@ hook.Add( "PopulateToolMenu", "RTXOptionsClient", function()
     spawnmenu.AddToolMenuOption( "Utilities", "User", "RTX_Client", "#RTX", "", "", function( panel )
         panel:ClearControls()
         
-        panel:ControlHelp( "Thanks for using RTX Remix Fixes! In order to allow me to continue to fix and support this addon while keeping it free, it would be nice if you could PLEASE consider donating to my patreon!" )
-        panel:ControlHelp("https://www.patreon.com/xenthio")
+        --panel:ControlHelp( "Thanks for using RTX Remix Fixes! In order to allow me to continue to fix and support this addon while keeping it free, it would be nice if you could PLEASE consider donating to my patreon!" )
+        --panel:ControlHelp("https://www.patreon.com/xenthio")
 
         panel:CheckBox( "Fix Materials on Load.", "rtx_fixmaterials" )
         panel:ControlHelp( "Fixup broken and unsupported materials, this fixes things like blank materials and particles." ) 
