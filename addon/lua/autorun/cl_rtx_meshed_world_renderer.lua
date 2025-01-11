@@ -307,16 +307,25 @@ end)
 
 hook.Add("ShutDown", "RTXCustomWorld", function()
     DisableCustomRendering()
-    for _, chunkMaterials in pairs(mapMeshes) do
-        for _, group in pairs(chunkMaterials) do
-            for _, mesh in ipairs(group.meshes) do
-                if mesh.Destroy then
-                    mesh:Destroy()
+    
+    for renderType, chunks in pairs(mapMeshes) do
+        for chunkKey, materials in pairs(chunks) do
+            for matName, group in pairs(materials) do
+                if group.meshes then
+                    for _, mesh in ipairs(group.meshes) do
+                        if mesh.Destroy then
+                            mesh:Destroy()
+                        end
+                    end
                 end
             end
         end
     end
-    mapMeshes = {}
+    
+    mapMeshes = {
+        opaque = {},
+        translucent = {}
+    }
     materialCache = {}
 end)
 
