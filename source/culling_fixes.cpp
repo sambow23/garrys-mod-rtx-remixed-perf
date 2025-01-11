@@ -34,8 +34,10 @@ Define_method_Hook(bool, CViewRenderShouldForceNoVis, void*)
 
 Define_method_Hook(bool, MathLibR_CullBox, void*, const Vector& mins, const Vector& maxs, const Frustum_t& frustum)
 {
-	return false;
-	//return MathLibR_CullBox_trampoline()(_this, mins, maxs, frustum);
+	if (GlobalConvars::c_frustumcull && GlobalConvars::c_frustumcull->GetBool()) {
+		return MathLibR_CullBox_trampoline()(_this, mins, maxs, frustum); 
+	}
+	return false; 
 }
 
 static StudioRenderConfig_t s_StudioRenderConfig;
