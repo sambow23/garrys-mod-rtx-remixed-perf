@@ -21,6 +21,7 @@ ShaderAPIHooks::DivisionFunction_t ShaderAPIHooks::g_original_DivisionFunction =
 ShaderAPIHooks::VertexBufferLock_t ShaderAPIHooks::g_original_VertexBufferLock = nullptr;
 std::unordered_set<uintptr_t> ShaderAPIHooks::s_problematicAddresses;
 ShaderAPIHooks::ParticleRender_t ShaderAPIHooks::g_original_ParticleRender = nullptr;
+ShaderAPIHooks::R_DrawSkyBox_t ShaderAPIHooks::g_original_R_DrawSkyBox = nullptr;
 
 namespace {
     bool IsValidPointer(const void* ptr, size_t size) {
@@ -228,6 +229,84 @@ void ShaderAPIHooks::Initialize() {
     }
 }
 
+void ShaderAPIHooks::EnableCustomSkyboxRendering() {
+    try {
+        auto engineDll = GetModuleHandle("engine.dll");
+        if (!engineDll) {
+            Warning("[RTX Fixes] Failed to get engine.dll module\n");
+            return;
+        }
+
+        // x64 signature for R_DrawSkyBox
+        //static const char sign[] = "40 55 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 ?? ?? ?? ?? 48 81 EC ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ??";
+        //static const char sign[] = "48 8B C4 48 89 58 08 48 89 70 10 48 89 78 18 4C 89 60 20";
+        static const char sign[] = "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24";
+
+        auto R_DrawSkyBox = ScanSign(engineDll, sign, sizeof(sign) - 1);
+        
+        if (!R_DrawSkyBox) {
+            Warning("[RTX Fixes] Failed to find R_DrawSkyBox signature\n");
+            return;
+        }
+
+        Msg("[RTX Fixes] Found R_DrawSkyBox at %p\n", R_DrawSkyBox);
+
+        // Hook the function
+        Detouring::Hook::Target target(R_DrawSkyBox);
+        m_R_DrawSkyBox_hook.Create(target, R_DrawSkyBox_detour);
+        g_original_R_DrawSkyBox = m_R_DrawSkyBox_hook.GetTrampoline<R_DrawSkyBox_t>();
+        m_R_DrawSkyBox_hook.Enable();
+
+        Msg("[RTX Fixes] Successfully hooked R_DrawSkyBox\n");
+    }
+    catch (...) {
+        Warning("[RTX Fixes] Exception in EnableCustomSkyboxRendering\n");
+    }
+}
+
+// Update the detour function signature for x64
+void __fastcall ShaderAPIHooks::R_DrawSkyBox_detour(void* thisptr, void* edx) {
+    __try {
+        // Save current render states
+        DWORD oldZEnable, oldZWriteEnable;
+        if (g_pD3DDevice) {
+            g_pD3DDevice->GetRenderState(D3DRS_ZENABLE, &oldZEnable);
+            g_pD3DDevice->GetRenderState(D3DRS_ZWRITEENABLE, &oldZWriteEnable);
+
+            // Set states for skybox rendering
+            g_pD3DDevice->SetRenderState(D3DRS_ZENABLE, D3DZB_FALSE);
+            g_pD3DDevice->SetRenderState(D3DRS_ZWRITEENABLE, FALSE);
+        }
+
+        // Call original skybox render
+        if (g_original_R_DrawSkyBox) {
+            g_original_R_DrawSkyBox(thisptr);
+        }
+
+        // Restore render states
+        if (g_pD3DDevice) {
+            g_pD3DDevice->SetRenderState(D3DRS_ZENABLE, oldZEnable);
+            g_pD3DDevice->SetRenderState(D3DRS_ZWRITEENABLE, oldZWriteEnable);
+        }
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        Warning("[RTX Fixes] Exception in R_DrawSkyBox_detour\n");
+    }
+}
+
+void ShaderAPIHooks::DisableCustomSkyboxRendering() {
+    try {
+        if (m_R_DrawSkyBox_hook.IsEnabled()) {
+            m_R_DrawSkyBox_hook.Disable();
+            Msg("[RTX Fixes] Disabled skybox rendering hook\n");
+        }
+        g_original_R_DrawSkyBox = nullptr;
+    }
+    catch (...) {
+        Warning("[RTX Fixes] Exception in DisableCustomSkyboxRendering\n");
+    }
+}
+
 void __fastcall ShaderAPIHooks::ParticleRender_detour(void* thisptr) {
     static float s_lastLogTime = 0.0f;
     float currentTime = GetTickCount64() / 1000.0f;
@@ -407,6 +486,12 @@ void ShaderAPIHooks::Shutdown() {
     m_SetStreamSource_hook.Disable();
     m_SetVertexShader_hook.Disable();
     s_ConMsg_hook.Disable();
+
+    // Add skybox hook cleanup
+    if (m_R_DrawSkyBox_hook.IsEnabled()) {
+        m_R_DrawSkyBox_hook.Disable();
+        Msg("[Shader Fixes] Disabled skybox hook\n");
+    }
 
     // Log shutdown completion
     Msg("[Shader Fixes] Shutdown complete\n");

@@ -1,5 +1,7 @@
+local COOLDOWN_TIME = 0.1
+
 TOOL.Category = "Lighting"
-TOOL.Name = "RTX Light"
+TOOL.Name = "Remix API Light"
 TOOL.Command = nil
 TOOL.ConfigName = ""
 
@@ -8,7 +10,8 @@ TOOL.ClientConVar = {
     ["size"] = "200",
     ["r"] = "255",
     ["g"] = "255",
-    ["b"] = "255"
+    ["b"] = "255",
+    ["update_rate"] = "60"
 }
 
 function TOOL:LeftClick(trace)
@@ -30,13 +33,10 @@ function TOOL:LeftClick(trace)
     
     -- Get and clamp tool settings
     local brightness = math.Clamp(self:GetClientNumber("brightness", 100), 1, 1000)
-    local size = math.Clamp(self:GetClientNumber("size", 200), 50, 1000)
+    local size = math.Clamp(self:GetClientNumber("size", 200), 1, 1000)
     local r = math.Clamp(self:GetClientNumber("r", 255), 0, 255)
     local g = math.Clamp(self:GetClientNumber("g", 255), 0, 255)
     local b = math.Clamp(self:GetClientNumber("b", 255), 0, 255)
-
-    print(string.format("[RTX Light Tool] Creating light - Brightness: %f, Size: %f, Color: %d,%d,%d",
-        brightness, size, r, g, b))
 
     -- Create entity without effects
     local ent = ents.Create("base_rtx_light")
@@ -57,25 +57,11 @@ function TOOL:LeftClick(trace)
     ent:Spawn()
     ent:Activate()
 
-    -- Create undo with custom callback
+    -- Create undo without network messages
     undo.Create("RTX Light")
         undo.AddEntity(ent)
         undo.SetPlayer(ply)
         undo.SetCustomUndoText("Undone RTX Light")
-        undo.AddFunction(function()
-            if IsValid(ent) then
-                -- Ensure cleanup happens before entity removal
-                net.Start("RTXLight_Cleanup")
-                    net.WriteEntity(ent)
-                net.Broadcast()
-                -- Small delay to ensure cleanup message is processed
-                timer.Simple(0.1, function()
-                    if IsValid(ent) then
-                        ent:Remove()
-                    end
-                end)
-            end
-        end)
     undo.Finish()
 
     -- Add to cleanup
@@ -114,12 +100,12 @@ end
 
 if CLIENT then
     language.Add("tool.rtx_light.name", "RTX Light")
-    language.Add("tool.rtx_light.desc", "Create RTX-enabled lights")
+    language.Add("tool.rtx_light.desc", "Create RTX Remix API lights")
     language.Add("tool.rtx_light.0", "Left click to create a light. Right click to remove. Reload to copy settings.")
 
     function TOOL.BuildCPanel(panel)
         panel:NumSlider("Brightness", "rtx_light_brightness", 1, 1000, 0)
-        panel:NumSlider("Size", "rtx_light_size", 50, 1000, 0)
+        panel:NumSlider("Size", "rtx_light_size", 1, 1000, 0)
         panel:ColorPicker("Light Color", "rtx_light_r", "rtx_light_g", "rtx_light_b")
     end
 end

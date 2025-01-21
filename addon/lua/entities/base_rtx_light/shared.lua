@@ -23,4 +23,9 @@ end
 
 function ENT:OnVarChanged(name, old, new)
     -- Handle property changes
+    if CLIENT and self.rtxLightHandle then
+        -- Force an immediate update when properties change
+        self.lastUpdatePos = nil  -- This will force the Think function to update
+        self:Think()  -- Call Think immediately to apply changes
+    end
 end

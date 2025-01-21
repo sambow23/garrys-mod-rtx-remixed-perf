@@ -6,7 +6,6 @@ cleanup.Register("rtx_lights")
 
 if SERVER then
     util.AddNetworkString("RTXLight_UpdateProperty")
-    util.AddNetworkString("RTXLight_Cleanup")
 end
 
 function ENT:Initialize()
@@ -60,15 +59,6 @@ if SERVER then
             ent:SetLightB(net.ReadUInt(8))
         end
     end)
-end
-
-function ENT:OnRemove()
-    -- Notify clients to cleanup their RTX light handles
-    if SERVER then
-        net.Start("RTXLight_Cleanup")
-            net.WriteEntity(self)
-        net.Broadcast()
-    end
 end
 
 function ENT:PreEntityRemove()  -- Additional cleanup hook
