@@ -1,6 +1,8 @@
 #include "GarrysMod/Lua/Interface.h"
+
 #include <remix/remix.h>
 #include <remix/remix_c.h>
+
 #include "cdll_client_int.h"
 #include "materialsystem/imaterialsystem.h"
 #include <shaderapi/ishaderapi.h>
@@ -269,11 +271,20 @@ void* FindD3D9Device() {
     return device;
 } 
 
+extern IVEngineClient* engine = NULL;
+
 #include "globalconvars.h"
 GMOD_MODULE_OPEN() {
     GlobalConvars::InitialiseConVars();
     try {
         Msg("[RTX Remix Fixes 2] - Module loaded!\n"); 
+
+        Msg("[RTX Remix Fixes 2] - Attempting to load engine interface\n");
+        if (!Sys_LoadInterface("engine", VENGINE_CLIENT_INTERFACE_VERSION, NULL, (void**)&engine))
+            LUA->ThrowError("[RTX Remix Fixes 2] - Failed to load engine interface.");
+
+        // Breakpoint playground :)
+    	//engine->DoesBoxTouchAreaFrustum(Vector(0, 0, 0), Vector(0, 0, 0), 1);
 
         // Initialize modules
         CullingHooks::Instance().Initialize();

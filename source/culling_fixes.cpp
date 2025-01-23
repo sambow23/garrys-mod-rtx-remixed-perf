@@ -32,6 +32,14 @@ Define_method_Hook(bool, CViewRenderShouldForceNoVis, void*)
 	return original;
 }
 
+Define_method_Hook(bool, MathLibR_CullBoxSkipNear_ENGINE, void*, const Vector& mins, const Vector& maxs, const Frustum_t& frustum)
+{
+	if (GlobalConvars::c_frustumcull && GlobalConvars::c_frustumcull->GetBool()) {
+		return MathLibR_CullBoxSkipNear_ENGINE_trampoline()(_this, mins, maxs, frustum);
+	}
+	return false;
+}
+
 Define_method_Hook(bool, MathLibR_CullBox_ENGINE, void*, const Vector& mins, const Vector& maxs, const Frustum_t& frustum)
 {
 	if (GlobalConvars::c_frustumcull && GlobalConvars::c_frustumcull->GetBool()) {
@@ -87,9 +95,10 @@ void CullingHooks::Initialize() {
 			Setup_Hook(CViewRenderShouldForceNoVis, CViewRenderShouldForceNoVis)
 		}
 
-		static const char sign3[] = "48 83 EC 48 0F 10 22 33 C0";
-		auto CLIENT_R_CullBox = ScanSign(client, sign3, sizeof(sign3) - 1);
-		auto ENGINE_R_CullBox = ScanSign(engine, sign3, sizeof(sign3) - 1);
+		static const char R_CullBox_sign[] = "48 83 EC 48 0F 10 22 33 C0";
+		static const char R_CullBoxSkipNear_sign[] = "48 83 EC 48 0F 10 22 33 C0";
+		auto CLIENT_R_CullBox = ScanSign(client, R_CullBoxSkipNear_sign, sizeof(R_CullBoxSkipNear_sign) - 1);
+		auto ENGINE_R_CullBox = ScanSign(engine, R_CullBoxSkipNear_sign, sizeof(R_CullBoxSkipNear_sign) - 1);
 		if (!CLIENT_R_CullBox) { Msg("[Culling Fixes] MathLib (CLIENT) R_CullBox == NULL\n"); }
 		else { Msg("[Culling Fixes] Hooked MathLib (CLIENT) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_CLIENT, CLIENT_R_CullBox) }
 

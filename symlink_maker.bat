@@ -4,6 +4,8 @@ echo Make sure you've built the debug build atleast once before running this
 set /p gmodpath="Game Path: "
 mklink /j %gmodpath%\garrysmod\addons\rtxfixes2 .\addon
 echo Addon Linked.
-mklink %gmodpath%\garrysmod\lua\bin\gmcl_RTXFixesBinary_win64.dll .\x86_64\Debug\gmcl_RTXFixesBinary_win64.dll
+mklink %gmodpath%\garrysmod\lua\bin\gmcl_RTXFixesBinary_win64.dll %cd%\x86_64\Debug\gmcl_RTXFixesBinary_win64.dll
+mklink %gmodpath%\garrysmod\lua\bin\gmcl_RTXFixesBinary_win64.exp %cd%\x86_64\Debug\gmcl_RTXFixesBinary_win64.exp
+mklink %gmodpath%\garrysmod\lua\bin\gmcl_RTXFixesBinary_win64.pdb %cd%\x86_64\Debug\gmcl_RTXFixesBinary_win64.pdb
 echo Binary Linked.
 pause
