@@ -96,9 +96,12 @@ void CullingHooks::Initialize() {
 		}
 
 		static const char R_CullBox_sign[] = "48 83 EC 48 0F 10 22 33 C0";
-		static const char R_CullBoxSkipNear_sign[] = "48 83 EC 48 0F 10 22 33 C0";
-		auto CLIENT_R_CullBox = ScanSign(client, R_CullBoxSkipNear_sign, sizeof(R_CullBoxSkipNear_sign) - 1);
-		auto ENGINE_R_CullBox = ScanSign(engine, R_CullBoxSkipNear_sign, sizeof(R_CullBoxSkipNear_sign) - 1);
+
+		//R_CullBoxSkipNear doesn't exist on chromium/x86-64, see https://commits.facepunch.com/202379
+		//static const char R_CullBoxSkipNear_sign[] = "48 83 EC 48 0F 10 22 33 C0"; 
+
+		auto CLIENT_R_CullBox = ScanSign(client, R_CullBox_sign, sizeof(R_CullBox_sign) - 1);
+		auto ENGINE_R_CullBox = ScanSign(engine, R_CullBox_sign, sizeof(R_CullBox_sign) - 1);
 		if (!CLIENT_R_CullBox) { Msg("[Culling Fixes] MathLib (CLIENT) R_CullBox == NULL\n"); }
 		else { Msg("[Culling Fixes] Hooked MathLib (CLIENT) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_CLIENT, CLIENT_R_CullBox) }
 

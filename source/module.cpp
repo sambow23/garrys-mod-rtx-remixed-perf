@@ -272,6 +272,7 @@ void* FindD3D9Device() {
 } 
 
 extern IVEngineClient* engine = NULL;
+#include "mathlib/mathlib.h"
 
 #include "globalconvars.h"
 GMOD_MODULE_OPEN() {
@@ -285,6 +286,10 @@ GMOD_MODULE_OPEN() {
 
         // Breakpoint playground :)
     	//engine->DoesBoxTouchAreaFrustum(Vector(0, 0, 0), Vector(0, 0, 0), 1);
+        //Vector v1;
+        //Vector v2;
+        //Frustum_t f1;
+        //R_CullBox(v1, v2, f1);
 
         // Initialize modules
         CullingHooks::Instance().Initialize();
