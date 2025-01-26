@@ -34,7 +34,7 @@
 ## Incompatible Addons
 (Map) [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) (Breaks other shader-skybox maps)
 
-(Map) [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364)
+(Map) [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364) (remix cant find a camera)
 
 ## Known issues and stuff that doesn't work:
 - Shader skyboxes (gm_flatgrass, gm_construct, etc) (use the [hdri skybox](https://github.com/sambow23/hdri_cube/blob/main/README.md) addon below as an alternative)
