@@ -24,7 +24,7 @@
 (If you're doing a clean install, open the game once with steam before installing the mod)
   - `C:\Program Files (x86)\Steam\steamapps\common\GarrysModRTX`
 
-3. Open `gmrtx64_0.3.zip`, extract everything inside to
+3. Open `gmrtx64_(ver).zip`, extract everything inside to
 `C:\Program Files (x86)\Steam\steamapps\common\GarrysModRTX`, overwrite everything.
 4. Open the game with the bat file:
 `GarrysModRTX\bin\win64\gmodrtx64.bat`
