@@ -39,15 +39,15 @@
 ## Known issues and stuff that doesn't work:
 - Shader skyboxes (gm_flatgrass, gm_construct, etc) (use the [hdri skybox](https://github.com/sambow23/hdri_cube/blob/main/README.md) addon below as an alternative)
 - Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them)
-- NPC Eyes
-- Some particles will not appear
+- NPC Eyes (limitation of FF rendering)
+- Some particles will not appear (limitation of FF rendering)
 - Race conditions with Remix API Lights
   - API Lights will sometimes fail to spawn or spawn infinitely, keep restarting the game until they spawn correctly
   - They can also introduce stability issues and crash the game randomly, at least reported by one user.
 - Some non-water materials in maps might get replaced with water, please make a github issue with the map name and screenshot on where its happening.
 - High vram usage with a lot of addons (most likely from ARC9 or TFA)
-- HDR maps
-- Some materials don't appear (might be a way to fix)
+- HDR maps (limitation of FF rendering)
+- Some materials don't appear (limitation of FF rendering)
 - Material Tool (use [SubMaterial](https://steamcommunity.com/sharedfiles/filedetails/?id=2836948539&searchtext=submaterial) for now instead)
   - investigating a fix
 
