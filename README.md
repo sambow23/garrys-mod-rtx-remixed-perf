@@ -10,6 +10,7 @@
   * Modifies render bounds of static/physics props and light updaters to prevent them getting culled by the view frustrum
 - Water replacer
   * Replaces all map water materials with a single one so it can be replaced in Remix
+    * Some non-water materials in maps might get replaced with water. If so, please make a github issue with the map name and screenshot on where its happening.
 
 ## Installation:
 ### Required Addons
@@ -44,7 +45,6 @@
 - Race conditions with Remix API Lights
   - API Lights will sometimes fail to spawn or spawn infinitely, keep restarting the game until they spawn correctly
   - They can also introduce stability issues and crash the game randomly, at least reported by one user.
-- Some non-water materials in maps might get replaced with water, please make a github issue with the map name and screenshot on where its happening.
 - High vram usage with a lot of addons (most likely from ARC9 or TFA)
 - HDR maps (limitation of FF rendering)
 - Some materials don't appear (limitation of FF rendering)
