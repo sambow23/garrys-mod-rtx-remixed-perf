@@ -47,7 +47,7 @@
 - Race conditions with Remix API Lights
   - API Lights will sometimes fail to spawn or spawn infinitely, keep restarting the game until they spawn correctly
   - They can also introduce stability issues and crash the game randomly, at least reported by one user.
-- High vram usage with a lot of addons (most likely from ARC9 or TFA)
+- High vram usage with a lot of addons (most likely from ARC9 or TFA precaching textures on map load)
 - HDR maps (limitation of FF rendering)
 - Some materials don't appear (limitation of FF rendering)
 - Material Tool (use [SubMaterial](https://steamcommunity.com/sharedfiles/filedetails/?id=2836948539&searchtext=submaterial) for now instead)
