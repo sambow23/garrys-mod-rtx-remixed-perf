@@ -52,6 +52,7 @@
 - Some materials don't appear (limitation of FF rendering)
 - Material Tool (use [SubMaterial](https://steamcommunity.com/sharedfiles/filedetails/?id=2836948539&searchtext=submaterial) for now instead)
   - investigating a fix
+- Model replacement for skinned meshes like ragdolls, view modelds, some props, etc.
 
 ## Main Settings
 ### Custom World Renderer
