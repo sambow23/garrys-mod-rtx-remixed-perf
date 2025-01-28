@@ -38,6 +38,7 @@
 (Map) [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364) (remix cant find a camera)
 
 ## Known issues and stuff that doesn't work:
+### Vanilla
 - Remix cannot lock keyboard and mouse input when the runtime menu is open (happens because of no remix bridge, nvidia will need to fix it on their end)
 - The mouse cursor will occasionally appear when moving around the camera (happens because of no remix bridge, nvidia will need to fix it on their end)
 - Shader skyboxes (gm_flatgrass, gm_construct, etc) (use the [hdri skybox](https://github.com/sambow23/hdri_cube/blob/main/README.md) addon below as an alternative)
@@ -47,12 +48,17 @@
 - Race conditions with Remix API Lights
   - API Lights will sometimes fail to spawn or spawn infinitely, keep restarting the game until they spawn correctly
   - They can also introduce stability issues and crash the game randomly, at least reported by one user.
-- High vram usage with a lot of addons (most likely from ARC9 or TFA precaching textures on map load)
+
 - HDR maps (limitation of FF rendering)
 - Some materials don't appear (limitation of FF rendering)
 - Material Tool (use [SubMaterial](https://steamcommunity.com/sharedfiles/filedetails/?id=2836948539&searchtext=submaterial) for now instead)
   - investigating a fix
 - Model replacement for skinned meshes like ragdolls, view modelds, some props, etc.
+
+### Addons
+- High vram usage with a lot of addons (most likely from ARC9 or TFA precaching textures on map load)
+- Tactical RP scopes become invisible when using ADS
+- Hands become rasterized when using ADS with ARC9
 
 ## Main Settings
 ### Custom World Renderer
