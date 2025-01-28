@@ -71,4 +71,6 @@ Modifies render bounds to prevent culling around the player camera.
 ## Recommended Resources and Addons
 [HDRI Editor](https://github.com/sambow23/hdri_cube/blob/main/README.md)
 
+[SourceRTXTweaks](https://github.com/BlueAmulet/SourceRTXTweaks) (We use this for game binary patching; Major thank you to BlueAmulet for their hard work)
+
 [Garry's Mod RTX 32-bit installer by Skurtyyskirts](https://github.com/skurtyyskirts/GmodRTX)
