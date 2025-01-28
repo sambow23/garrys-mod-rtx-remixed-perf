@@ -38,6 +38,8 @@
 (Map) [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364) (remix cant find a camera)
 
 ## Known issues and stuff that doesn't work:
+- Remix cannot lock keyboard and mouse input when the runtime menu is open (happens because of no remix bridge, nvidia will need to fix it on their end)
+- The mouse cursor will occasionally appear when moving around the camera (happens because of no remix bridge, nvidia will need to fix it on their end)
 - Shader skyboxes (gm_flatgrass, gm_construct, etc) (use the [hdri skybox](https://github.com/sambow23/hdri_cube/blob/main/README.md) addon below as an alternative)
 - Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them)
 - NPC Eyes (limitation of FF rendering)
