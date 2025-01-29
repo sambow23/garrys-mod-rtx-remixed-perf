@@ -51,6 +51,7 @@
 - Material Tool (use [SubMaterial](https://steamcommunity.com/sharedfiles/filedetails/?id=2836948539&searchtext=submaterial) for now instead)
   - investigating a fix
 - Model replacement for skinned meshes like ragdolls, view modelds, some props, etc.
+- 3D Skybox is visible within the main map
 
 ### Addons
 - High vram usage with a lot of addons (most likely from ARC9 or TFA precaching textures on map load)
