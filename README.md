@@ -13,21 +13,18 @@
     * Some non-water materials in maps might get replaced with water. If so, please make a github issue with the map name and screenshot on where its happening.
 
 ## Installation:
-### Required Addons
-- [NikNaks](https://steamcommunity.com/sharedfiles/filedetails/?id=2861839844)
-- [FuckEmHalos](https://steamcommunity.com/sharedfiles/filedetails/?id=2961222721)
-- [RTX Remix Fixes](https://steamcommunity.com/sharedfiles/filedetails/?id=3038853470)
 > [!WARNING]  
 > Ensure you have a clean 64-bit version of Garry's Mod installed with no 32-bit leftovers. 
 > ### This is a total conversion, do not install this on a Garry's Mod install you care about
-1. Download the latest [release](https://github.com/Xenthio/gmod-rtx-fixes-2/releases/latest)
-2. Make a copy of your Garry's Mod installation and call it something like `GarrysModRTX`. The path should look like this:    
+1. Subscribe to this [addon collection](https://steamcommunity.com/sharedfiles/filedetails/?id=3417054376) (click `Subscribe to all` > `Add Only`)
+2. Download the latest [release](https://github.com/Xenthio/gmod-rtx-fixes-2/releases/latest)
+3. Make a copy of your Garry's Mod installation and call it something like `GarrysModRTX`. The path should look like this:    
 (If you're doing a clean install, open the game once with steam before installing the mod)
   - `C:\Program Files (x86)\Steam\steamapps\common\GarrysModRTX`
 
-3. Open `gmrtx64_(ver).zip`, extract everything inside to
+4. Open `gmrtx64_(ver).zip`, extract everything inside to
 `C:\Program Files (x86)\Steam\steamapps\common\GarrysModRTX`, overwrite everything.
-4. Open the game with the bat file:
+5. Open the game with the bat file:
 `GarrysModRTX\bin\win64\gmodrtx64.bat`
 
 5. Profit.
