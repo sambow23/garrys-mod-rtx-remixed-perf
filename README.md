@@ -52,6 +52,7 @@
   - investigating a fix
 - Model replacement for skinned meshes like ragdolls, view modelds, some props, etc.
 - 3D Skybox is visible within the main map
+- CEF Causes some maps to be rasterized and have vertex explosions. Use the noCEF version if you dont want to deal with these issues.
 
 ### Addons
 - High vram usage with a lot of addons (most likely from ARC9 or TFA precaching textures on map load)
