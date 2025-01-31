@@ -3,26 +3,32 @@ CreateClientConVar(	"rtx_disablevertexlighting", 0,  true, false)
 
 
 local function FixupModelMaterial(mat)
-	--print("[RTX Fixes] - Found and fixing model material in " .. filepath)
-	-- print(mat:GetInt("$flags"))
-	-- mat:SetShader("VertexLitGeneric")
-	-- -- Remove all other parameters
-	-- local paramsToRemove = {
-	-- 	"$bumpmap", "$normalmap", "$envmap", "$reflectivity", 
-	-- 	"$refracttexture", "$refracttint", "$refractamount",
-	-- 	"$fresnelreflection", "$bottommaterial", "$underwateroverlay",
-	-- 	"$dudvmap", "$fogcolor", "$fogstart", "$fogend",
-	-- 	"$phong", "$envmap", "$normalmapalphaenvmapmask"
-	-- }
-	
-	-- for _, param in ipairs(paramsToRemove) do
-	-- 	mat:SetUndefined(param)
-	-- end 
+    -- Check if material is valid
+    if not mat or not type(mat) == "IMaterial" then
+        print("[RTX Fixes] Skipping invalid material")
+        return
+    end
 
-	-- mat:SetInt( "$flags", 0 ) 
-	--mat:SetInt( "$flags2", bit.bor(mat:GetInt("$flags2"), 2048))
-	mat:SetInt( "$flags2", bit.band(mat:GetInt("$flags2"), bit.bnot(512))) 
-end 
+    -- Safe way to get flags2
+    local success, flags2 = pcall(function()
+        return mat:GetInt("$flags2")
+    end)
+
+    if not success or not flags2 then
+        print("[RTX Fixes] Could not get flags2 for material:", mat:GetName())
+        return
+    end
+
+    -- Safe way to set flags2
+    local newFlags = bit.band(flags2, bit.bnot(512))
+    success = pcall(function()
+        mat:SetInt("$flags2", newFlags)
+    end)
+
+    if not success then
+        print("[RTX Fixes] Failed to set flags2 for material:", mat:GetName())
+    end
+end
 
 local function DrawFix( self, flags )
     if (GetConVar( "mat_fullbright" ):GetBool()) then return end
