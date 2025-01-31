@@ -221,7 +221,7 @@ local function BuildMapMeshes()
         
         local leafFaces = leaf:GetFaces(true)
         if not leafFaces then continue end
-
+    
         for _, face in pairs(leafFaces) do
             if not face or 
                IsBrushEntity(face) or
@@ -350,13 +350,6 @@ local function BuildMapMeshes()
                     local meshes = CreateRegularMeshGroup(group.faces, group.material)
                     
                     if meshes then
-                        for _, face in ipairs(group.faces) do
-                            local verts = face:GenerateVertexTriangleData()
-                            if verts then
-                                totalVertCount = totalVertCount + #verts
-                            end
-                        end
-                        
                         mapMeshes[renderType][chunkKey][matName] = {
                             meshes = meshes,
                             material = group.material
@@ -368,32 +361,33 @@ local function BuildMapMeshes()
     end
 
     print(string.format("[RTX Fixes] Built chunked meshes in %.2f seconds", SysTime() - startTime))
-    print(string.format("[RTX Fixes] Total vertex count: %d", totalVertCount))
 end
 
 -- Rendering Functions
 local function RenderCustomWorld(translucent)
     if not isEnabled then return end
 
-    renderStats.draws = 0
-
+    local draws = 0
+    local currentMaterial = nil
+    
+    -- Inline render state changes for speed
     if translucent then
         render.SetBlend(1)
         render.OverrideDepthEnable(true, true)
     end
-
-    local groups = translucent and mapMeshes.translucent or mapMeshes.opaque
-    local currentMaterial = nil
     
+    -- Regular faces
+    local groups = translucent and mapMeshes.translucent or mapMeshes.opaque
     for _, chunkMaterials in pairs(groups) do
         for _, group in pairs(chunkMaterials) do
             if currentMaterial ~= group.material then
                 render.SetMaterial(group.material)
                 currentMaterial = group.material
             end
-            for _, mesh in ipairs(group.meshes) do
-                mesh:Draw()
-                renderStats.draws = renderStats.draws + 1
+            local meshes = group.meshes
+            for i = 1, #meshes do
+                meshes[i]:Draw()
+                draws = draws + 1
             end
         end
     end
@@ -401,12 +395,8 @@ local function RenderCustomWorld(translucent)
     if translucent then
         render.OverrideDepthEnable(false)
     end
-
-    if CONVARS.DEBUG:GetBool() then
-        print(string.format("[RTX Fixes] Rendering: %d %s draws", 
-            renderStats.draws,
-            translucent and "translucent" or "opaque"))
-    end
+    
+    renderStats.draws = draws
 end
 
 -- Enable/Disable Functions
@@ -414,8 +404,15 @@ local function EnableCustomRendering()
     if isEnabled then return end
     isEnabled = true
 
-    RunConsoleCommand("r_drawopaqueworld", "0")
-    RunConsoleCommand("r_drawtranslucentworld", "0")
+    -- Disable world rendering using render.OverrideDepthEnable
+    hook.Add("PreDrawWorld", "RTXHideWorld", function()
+        render.OverrideDepthEnable(true, false)
+        return true
+    end)
+    
+    hook.Add("PostDrawWorld", "RTXHideWorld", function()
+        render.OverrideDepthEnable(false)
+    end)
     
     hook.Add("PreDrawOpaqueRenderables", "RTXCustomWorld", function()
         RenderCustomWorld(false)
@@ -430,9 +427,8 @@ local function DisableCustomRendering()
     if not isEnabled then return end
     isEnabled = false
 
-    RunConsoleCommand("r_drawopaqueworld", "1")
-    RunConsoleCommand("r_drawtranslucentworld", "1")
-    
+    hook.Remove("PreDrawWorld", "RTXHideWorld")
+    hook.Remove("PostDrawWorld", "RTXHideWorld")
     hook.Remove("PreDrawOpaqueRenderables", "RTXCustomWorld")
     hook.Remove("PreDrawTranslucentRenderables", "RTXCustomWorld")
 end
