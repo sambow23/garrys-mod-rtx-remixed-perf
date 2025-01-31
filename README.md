@@ -65,11 +65,14 @@ Replaces engine world rendering with a chunked mesh renderer to get around brush
 - `Remix Capture Mode` disables engine world rendering under the custom world renderer to get clean captures.
 
 ### RTX View Frustrum
-![image](https://github.com/user-attachments/assets/08fd9b77-29a6-48c0-8683-d2fe0dd0fcc7)
+![image](https://github.com/user-attachments/assets/30bf0ca3-a1be-49b1-92e1-d993ecfcdbe9)
+
 
 Modifies render bounds to prevent culling around the player camera. 
-- `Render Bounds Size` controls the distance when static/physics props get culled around the player, higher values means less culling but also less performance
-- `RTX Updater Distance` controls the distance when light updaters get culled. A lot of maps can have this at 256 which saves a lot of performance, but if the sun light is far away on the map, crank it to at least 4096.
+- `Show Advanced Settings` - Shows advanced render bounds settings
+   - `Regular Entity Bounds` controls the distance when static/physics props get culled around the player, higher values means less culling but also less performance. Recommended to leave it at `256`
+   - `Regular Light Distance` controls the distance when light updaters get culled. Recommended to leave it at `256`
+   - `Enviornment Light Distance` controls the distance when sun light updaters get culled. Recommended to leave it at `32768` unless you're on a extremely large map
 
 ## Recommended Resources and Addons
 [HDRI Editor](https://github.com/sambow23/hdri_cube/blob/main/README.md)
