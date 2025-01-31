@@ -72,3 +72,839 @@ niknaks/lua/unittest/niknaks/linq.lua
 niknaks/lua/unittest/niknaks/main.lua
 64archive/dxvk.conf
 64archive/rtx.conf
+64archive/64archive.zip
+64archive/bin/win64/artifacts_readme.txt
+64archive/bin/win64/d3d9.pdb
+64archive/bin/win64/gmodrtx64.bat
+64archive/bin/win64/usd/plugInfo.json
+64archive/bin/win64/usd/ar/resources/plugInfo.json
+64archive/bin/win64/usd/ndr/resources/plugInfo.json
+64archive/bin/win64/usd/sdf/resources/plugInfo.json
+64archive/bin/win64/usd/usd/resources/generatedSchema.usda
+64archive/bin/win64/usd/usd/resources/plugInfo.json
+64archive/bin/win64/usd/usd/resources/codegenTemplates/api.h
+64archive/bin/win64/usd/usd/resources/codegenTemplates/plugInfo.json
+64archive/bin/win64/usd/usd/resources/codegenTemplates/schemaClass.cpp
+64archive/bin/win64/usd/usd/resources/codegenTemplates/schemaClass.h
+64archive/bin/win64/usd/usd/resources/codegenTemplates/tokens.cpp
+64archive/bin/win64/usd/usd/resources/codegenTemplates/tokens.h
+64archive/bin/win64/usd/usd/resources/codegenTemplates/wrapSchemaClass.cpp
+64archive/bin/win64/usd/usd/resources/codegenTemplates/wrapTokens.cpp
+64archive/bin/win64/usd/usd/resources/usd/schema.usda
+64archive/bin/win64/usd/usdGeom/resources/generatedSchema.usda
+64archive/bin/win64/usd/usdGeom/resources/plugInfo.json
+64archive/bin/win64/usd/usdGeom/resources/usdGeom/schema.usda
+64archive/bin/win64/usd/usdHydra/resources/plugInfo.json
+64archive/bin/win64/usd/usdHydra/resources/shaders/empty.glslfx
+64archive/bin/win64/usd/usdHydra/resources/shaders/shaderDefs.usda
+64archive/bin/win64/usd/usdLux/resources/generatedSchema.usda
+64archive/bin/win64/usd/usdLux/resources/plugInfo.json
+64archive/bin/win64/usd/usdLux/resources/usdLux/schema.usda
+64archive/bin/win64/usd/usdMedia/resources/generatedSchema.usda
+64archive/bin/win64/usd/usdMedia/resources/plugInfo.json
+64archive/bin/win64/usd/usdMedia/resources/usdMedia/schema.usda
+64archive/bin/win64/usd/usdRender/resources/generatedSchema.usda
+64archive/bin/win64/usd/usdRender/resources/plugInfo.json
+64archive/bin/win64/usd/usdRender/resources/usdRender/schema.usda
+64archive/bin/win64/usd/usdRi/resources/generatedSchema.usda
+64archive/bin/win64/usd/usdRi/resources/plugInfo.json
+64archive/bin/win64/usd/usdRi/resources/usdRi/schema.usda
+64archive/bin/win64/usd/usdShade/resources/generatedSchema.usda
+64archive/bin/win64/usd/usdShade/resources/plugInfo.json
+64archive/bin/win64/usd/usdShade/resources/usdShade/schema.usda
+64archive/bin/win64/usd/usdSkel/resources/generatedSchema.usda
+64archive/bin/win64/usd/usdSkel/resources/plugInfo.json
+64archive/bin/win64/usd/usdSkel/resources/usdSkel/schema.usda
+64archive/bin/win64/usd/usdUI/resources/generatedSchema.usda
+64archive/bin/win64/usd/usdUI/resources/plugInfo.json
+64archive/bin/win64/usd/usdUI/resources/usdUI/schema.usda
+64archive/bin/win64/usd/usdVol/resources/generatedSchema.usda
+64archive/bin/win64/usd/usdVol/resources/plugInfo.json
+64archive/bin/win64/usd/usdVol/resources/usdVol/schema.usda
+64archive/garrysmod/addons/remixbinary/lua/autorun/rtxfixes_init.lua
+64archive/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_material_fixer.lua
+64archive/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_meshed_world_renderer.lua
+64archive/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_optimize_viewfrustrum.lua
+64archive/garrysmod/addons/remixbinary/lua/autorun/client/cl_suppress_material_errors.lua
+64archive/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/cl_init.lua
+64archive/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/init.lua
+64archive/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/shared.lua
+64archive/garrysmod/addons/remixbinary/lua/weapons/gmod_tool/stools/rtx_light.lua
+64archive/garrysmod/cfg/autoexec.cfg
+64archive/garrysmod/cfg/client.vdf
+64archive/garrysmod/gamemodes/sandbox/gamemode/spawnmenu/creationmenu/content/contenttypes/dupes.lua
+64archive/garrysmod/gamemodes/sandbox/gamemode/spawnmenu/creationmenu/content/contenttypes/saves.lua
+64archive/garrysmod/lua/menu/background.lua
+64archive/garrysmod/lua/menu/cef_credits.lua
+64archive/garrysmod/lua/menu/crosshair_setup.lua
+64archive/garrysmod/lua/menu/demo_to_video.lua
+64archive/garrysmod/lua/menu/derma_icon_browser.lua
+64archive/garrysmod/lua/menu/errors.lua
+64archive/garrysmod/lua/menu/getmaps.lua
+64archive/garrysmod/lua/menu/loading.lua
+64archive/garrysmod/lua/menu/mainmenu.lua
+64archive/garrysmod/lua/menu/menu_addon.lua
+64archive/garrysmod/lua/menu/menu_demo.lua
+64archive/garrysmod/lua/menu/menu_dupe.lua
+64archive/garrysmod/lua/menu/menu_save.lua
+64archive/garrysmod/lua/menu/menu.lua
+64archive/garrysmod/lua/menu/motionsensor.lua
+64archive/garrysmod/lua/menu/openurl.lua
+64archive/garrysmod/lua/menu/ugcpublish.lua
+64archive/garrysmod/lua/menu/util.lua
+64archive/garrysmod/lua/menu/video.lua
+64archive/garrysmod/lua/menu/custom/_errors.lua
+64archive/garrysmod/lua/menu/custom/achievements.lua
+64archive/garrysmod/lua/menu/custom/addons.lua
+64archive/garrysmod/lua/menu/custom/getmaps.lua
+64archive/garrysmod/lua/menu/custom/main.lua
+64archive/garrysmod/lua/menu/custom/mainmenu.lua
+64archive/garrysmod/lua/menu/custom/new_game_panels.lua
+64archive/garrysmod/lua/menu/custom/new_game.lua
+64archive/garrysmod/lua/menu/custom/saves.lua
+64archive/garrysmod/lua/menu/mount/mount.lua
+64archive/garrysmod/lua/menu/mount/vgui/addon_rocket.lua
+64archive/garrysmod/lua/menu/mount/vgui/workshop.lua
+64archive/garrysmod/lua/menu/problems/permissions.lua
+64archive/garrysmod/lua/menu/problems/problem_generic.lua
+64archive/garrysmod/lua/menu/problems/problem_lua.lua
+64archive/garrysmod/lua/menu/problems/problems_pnl.lua
+64archive/garrysmod/lua/menu/problems/problems.lua
+64archive/garrysmod/materials/gui/check.png
+64archive/garrysmod/materials/gui/noicon.png
+64archive/garrysmod/materials/gui/noise.png
+64archive/garrysmod/materials/spawnicons/models/error.png
+64archive/garrysmod/materials/spawnicons/models/player.png
+64archive/garrysmod/materials/spawnicons/models/police_flex.png
+64archive/garrysmod/materials/spawnicons/models/11thdoctor/thedoctor.png
+64archive/garrysmod/materials/spawnicons/models/a_thing/coraline/charlie_jones.png
+64archive/garrysmod/materials/spawnicons/models/adidas_combine/playermodel/adidas_combine.png
+64archive/garrysmod/materials/spawnicons/models/akuld/agentsmith/agentsmith.png
+64archive/garrysmod/materials/spawnicons/models/akuld/funnyrat/rat.png
+64archive/garrysmod/materials/spawnicons/models/akuld/funnyrat/ratcolorable.png
+64archive/garrysmod/materials/spawnicons/models/antoinedelak/playermodels/gorgeous_freeman_citizen_pm.png
+64archive/garrysmod/materials/spawnicons/models/antoinedelak/playermodels/gorgeous_freeman_hev_pm.png
+64archive/garrysmod/materials/spawnicons/models/antoinedelak/playermodels/gorgeous_freeman_scientist_pm.png
+64archive/garrysmod/materials/spawnicons/models/antoinedelak/playermodels/gorgeous_freeman_underwear_pm.png
+64archive/garrysmod/materials/spawnicons/models/arachnit/resident_evil/re3_remake/characters/jill_valentine/jill_valentine_pm.png
+64archive/garrysmod/materials/spawnicons/models/bluearchive/miyu blue archive.png
+64archive/garrysmod/materials/spawnicons/models/canofsoda/steam/steamgirl.png
+64archive/garrysmod/materials/spawnicons/models/combine_helicopter/helicopter_bomb01.png
+64archive/garrysmod/materials/spawnicons/models/custom/playerstart_playermodel.png
+64archive/garrysmod/materials/spawnicons/models/dejtriyev/hl1/ryangosling.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/ajourneysend/hadrian/hadrian.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/ajourneysend/harper/harper.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/ajourneysend/mevia/mevia.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/ajourneysend/otto/otto.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/captainsparklez/captainsparklez.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/cassierose/cassierose.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/dantdm/dantdm1.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/ldshadowlady/ldshadowlady.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/stacyplays/stacyplays.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/stampy/stampy.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/torquedawg/torquedawg.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/whitepumpkin/whitepumpkin.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/winslow/winslow.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/aiden/aiden.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/axel/axel.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/ellegaard/ellegaard.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/gabriel/gabriel.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/gill/gill.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/ivor/ivor.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/female jesse (armor a).png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/female jesse (armor b).png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/female jesse (armor c).png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/jesse (armor a).png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/jesse (armor b).png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/jesse (armor c).png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/jesse (female).png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/jesse.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/lukas/lukas.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/magnus/magnus.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/maya/maya.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/olivia/olivia.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/petra/petra.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/reuben/reuben.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/soren/soren.png
+64archive/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/witherstorm/witherstorm (small).png
+64archive/garrysmod/materials/spawnicons/models/goldec/goldec_pm.png
+64archive/garrysmod/materials/spawnicons/models/grandtheftauto5/franklin.png
+64archive/garrysmod/materials/spawnicons/models/grandtheftauto5/michael.png
+64archive/garrysmod/materials/spawnicons/models/grandtheftauto5/trevor.png
+64archive/garrysmod/materials/spawnicons/models/humans/gfreakman/markiplier.png
+64archive/garrysmod/materials/spawnicons/models/humans/group01/male_07_injured_player_model_new.png
+64archive/garrysmod/materials/spawnicons/models/humans/group50/male_01.png
+64archive/garrysmod/materials/spawnicons/models/humans/group50/male_02.png
+64archive/garrysmod/materials/spawnicons/models/humans/group50/male_03.png
+64archive/garrysmod/materials/spawnicons/models/humans/group50/male_04.png
+64archive/garrysmod/materials/spawnicons/models/humans/group50/male_05.png
+64archive/garrysmod/materials/spawnicons/models/humans/group50/male_07.png
+64archive/garrysmod/materials/spawnicons/models/humans/group50/male_08.png
+64archive/garrysmod/materials/spawnicons/models/humans/group50/male_09.png
+64archive/garrysmod/materials/spawnicons/models/humans/operator/generic_tactics1.png
+64archive/garrysmod/materials/spawnicons/models/humans/operator/generic_tactics2.png
+64archive/garrysmod/materials/spawnicons/models/humans/operator/generic_tactics3.png
+64archive/garrysmod/materials/spawnicons/models/humans/operator/generic_tactics4.png
+64archive/garrysmod/materials/spawnicons/models/kuma96/2b/2b_pm.png
+64archive/garrysmod/materials/spawnicons/models/kuma96/mirrors_edge_catalyst/characters/ksec_enforcers/female/ksec_enforcer_female_pm.png
+64archive/garrysmod/materials/spawnicons/models/kuma96/mirrors_edge_catalyst/characters/ksec_enforcers/male/ksec_enforcer_male_pm.png
+64archive/garrysmod/materials/spawnicons/models/lappland/arknights/clancy/lappland.png
+64archive/garrysmod/materials/spawnicons/models/lenoax/gordonfreeman_pm.png
+64archive/garrysmod/materials/spawnicons/models/lenoax/markiv_pm.png
+64archive/garrysmod/materials/spawnicons/models/majka/squid_game_metrocop_pm.png
+64archive/garrysmod/materials/spawnicons/models/minecraft/alex/alex.png
+64archive/garrysmod/materials/spawnicons/models/minecraft/steve/steve.png
+64archive/garrysmod/materials/spawnicons/models/mrbeangta/mrbeangta_pm.png
+64archive/garrysmod/materials/spawnicons/models/panman/borat_cosplayer_09.png
+64archive/garrysmod/materials/spawnicons/models/patrickbateman/playermodels/patrickbateman.png
+64archive/garrysmod/materials/spawnicons/models/player/canbine_cop.png
+64archive/garrysmod/materials/spawnicons/models/player/canbine_elite.png
+64archive/garrysmod/materials/spawnicons/models/player/canbine_elite2.png
+64archive/garrysmod/materials/spawnicons/models/player/canbine.png
+64archive/garrysmod/materials/spawnicons/models/player/orangebox.png
+64archive/garrysmod/materials/spawnicons/models/player/tacticoolcancop.png
+64archive/garrysmod/materials/spawnicons/models/player/darsu/c_hozq_v4_rig.png
+64archive/garrysmod/materials/spawnicons/models/player/darsu/c_unfixedcrayfish_rig.png
+64archive/garrysmod/materials/spawnicons/models/player/demomanplayer/demonstrationman.png
+64archive/garrysmod/materials/spawnicons/models/player/engieplayer/engie.png
+64archive/garrysmod/materials/spawnicons/models/player/fring/gus_suit.png
+64archive/garrysmod/materials/spawnicons/models/player/fring/gus.png
+64archive/garrysmod/materials/spawnicons/models/player/heavyplayer/heavy.png
+64archive/garrysmod/materials/spawnicons/models/player/hwm/adv_demo.png
+64archive/garrysmod/materials/spawnicons/models/player/hwm/adv_engineer.png
+64archive/garrysmod/materials/spawnicons/models/player/hwm/adv_heavy.png
+64archive/garrysmod/materials/spawnicons/models/player/hwm/adv_medic.png
+64archive/garrysmod/materials/spawnicons/models/player/hwm/adv_pyro.png
+64archive/garrysmod/materials/spawnicons/models/player/hwm/adv_scout.png
+64archive/garrysmod/materials/spawnicons/models/player/hwm/adv_sniper.png
+64archive/garrysmod/materials/spawnicons/models/player/hwm/adv_soldier.png
+64archive/garrysmod/materials/spawnicons/models/player/hwm/adv_spy.png
+64archive/garrysmod/materials/spawnicons/models/player/medicplayer/medic.png
+64archive/garrysmod/materials/spawnicons/models/player/pyroplayer/pyro.png
+64archive/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset1.png
+64archive/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset2.png
+64archive/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset3.png
+64archive/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset4.png
+64archive/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset5.png
+64archive/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset6.png
+64archive/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset7.png
+64archive/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset8.png
+64archive/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset9.png
+64archive/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_zombie.png
+64archive/garrysmod/materials/spawnicons/models/player/scoutplayer/scout.png
+64archive/garrysmod/materials/spawnicons/models/player/sniperplayer/sniper.png
+64archive/garrysmod/materials/spawnicons/models/player/soldierplayer/soldier.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/amy.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/big.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/blaze.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/charmy.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/cream.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/eggman.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/espio.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/knuckles.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/metal_sonic.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/omega.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/rouge.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/shadow.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/silver.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/sonic.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/tails.png
+64archive/garrysmod/materials/spawnicons/models/player/sonic_redux/vector.png
+64archive/garrysmod/materials/spawnicons/models/player/spyplayer/spy.png
+64archive/garrysmod/materials/spawnicons/models/props/darsu_eft/laptop.png
+64archive/garrysmod/materials/spawnicons/models/props/darsu_eft/shooting_range_popper.png
+64archive/garrysmod/materials/spawnicons/models/rottweiler/morganfreeman.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_intro_pon_pm.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_kimono_pon_pm.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_office_pon_pm.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_pon_pm.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_tc_pon_pm.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_tc2_pon_pm.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_topless_pon_pm.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_training_guns_pon_pm.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_training_melee_pm.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_training_sword_pon_pm.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_training_sword2_pon_pm.png
+64archive/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_training_time_attack_pon_pm.png
+64archive/garrysmod/materials/spawnicons/models/ultrakill/ultrakill_v1.png
+64archive/garrysmod/materials/spawnicons/models/ultrakill/ultrakill_v2.png
+64archive/garrysmod/materials/spawnicons/models/ultrakill/v1_pm.png
+64archive/garrysmod/materials/vgui/logos/spray.vmt
+64archive/garrysmod/materials/vgui/logos/spray.vtf
+64archive/rtx-remix/mods/Water-newgmod/mod.usda
+64archive/rtx-remix/mods/Water-newgmod/replacements.usda
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures.zip
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/water.usda
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/6D2C268A20F8E02B_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/7FF15B347FAA1EFE_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/08B7FA3FF95E74CD_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/8D415A461AFEE86B_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/9CEE5C631301A0C2_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/31ADE31994D1DC7D_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_mask - Copy.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_mask.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_masko.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4Aol.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/60A74211A2E39BF6_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/60D05EF468C9E6EB.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/66C5C2BC703FF956_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/473CFF9EEF64180E_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/612D8E17AAF3601A_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/632E0D7BCC66855E_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/781AFB54E334E469_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/847FFF41F57A6766_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/3731E05C22BA24CB_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/86594A9762B608BF_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/02321695709F9126_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A6FC48D9F7E26496_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A14F575A0869E82F_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A9206CDB73538E57_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A43588A603A9DA8F_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/BAD8E58F028B48C9_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/BD87C8184BCF97DE_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/C11DEE50697D3E6C_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/CA5A60067E927360_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/CD8E5F32F39D7051_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/D4A739F974E77B37_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/DA5CDFC6943FDFF3_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/F2B341648C28E47C_normal.dds
+64archive/rtx-remix/mods/Water-newgmod/SubUSDs/textures/F1589031BC730661_normal.dds
+64archive/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_stable_prop_hashes.lua
+64archive/garrysmod/addons/water_fix
+64archive/garrysmod/addons/water_fix
+64archive - Copy/dxvk.conf
+64archive - Copy/gmrtx64_0.3.zip
+64archive - Copy/rtx.conf
+64archive - Copy/bin/win64/artifacts_readme.txt
+64archive - Copy/bin/win64/d3d9.pdb
+64archive - Copy/bin/win64/gmodrtx64.bat
+64archive - Copy/bin/win64/usd/plugInfo.json
+64archive - Copy/bin/win64/usd/ar/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/ndr/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/sdf/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usd/resources/generatedSchema.usda
+64archive - Copy/bin/win64/usd/usd/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usd/resources/codegenTemplates/api.h
+64archive - Copy/bin/win64/usd/usd/resources/codegenTemplates/plugInfo.json
+64archive - Copy/bin/win64/usd/usd/resources/codegenTemplates/schemaClass.cpp
+64archive - Copy/bin/win64/usd/usd/resources/codegenTemplates/schemaClass.h
+64archive - Copy/bin/win64/usd/usd/resources/codegenTemplates/tokens.cpp
+64archive - Copy/bin/win64/usd/usd/resources/codegenTemplates/tokens.h
+64archive - Copy/bin/win64/usd/usd/resources/codegenTemplates/wrapSchemaClass.cpp
+64archive - Copy/bin/win64/usd/usd/resources/codegenTemplates/wrapTokens.cpp
+64archive - Copy/bin/win64/usd/usd/resources/usd/schema.usda
+64archive - Copy/bin/win64/usd/usdGeom/resources/generatedSchema.usda
+64archive - Copy/bin/win64/usd/usdGeom/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usdGeom/resources/usdGeom/schema.usda
+64archive - Copy/bin/win64/usd/usdHydra/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usdHydra/resources/shaders/empty.glslfx
+64archive - Copy/bin/win64/usd/usdHydra/resources/shaders/shaderDefs.usda
+64archive - Copy/bin/win64/usd/usdLux/resources/generatedSchema.usda
+64archive - Copy/bin/win64/usd/usdLux/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usdLux/resources/usdLux/schema.usda
+64archive - Copy/bin/win64/usd/usdMedia/resources/generatedSchema.usda
+64archive - Copy/bin/win64/usd/usdMedia/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usdMedia/resources/usdMedia/schema.usda
+64archive - Copy/bin/win64/usd/usdRender/resources/generatedSchema.usda
+64archive - Copy/bin/win64/usd/usdRender/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usdRender/resources/usdRender/schema.usda
+64archive - Copy/bin/win64/usd/usdRi/resources/generatedSchema.usda
+64archive - Copy/bin/win64/usd/usdRi/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usdRi/resources/usdRi/schema.usda
+64archive - Copy/bin/win64/usd/usdShade/resources/generatedSchema.usda
+64archive - Copy/bin/win64/usd/usdShade/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usdShade/resources/usdShade/schema.usda
+64archive - Copy/bin/win64/usd/usdSkel/resources/generatedSchema.usda
+64archive - Copy/bin/win64/usd/usdSkel/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usdSkel/resources/usdSkel/schema.usda
+64archive - Copy/bin/win64/usd/usdUI/resources/generatedSchema.usda
+64archive - Copy/bin/win64/usd/usdUI/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usdUI/resources/usdUI/schema.usda
+64archive - Copy/bin/win64/usd/usdVol/resources/generatedSchema.usda
+64archive - Copy/bin/win64/usd/usdVol/resources/plugInfo.json
+64archive - Copy/bin/win64/usd/usdVol/resources/usdVol/schema.usda
+64archive - Copy/garrysmod/addons/remixbinary/lua/autorun/rtxfixes_init.lua
+64archive - Copy/garrysmod/addons/remixbinary/lua/autorun/client/cl_material_inspector.lua
+64archive - Copy/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_material_fixer.lua
+64archive - Copy/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_meshed_world_renderer.lua
+64archive - Copy/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_optimize_viewfrustrum.lua
+64archive - Copy/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_stable_prop_hashes.lua
+64archive - Copy/garrysmod/addons/remixbinary/lua/autorun/client/cl_suppress_material_errors.lua
+64archive - Copy/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/cl_init.lua
+64archive - Copy/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/init.lua
+64archive - Copy/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/shared.lua
+64archive - Copy/garrysmod/addons/remixbinary/lua/weapons/gmod_tool/stools/rtx_light.lua
+64archive - Copy/garrysmod/cfg/autoexec.cfg
+64archive - Copy/garrysmod/cfg/client.vdf
+64archive - Copy/garrysmod/cfg/server.vdf
+64archive - Copy/rtx-remix/mods/Water-newgmod/mod.usda
+64archive - Copy/rtx-remix/mods/Water-newgmod/replacements.usda
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures.zip
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/water.usda
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/6D2C268A20F8E02B_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/7FF15B347FAA1EFE_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/08B7FA3FF95E74CD_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/8D415A461AFEE86B_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/9CEE5C631301A0C2_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/31ADE31994D1DC7D_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_mask - Copy.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_mask.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_masko.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4Aol.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/60A74211A2E39BF6_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/60D05EF468C9E6EB.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/66C5C2BC703FF956_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/473CFF9EEF64180E_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/612D8E17AAF3601A_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/632E0D7BCC66855E_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/781AFB54E334E469_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/847FFF41F57A6766_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/3731E05C22BA24CB_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/86594A9762B608BF_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/02321695709F9126_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A6FC48D9F7E26496_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A14F575A0869E82F_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A9206CDB73538E57_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A43588A603A9DA8F_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/BAD8E58F028B48C9_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/BD87C8184BCF97DE_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/C11DEE50697D3E6C_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/CA5A60067E927360_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/CD8E5F32F39D7051_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/D4A739F974E77B37_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/DA5CDFC6943FDFF3_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/F2B341648C28E47C_normal.dds
+64archive - Copy/rtx-remix/mods/Water-newgmod/SubUSDs/textures/F1589031BC730661_normal.dds
+64archive/garrysmod/addons/water_fix
+64archive - Copy/garrysmod/addons/water_fix
+64archiveCEF/64archiveCEF.zip
+64archiveCEF/dxvk.conf
+64archiveCEF/rtx.conf
+64archiveCEF/bin/win64/artifacts_readme.txt
+64archiveCEF/bin/win64/d3d9.pdb
+64archiveCEF/bin/win64/gmodrtx64.bat
+64archiveCEF/bin/win64/usd/plugInfo.json
+64archiveCEF/bin/win64/usd/ar/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/ndr/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/sdf/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usd/resources/generatedSchema.usda
+64archiveCEF/bin/win64/usd/usd/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usd/resources/codegenTemplates/api.h
+64archiveCEF/bin/win64/usd/usd/resources/codegenTemplates/plugInfo.json
+64archiveCEF/bin/win64/usd/usd/resources/codegenTemplates/schemaClass.cpp
+64archiveCEF/bin/win64/usd/usd/resources/codegenTemplates/schemaClass.h
+64archiveCEF/bin/win64/usd/usd/resources/codegenTemplates/tokens.cpp
+64archiveCEF/bin/win64/usd/usd/resources/codegenTemplates/tokens.h
+64archiveCEF/bin/win64/usd/usd/resources/codegenTemplates/wrapSchemaClass.cpp
+64archiveCEF/bin/win64/usd/usd/resources/codegenTemplates/wrapTokens.cpp
+64archiveCEF/bin/win64/usd/usd/resources/usd/schema.usda
+64archiveCEF/bin/win64/usd/usdGeom/resources/generatedSchema.usda
+64archiveCEF/bin/win64/usd/usdGeom/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usdGeom/resources/usdGeom/schema.usda
+64archiveCEF/bin/win64/usd/usdHydra/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usdHydra/resources/shaders/empty.glslfx
+64archiveCEF/bin/win64/usd/usdHydra/resources/shaders/shaderDefs.usda
+64archiveCEF/bin/win64/usd/usdLux/resources/generatedSchema.usda
+64archiveCEF/bin/win64/usd/usdLux/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usdLux/resources/usdLux/schema.usda
+64archiveCEF/bin/win64/usd/usdMedia/resources/generatedSchema.usda
+64archiveCEF/bin/win64/usd/usdMedia/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usdMedia/resources/usdMedia/schema.usda
+64archiveCEF/bin/win64/usd/usdRender/resources/generatedSchema.usda
+64archiveCEF/bin/win64/usd/usdRender/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usdRender/resources/usdRender/schema.usda
+64archiveCEF/bin/win64/usd/usdRi/resources/generatedSchema.usda
+64archiveCEF/bin/win64/usd/usdRi/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usdRi/resources/usdRi/schema.usda
+64archiveCEF/bin/win64/usd/usdShade/resources/generatedSchema.usda
+64archiveCEF/bin/win64/usd/usdShade/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usdShade/resources/usdShade/schema.usda
+64archiveCEF/bin/win64/usd/usdSkel/resources/generatedSchema.usda
+64archiveCEF/bin/win64/usd/usdSkel/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usdSkel/resources/usdSkel/schema.usda
+64archiveCEF/bin/win64/usd/usdUI/resources/generatedSchema.usda
+64archiveCEF/bin/win64/usd/usdUI/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usdUI/resources/usdUI/schema.usda
+64archiveCEF/bin/win64/usd/usdVol/resources/generatedSchema.usda
+64archiveCEF/bin/win64/usd/usdVol/resources/plugInfo.json
+64archiveCEF/bin/win64/usd/usdVol/resources/usdVol/schema.usda
+64archiveCEF/garrysmod/addons/remixbinary/lua/autorun/rtxfixes_init.lua
+64archiveCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_material_inspector.lua
+64archiveCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_material_fixer.lua
+64archiveCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_meshed_world_renderer.lua
+64archiveCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_optimize_viewfrustrum.lua
+64archiveCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_stable_prop_hashes.lua
+64archiveCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_suppress_material_errors.lua
+64archiveCEF/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/cl_init.lua
+64archiveCEF/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/init.lua
+64archiveCEF/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/shared.lua
+64archiveCEF/garrysmod/addons/remixbinary/lua/weapons/gmod_tool/stools/rtx_light.lua
+64archiveCEF/garrysmod/cfg/autoexec.cfg
+64archiveCEF/garrysmod/cfg/client.vdf
+64archiveCEF/garrysmod/cfg/server.vdf
+64archiveCEF/rtx-remix/mods/Water-newgmod/mod.usda
+64archiveCEF/rtx-remix/mods/Water-newgmod/replacements.usda
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures.zip
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/water.usda
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/6D2C268A20F8E02B_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/7FF15B347FAA1EFE_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/08B7FA3FF95E74CD_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/8D415A461AFEE86B_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/9CEE5C631301A0C2_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/31ADE31994D1DC7D_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_mask - Copy.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_mask.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_masko.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4Aol.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/60A74211A2E39BF6_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/60D05EF468C9E6EB.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/66C5C2BC703FF956_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/473CFF9EEF64180E_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/612D8E17AAF3601A_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/632E0D7BCC66855E_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/781AFB54E334E469_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/847FFF41F57A6766_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/3731E05C22BA24CB_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/86594A9762B608BF_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/02321695709F9126_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A6FC48D9F7E26496_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A14F575A0869E82F_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A9206CDB73538E57_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A43588A603A9DA8F_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/BAD8E58F028B48C9_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/BD87C8184BCF97DE_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/C11DEE50697D3E6C_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/CA5A60067E927360_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/CD8E5F32F39D7051_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/D4A739F974E77B37_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/DA5CDFC6943FDFF3_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/F2B341648C28E47C_normal.dds
+64archiveCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/F1589031BC730661_normal.dds
+64archiveNoCEF/64archiveNoCEF.zip
+64archiveNoCEF/dxvk.conf
+64archiveNoCEF/rtx.conf
+64archiveNoCEF/bin/win64/artifacts_readme.txt
+64archiveNoCEF/bin/win64/d3d9.pdb
+64archiveNoCEF/bin/win64/gmodrtx64.bat
+64archiveNoCEF/bin/win64/usd/plugInfo.json
+64archiveNoCEF/bin/win64/usd/ar/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/ndr/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/sdf/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usd/resources/generatedSchema.usda
+64archiveNoCEF/bin/win64/usd/usd/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usd/resources/codegenTemplates/api.h
+64archiveNoCEF/bin/win64/usd/usd/resources/codegenTemplates/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usd/resources/codegenTemplates/schemaClass.cpp
+64archiveNoCEF/bin/win64/usd/usd/resources/codegenTemplates/schemaClass.h
+64archiveNoCEF/bin/win64/usd/usd/resources/codegenTemplates/tokens.cpp
+64archiveNoCEF/bin/win64/usd/usd/resources/codegenTemplates/tokens.h
+64archiveNoCEF/bin/win64/usd/usd/resources/codegenTemplates/wrapSchemaClass.cpp
+64archiveNoCEF/bin/win64/usd/usd/resources/codegenTemplates/wrapTokens.cpp
+64archiveNoCEF/bin/win64/usd/usd/resources/usd/schema.usda
+64archiveNoCEF/bin/win64/usd/usdGeom/resources/generatedSchema.usda
+64archiveNoCEF/bin/win64/usd/usdGeom/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usdGeom/resources/usdGeom/schema.usda
+64archiveNoCEF/bin/win64/usd/usdHydra/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usdHydra/resources/shaders/empty.glslfx
+64archiveNoCEF/bin/win64/usd/usdHydra/resources/shaders/shaderDefs.usda
+64archiveNoCEF/bin/win64/usd/usdLux/resources/generatedSchema.usda
+64archiveNoCEF/bin/win64/usd/usdLux/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usdLux/resources/usdLux/schema.usda
+64archiveNoCEF/bin/win64/usd/usdMedia/resources/generatedSchema.usda
+64archiveNoCEF/bin/win64/usd/usdMedia/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usdMedia/resources/usdMedia/schema.usda
+64archiveNoCEF/bin/win64/usd/usdRender/resources/generatedSchema.usda
+64archiveNoCEF/bin/win64/usd/usdRender/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usdRender/resources/usdRender/schema.usda
+64archiveNoCEF/bin/win64/usd/usdRi/resources/generatedSchema.usda
+64archiveNoCEF/bin/win64/usd/usdRi/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usdRi/resources/usdRi/schema.usda
+64archiveNoCEF/bin/win64/usd/usdShade/resources/generatedSchema.usda
+64archiveNoCEF/bin/win64/usd/usdShade/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usdShade/resources/usdShade/schema.usda
+64archiveNoCEF/bin/win64/usd/usdSkel/resources/generatedSchema.usda
+64archiveNoCEF/bin/win64/usd/usdSkel/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usdSkel/resources/usdSkel/schema.usda
+64archiveNoCEF/bin/win64/usd/usdUI/resources/generatedSchema.usda
+64archiveNoCEF/bin/win64/usd/usdUI/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usdUI/resources/usdUI/schema.usda
+64archiveNoCEF/bin/win64/usd/usdVol/resources/generatedSchema.usda
+64archiveNoCEF/bin/win64/usd/usdVol/resources/plugInfo.json
+64archiveNoCEF/bin/win64/usd/usdVol/resources/usdVol/schema.usda
+64archiveNoCEF/garrysmod/addons/remixbinary/lua/autorun/rtxfixes_init.lua
+64archiveNoCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_material_inspector.lua
+64archiveNoCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_material_fixer.lua
+64archiveNoCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_meshed_world_renderer.lua
+64archiveNoCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_optimize_viewfrustrum.lua
+64archiveNoCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_rtx_stable_prop_hashes.lua
+64archiveNoCEF/garrysmod/addons/remixbinary/lua/autorun/client/cl_suppress_material_errors.lua
+64archiveNoCEF/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/cl_init.lua
+64archiveNoCEF/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/init.lua
+64archiveNoCEF/garrysmod/addons/remixbinary/lua/entities/base_rtx_light/shared.lua
+64archiveNoCEF/garrysmod/addons/remixbinary/lua/weapons/gmod_tool/stools/rtx_light.lua
+64archiveNoCEF/garrysmod/cfg/autoexec.cfg
+64archiveNoCEF/garrysmod/cfg/client.vdf
+64archiveNoCEF/garrysmod/cfg/server.vdf
+64archiveNoCEF/garrysmod/gamemodes/sandbox/gamemode/spawnmenu/creationmenu/content/contenttypes/dupes.lua
+64archiveNoCEF/garrysmod/gamemodes/sandbox/gamemode/spawnmenu/creationmenu/content/contenttypes/saves.lua
+64archiveNoCEF/garrysmod/lua/menu/background.lua
+64archiveNoCEF/garrysmod/lua/menu/cef_credits.lua
+64archiveNoCEF/garrysmod/lua/menu/crosshair_setup.lua
+64archiveNoCEF/garrysmod/lua/menu/demo_to_video.lua
+64archiveNoCEF/garrysmod/lua/menu/derma_icon_browser.lua
+64archiveNoCEF/garrysmod/lua/menu/errors.lua
+64archiveNoCEF/garrysmod/lua/menu/getmaps.lua
+64archiveNoCEF/garrysmod/lua/menu/loading.lua
+64archiveNoCEF/garrysmod/lua/menu/mainmenu.lua
+64archiveNoCEF/garrysmod/lua/menu/menu_addon.lua
+64archiveNoCEF/garrysmod/lua/menu/menu_demo.lua
+64archiveNoCEF/garrysmod/lua/menu/menu_dupe.lua
+64archiveNoCEF/garrysmod/lua/menu/menu_save.lua
+64archiveNoCEF/garrysmod/lua/menu/menu.lua
+64archiveNoCEF/garrysmod/lua/menu/motionsensor.lua
+64archiveNoCEF/garrysmod/lua/menu/openurl.lua
+64archiveNoCEF/garrysmod/lua/menu/ugcpublish.lua
+64archiveNoCEF/garrysmod/lua/menu/util.lua
+64archiveNoCEF/garrysmod/lua/menu/video.lua
+64archiveNoCEF/garrysmod/lua/menu/custom/_errors.lua
+64archiveNoCEF/garrysmod/lua/menu/custom/achievements.lua
+64archiveNoCEF/garrysmod/lua/menu/custom/addons.lua
+64archiveNoCEF/garrysmod/lua/menu/custom/getmaps.lua
+64archiveNoCEF/garrysmod/lua/menu/custom/main.lua
+64archiveNoCEF/garrysmod/lua/menu/custom/mainmenu.lua
+64archiveNoCEF/garrysmod/lua/menu/custom/new_game_panels.lua
+64archiveNoCEF/garrysmod/lua/menu/custom/new_game.lua
+64archiveNoCEF/garrysmod/lua/menu/custom/saves.lua
+64archiveNoCEF/garrysmod/lua/menu/mount/mount.lua
+64archiveNoCEF/garrysmod/lua/menu/mount/vgui/addon_rocket.lua
+64archiveNoCEF/garrysmod/lua/menu/mount/vgui/workshop.lua
+64archiveNoCEF/garrysmod/lua/menu/problems/permissions.lua
+64archiveNoCEF/garrysmod/lua/menu/problems/problem_generic.lua
+64archiveNoCEF/garrysmod/lua/menu/problems/problem_lua.lua
+64archiveNoCEF/garrysmod/lua/menu/problems/problems_pnl.lua
+64archiveNoCEF/garrysmod/lua/menu/problems/problems.lua
+64archiveNoCEF/garrysmod/materials/gui/check.png
+64archiveNoCEF/garrysmod/materials/gui/noicon.png
+64archiveNoCEF/garrysmod/materials/gui/noise.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/error.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/police_flex.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/11thdoctor/thedoctor.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/a_thing/coraline/charlie_jones.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/adidas_combine/playermodel/adidas_combine.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/akuld/agentsmith/agentsmith.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/akuld/funnyrat/rat.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/akuld/funnyrat/ratcolorable.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/antoinedelak/playermodels/gorgeous_freeman_citizen_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/antoinedelak/playermodels/gorgeous_freeman_hev_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/antoinedelak/playermodels/gorgeous_freeman_scientist_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/antoinedelak/playermodels/gorgeous_freeman_underwear_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/arachnit/resident_evil/re3_remake/characters/jill_valentine/jill_valentine_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/bluearchive/miyu blue archive.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/canofsoda/steam/steamgirl.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/combine_helicopter/helicopter_bomb01.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/custom/playerstart_playermodel.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/dejtriyev/hl1/ryangosling.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/ajourneysend/hadrian/hadrian.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/ajourneysend/harper/harper.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/ajourneysend/mevia/mevia.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/ajourneysend/otto/otto.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/captainsparklez/captainsparklez.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/cassierose/cassierose.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/dantdm/dantdm1.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/ldshadowlady/ldshadowlady.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/stacyplays/stacyplays.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/stampy/stampy.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/torquedawg/torquedawg.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/whitepumpkin/whitepumpkin.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/aportaltomystery/winslow/winslow.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/aiden/aiden.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/axel/axel.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/ellegaard/ellegaard.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/gabriel/gabriel.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/gill/gill.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/ivor/ivor.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/female jesse (armor a).png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/female jesse (armor b).png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/female jesse (armor c).png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/jesse (armor a).png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/jesse (armor b).png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/jesse (armor c).png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/jesse (female).png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/jesse/jesse.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/lukas/lukas.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/magnus/magnus.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/maya/maya.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/olivia/olivia.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/petra/petra.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/reuben/reuben.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/soren/soren.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/glamrock/minecraftstorymode/season1/orderofthestone/witherstorm/witherstorm (small).png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/goldec/goldec_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/grandtheftauto5/franklin.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/grandtheftauto5/michael.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/grandtheftauto5/trevor.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/gfreakman/markiplier.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/group01/male_07_injured_player_model_new.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/group50/male_01.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/group50/male_02.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/group50/male_03.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/group50/male_04.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/group50/male_05.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/group50/male_07.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/group50/male_08.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/group50/male_09.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/operator/generic_tactics1.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/operator/generic_tactics2.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/operator/generic_tactics3.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/humans/operator/generic_tactics4.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/kuma96/2b/2b_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/kuma96/mirrors_edge_catalyst/characters/ksec_enforcers/female/ksec_enforcer_female_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/kuma96/mirrors_edge_catalyst/characters/ksec_enforcers/male/ksec_enforcer_male_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/lappland/arknights/clancy/lappland.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/lenoax/gordonfreeman_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/lenoax/markiv_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/majka/squid_game_metrocop_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/minecraft/alex/alex.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/minecraft/steve/steve.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/mrbeangta/mrbeangta_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/panman/borat_cosplayer_09.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/patrickbateman/playermodels/patrickbateman.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/canbine_cop.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/canbine_elite.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/canbine_elite2.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/canbine.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/orangebox.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/tacticoolcancop.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/darsu/c_hozq_v4_rig.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/darsu/c_unfixedcrayfish_rig.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/demomanplayer/demonstrationman.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/engieplayer/engie.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/fring/gus_suit.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/fring/gus.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/heavyplayer/heavy.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/hwm/adv_demo.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/hwm/adv_engineer.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/hwm/adv_heavy.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/hwm/adv_medic.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/hwm/adv_pyro.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/hwm/adv_scout.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/hwm/adv_sniper.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/hwm/adv_soldier.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/hwm/adv_spy.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/medicplayer/medic.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/pyroplayer/pyro.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset1.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset2.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset3.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset4.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset5.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset6.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset7.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset8.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_hatset9.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/rblx/robloxian2007_zombie.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/scoutplayer/scout.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sniperplayer/sniper.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/soldierplayer/soldier.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/amy.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/big.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/blaze.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/charmy.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/cream.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/eggman.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/espio.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/knuckles.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/metal_sonic.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/omega.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/rouge.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/shadow.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/silver.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/sonic.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/tails.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/sonic_redux/vector.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/player/spyplayer/spy.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/props/darsu_eft/laptop.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/props/darsu_eft/shooting_range_popper.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/rottweiler/morganfreeman.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_intro_pon_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_kimono_pon_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_office_pon_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_pon_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_tc_pon_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_tc2_pon_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_topless_pon_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_training_guns_pon_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_training_melee_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_training_sword_pon_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_training_sword2_pon_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/tchaek/neo_pon/neo_training_time_attack_pon_pm.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/ultrakill/ultrakill_v1.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/ultrakill/ultrakill_v2.png
+64archiveNoCEF/garrysmod/materials/spawnicons/models/ultrakill/v1_pm.png
+64archiveNoCEF/garrysmod/materials/vgui/logos/spray.vmt
+64archiveNoCEF/garrysmod/materials/vgui/logos/spray.vtf
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/mod.usda
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/replacements.usda
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures.zip
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/water.usda
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/6D2C268A20F8E02B_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/7FF15B347FAA1EFE_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/08B7FA3FF95E74CD_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/8D415A461AFEE86B_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/9CEE5C631301A0C2_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/31ADE31994D1DC7D_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_mask - Copy.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_mask.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A_emit_masko.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4A.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/33FAB345028AFF4Aol.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/60A74211A2E39BF6_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/60D05EF468C9E6EB.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/66C5C2BC703FF956_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/473CFF9EEF64180E_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/612D8E17AAF3601A_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/632E0D7BCC66855E_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/781AFB54E334E469_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/847FFF41F57A6766_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/3731E05C22BA24CB_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/86594A9762B608BF_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/02321695709F9126_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A6FC48D9F7E26496_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A14F575A0869E82F_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A9206CDB73538E57_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/A43588A603A9DA8F_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/BAD8E58F028B48C9_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/BD87C8184BCF97DE_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/C11DEE50697D3E6C_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/CA5A60067E927360_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/CD8E5F32F39D7051_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/D4A739F974E77B37_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/DA5CDFC6943FDFF3_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/F2B341648C28E47C_normal.dds
+64archiveNoCEF/rtx-remix/mods/Water-newgmod/SubUSDs/textures/F1589031BC730661_normal.dds
+lithium-main/.gitignore
+lithium-main/LICENSE
+lithium-main/README.md
+lithium-main/lua/autorun/!!!!!_lithium.lua
+lithium-main/lua/autorun/client/cl_lithium_controls.lua
+lithium-main/lua/autorun/server/sv_lithium_controls.lua
+lithium-main/lua/includes/modules/hook_lithium.lua
+lithium-main/lua/includes/modules/lithium.lua
+lithium-main/lua/lithium/convars.lua
+lithium-main/lua/lithium/gpusaver.lua
+lithium-main/lua/lithium/killhooks.lua
+lithium-main/lua/lithium/timingout.lua
+lithium-main/lua/lithium/util.lua
+lithium-main/lua/lithium/extensions/caching.lua
+lithium-main/lua/lithium/extensions/lastresort.lua
+lithium-main/lua/lithium/extensions/client/be_render.lua
+lithium-main/lua/lithium/extensions/client/optimised_draw.lua
+lithium-main/lua/lithium/extensions/client/render.lua
+lithium-main/lua/lithium/tests/hook.lua
+lithium-main/lua/lithium/util/client.lua
+source/launcher/build*
+source/launcher/vcpkg*

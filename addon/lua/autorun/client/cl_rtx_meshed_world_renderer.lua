@@ -7,132 +7,215 @@ require("niknaks")
 local CONVARS = {
     ENABLED = CreateClientConVar("rtx_force_render", "1", true, false, "Forces custom mesh rendering of map"),
     DEBUG = CreateClientConVar("rtx_force_render_debug", "0", true, false, "Shows debug info for mesh rendering"),
-    CHUNK_SIZE = CreateClientConVar("rtx_chunk_size", "512", true, false, "Size of chunks for mesh combining")
+    CHUNK_SIZE = CreateClientConVar("rtx_chunk_size", "65536", true, false, "Size of chunks for mesh combining"),
+    CAPTURE_MODE = CreateClientConVar("rtx_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode")
 }
 
--- Local Variables
-local mapMeshes = {}
+-- Local Variables and Caches
+local mapMeshes = {
+    opaque = {},
+    translucent = {},
+}
 local isEnabled = false
 local renderStats = {draws = 0}
 local materialCache = {}
+local Vector = Vector
+local math_min = math.min
+local math_max = math.max
+local math_huge = math.huge
+local math_floor = math.floor
+local table_insert = table.insert
+local MAX_VERTICES = 10000
+local MAX_CHUNK_VERTS = 32768
 
--- Utility Functions
-local function ShouldRenderFace(face)
-    invis = face:HasTexInfoFlag(0x0002) or -- SURF_SKY2D
-            face:HasTexInfoFlag(0x0004) or -- SURF_SKY
-            face:HasTexInfoFlag(0x0040) or -- SURF_TRIGGER
-            face:HasTexInfoFlag(0x0080) or -- SURF_NODRAW
-            face:HasTexInfoFlag(0x0200) or -- SURF_SKIP
-            false
-    return not invis
+-- Random texture for displacements so we can use it as a shadow mask in RTX Remix
+local DISPLACEMENT_MATERIAL = Material("dev/reflectivity_30")
+local DISPLACEMENT_OFFSET = 1 -- Adjust this value to change how far "under" they are
+
+-- Pre-allocate common vectors and tables for reuse
+local vertexBuffer = {
+    positions = {},
+    normals = {},
+    uvs = {}
+}
+
+local function ValidateVertex(pos)
+    -- Check for NaN or extreme values
+    if not pos or 
+       not pos.x or not pos.y or not pos.z or
+       pos.x ~= pos.x or pos.y ~= pos.y or pos.z ~= pos.z or -- NaN check
+       math.abs(pos.x) > 16384 or 
+       math.abs(pos.y) > 16384 or 
+       math.abs(pos.z) > 16384 then
+        return false
+    end
+    return true
 end
 
-local function GetChunkKey(x, y, z)
-    return string.format("%d,%d,%d", x, y, z)
-end
-
-local function CalculateFaceVertexCount(face)
-    local verts = face:GenerateVertexTriangleData()
-    return verts and #verts or 0
-end
-
--- Mesh Creation Functions
-local function CreateChunkMeshGroup(faces, material)
-    if not faces or #faces == 0 or not material then return nil end
-
-    local MAX_VERTICES = 10000
-    local meshGroups = {}
+local function IsBrushEntity(face)
+    if not face then return false end
     
-    -- Collect vertex data
-    local allVertices = {}
-    local totalVertices = 0
+    -- First check if it's a brush model
+    if face.__bmodel and face.__bmodel > 0 then
+        return true -- Any non-zero bmodel index indicates it's a brush entity
+    end
     
+    -- Secondary check for brush entities using parent entity
+    local parent = face.__parent
+    if parent and isentity(parent) and parent:GetClass() then
+        -- If the face has a valid parent entity, it's likely a brush entity
+        return true
+    end
+    
+    return false
+end
+
+local function IsSkyboxFace(face)
+    if not face then return false end
+    
+    local material = face:GetMaterial()
+    if not material then return false end
+    
+    local matName = material:GetName():lower()
+    
+    return matName:find("tools/toolsskybox") or
+           matName:find("skybox/") or
+           matName:find("sky_") or
+           false
+end
+
+local function SplitChunk(faces, chunkSize)
+    local subChunks = {}
     for _, face in ipairs(faces) do
-        local verts = face:GenerateVertexTriangleData()
-        if verts then
-            for _, vert in ipairs(verts) do
-                if vert.pos and vert.normal then
-                    totalVertices = totalVertices + 1
-                    table.insert(allVertices, vert)
-                end
+        local vertices = face:GetVertexs()
+        if not vertices or #vertices == 0 then continue end
+        
+        -- Calculate face center
+        local center = Vector(0, 0, 0)
+        for _, vert in ipairs(vertices) do
+            center:Add(vert)
+        end
+        center:Div(#vertices)
+        
+        -- Use smaller chunk size for subdivision
+        local subX = math_floor(center.x / (chunkSize/2))
+        local subY = math_floor(center.y / (chunkSize/2))
+        local subZ = math_floor(center.z / (chunkSize/2))
+        local subKey = GetChunkKey(subX, subY, subZ)
+        
+        subChunks[subKey] = subChunks[subKey] or {}
+        table_insert(subChunks[subKey], face)
+    end
+    return subChunks
+end
+
+local function DetermineOptimalChunkSize(totalFaces)
+    -- Base chunk size on face density, but keep within reasonable bounds
+    local density = totalFaces / (16384 * 16384 * 16384) -- Approximate map volume
+    return math_max(4096, math_min(65536, math_floor(1 / density * 32768)))
+end
+
+local function CreateMeshBatch(vertices, material, maxVertsPerMesh)
+    local meshes = {}
+    local currentVerts = {}
+    local vertCount = 0
+    
+    for i = 1, #vertices, 3 do -- Process in triangles
+        -- Add all three vertices of the triangle
+        for j = 0, 2 do
+            if vertices[i + j] then
+                table_insert(currentVerts, vertices[i + j])
+                vertCount = vertCount + 1
             end
         end
-    end
-    
-    if CONVARS.DEBUG:GetBool() then
-        print(string.format("[RTX Fixes] Processing chunk with %d total vertices", totalVertices))
-    end
-    
-    -- Calculate mesh distribution
-    local meshCount = math.ceil(totalVertices / MAX_VERTICES)
-    local vertsPerMesh = math.floor(totalVertices / meshCount)
-    
-    if CONVARS.DEBUG:GetBool() then
-        print(string.format("[RTX Fixes] Splitting into %d meshes with ~%d vertices each", 
-            meshCount, vertsPerMesh))
-    end
-    
-    -- Create mesh batches
-    local vertexIndex = 1
-    while vertexIndex <= #allVertices do
-        local remainingVerts = #allVertices - vertexIndex + 1
-        local vertsThisMesh = math.min(MAX_VERTICES, remainingVerts)
         
-        if vertsThisMesh > 0 then
-            if CONVARS.DEBUG:GetBool() then
-                print(string.format("[RTX Fixes] Creating mesh with %d vertices", vertsThisMesh))
-            end
-            
-            if vertsThisMesh > 32000 then
-                print(string.format("[RTX Fixes] ERROR: Tried to create mesh with too many vertices (%d)", 
-                    vertsThisMesh))
-                vertexIndex = vertexIndex + vertsThisMesh
-                continue
-            end
-            
+        -- Create new mesh when we hit the vertex limit
+        if vertCount >= maxVertsPerMesh - 3 then -- Leave room for one more triangle
             local newMesh = Mesh(material)
-            mesh.Begin(newMesh, MATERIAL_TRIANGLES, vertsThisMesh)
-            
-            for i = 0, vertsThisMesh - 1 do
-                local vert = allVertices[vertexIndex + i]
+            mesh.Begin(newMesh, MATERIAL_TRIANGLES, #currentVerts)
+            for _, vert in ipairs(currentVerts) do
                 mesh.Position(vert.pos)
                 mesh.Normal(vert.normal)
                 mesh.TexCoord(0, vert.u or 0, vert.v or 0)
                 mesh.AdvanceVertex()
             end
-            
             mesh.End()
-            table.insert(meshGroups, newMesh)
+            
+            table_insert(meshes, newMesh)
+            currentVerts = {}
+            vertCount = 0
         end
+    end
+    
+    -- Handle remaining vertices
+    if #currentVerts > 0 then
+        local newMesh = Mesh(material)
+        mesh.Begin(newMesh, MATERIAL_TRIANGLES, #currentVerts)
+        for _, vert in ipairs(currentVerts) do
+            mesh.Position(vert.pos)
+            mesh.Normal(vert.normal)
+            mesh.TexCoord(0, vert.u or 0, vert.v or 0)
+            mesh.AdvanceVertex()
+        end
+        mesh.End()
         
-        vertexIndex = vertexIndex + vertsThisMesh
+        table_insert(meshes, newMesh)
     end
     
-    if CONVARS.DEBUG:GetBool() then
-        print(string.format("[RTX Fixes] Successfully created %d meshes", #meshGroups))
-    end
-    
-    return meshGroups
+    return meshes
+end
+
+local function GetChunkKey(x, y, z)
+    return x .. "," .. y .. "," .. z
 end
 
 -- Main Mesh Building Function
 local function BuildMapMeshes()
-    mapMeshes = {}
+    -- Clean up existing meshes first
+    for renderType, chunks in pairs(mapMeshes) do
+        for chunkKey, materials in pairs(chunks) do
+            for matName, group in pairs(materials) do
+                if group.meshes then
+                    for _, mesh in ipairs(group.meshes) do
+                        if mesh and mesh.Destroy then
+                            mesh:Destroy()
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    mapMeshes = {
+        opaque = {},
+        translucent = {},
+    }
     materialCache = {}
     
     if not NikNaks or not NikNaks.CurrentMap then return end
 
     print("[RTX Fixes] Building chunked meshes...")
     local startTime = SysTime()
-    local totalVertCount = 0
     
-    local chunkSize = CONVARS.CHUNK_SIZE:GetInt()
+    -- Count total faces for chunk size optimization
+    local totalFaces = 0
+    for _, leaf in pairs(NikNaks.CurrentMap:GetLeafs()) do
+        if not leaf or leaf:IsOutsideMap() then continue end
+        local leafFaces = leaf:GetFaces(true)
+        if leafFaces then
+            totalFaces = totalFaces + #leafFaces
+        end
+    end
+    
+    local chunkSize = DetermineOptimalChunkSize(totalFaces)
+    CONVARS.CHUNK_SIZE:SetInt(chunkSize)
+    
     local chunks = {
         opaque = {},
-        translucent = {}
+        translucent = {},
     }
     
-    -- Sort faces into chunks
+    -- Sort faces into chunks with optimized table operations
     for _, leaf in pairs(NikNaks.CurrentMap:GetLeafs()) do  
         if not leaf or leaf:IsOutsideMap() then continue end
         
@@ -140,63 +223,132 @@ local function BuildMapMeshes()
         if not leafFaces then continue end
 
         for _, face in pairs(leafFaces) do
-            if not face or not ShouldRenderFace(face) then continue end
+            if not face or 
+               IsBrushEntity(face) or
+               not face:ShouldRender() or 
+               IsSkyboxFace(face) then 
+                continue 
+            end
             
             local vertices = face:GetVertexs()
             if not vertices or #vertices == 0 then continue end
             
-            -- Calculate face center
+            -- Optimized center calculation
             local center = Vector(0, 0, 0)
-            for _, vert in ipairs(vertices) do
+            local vertCount = #vertices
+            for i = 1, vertCount do
+                local vert = vertices[i]
                 if not vert then continue end
-                center = center + vert
+                center:Add(vert)
             end
-            center = center / #vertices
+            center:Div(vertCount)
             
-            -- Get chunk coordinates
-            local chunkX = math.floor(center.x / chunkSize)
-            local chunkY = math.floor(center.y / chunkSize)
-            local chunkZ = math.floor(center.z / chunkSize)
+            local chunkX = math_floor(center.x / chunkSize)
+            local chunkY = math_floor(center.y / chunkSize)
+            local chunkZ = math_floor(center.z / chunkSize)
             local chunkKey = GetChunkKey(chunkX, chunkY, chunkZ)
             
-            local material = face:GetMaterial()
+            -- Use dev texture for displacements, original material for everything else
+            local material = face:IsDisplacement() and DISPLACEMENT_MATERIAL or face:GetMaterial()
             if not material then continue end
             
             local matName = material:GetName()
             if not matName then continue end
             
-            -- Cache material
             if not materialCache[matName] then
                 materialCache[matName] = material
             end
             
-            -- Sort into appropriate chunk group
-            local isTranslucent = face:IsTranslucent()
-            local chunkGroup = isTranslucent and chunks.translucent or chunks.opaque
+            local chunkGroup = face:IsTranslucent() and chunks.translucent or chunks.opaque
             
             chunkGroup[chunkKey] = chunkGroup[chunkKey] or {}
             chunkGroup[chunkKey][matName] = chunkGroup[chunkKey][matName] or {
                 material = materialCache[matName],
-                faces = {},
-                isTranslucent = isTranslucent
+                faces = {}
             }
             
-            table.insert(chunkGroup[chunkKey][matName].faces, face)
+            table_insert(chunkGroup[chunkKey][matName].faces, face)
         end
     end
     
-    -- Create combined meshes
-    mapMeshes = {
-        opaque = {},
-        translucent = {}
-    }
-    
+    -- Create separate mesh creation functions for regular faces and displacements
+    local function CreateRegularMeshGroup(faces, material)
+        if not faces or #faces == 0 or not material then return nil end
+        
+        -- Track chunk bounds
+        local minBounds = Vector(math_huge, math_huge, math_huge)
+        local maxBounds = Vector(-math_huge, -math_huge, -math_huge)
+        
+        -- Collect and validate vertices
+        local allVertices = {}
+        for _, face in ipairs(faces) do
+            local verts = face:GenerateVertexTriangleData()
+            if verts then
+                local faceValid = true
+                for _, vert in ipairs(verts) do
+                    if not ValidateVertex(vert.pos) then
+                        faceValid = false
+                        break
+                    end
+                    
+                    -- If this is a displacement face, offset the vertices slightly down
+                    if face:IsDisplacement() then
+                        -- Calculate how much to offset based on face angle
+                        local upDot = math.abs(vert.normal:Dot(Vector(0,0,1)))
+                        local offset = DISPLACEMENT_OFFSET * (1 + upDot) -- More offset for flatter surfaces
+                        vert.pos = vert.pos - (vert.normal * offset)
+                    end
+                    
+                    -- Update bounds
+                    minBounds.x = math_min(minBounds.x, vert.pos.x)
+                    minBounds.y = math_min(minBounds.y, vert.pos.y)
+                    minBounds.z = math_min(minBounds.z, vert.pos.z)
+                    maxBounds.x = math_max(maxBounds.x, vert.pos.x)
+                    maxBounds.y = math_max(maxBounds.y, vert.pos.y)
+                    maxBounds.z = math_max(maxBounds.z, vert.pos.z)
+                end
+                
+                if faceValid then
+                    for _, vert in ipairs(verts) do
+                        table_insert(allVertices, vert)
+                    end
+                end
+            end
+        end
+        
+        -- Check chunk size and split if needed
+        local chunkSize = maxBounds - minBounds
+        if chunkSize.x > MAX_CHUNK_VERTS or 
+           chunkSize.y > MAX_CHUNK_VERTS or 
+           chunkSize.z > MAX_CHUNK_VERTS then
+            -- Split into sub-chunks and process each
+            local subChunks = SplitChunk(faces, CONVARS.CHUNK_SIZE:GetInt())
+            local allMeshes = {}
+            
+            for _, subFaces in pairs(subChunks) do
+                local subMeshes = CreateRegularMeshGroup(subFaces, material)
+                if subMeshes then
+                    for _, mesh in ipairs(subMeshes) do
+                        table_insert(allMeshes, mesh)
+                    end
+                end
+            end
+            
+            return allMeshes
+        end
+        
+        -- Create mesh batches for this chunk
+        return CreateMeshBatch(allVertices, material, MAX_VERTICES)
+    end
+
+    -- Create combined meshes with separate handling
     for renderType, chunkGroup in pairs(chunks) do
         for chunkKey, materials in pairs(chunkGroup) do
             mapMeshes[renderType][chunkKey] = {}
             for matName, group in pairs(materials) do
                 if group.faces and #group.faces > 0 then
-                    local meshes = CreateChunkMeshGroup(group.faces, group.material)
+                    local meshes = CreateRegularMeshGroup(group.faces, group.material)
+                    
                     if meshes then
                         for _, face in ipairs(group.faces) do
                             local verts = face:GenerateVertexTriangleData()
@@ -245,7 +397,7 @@ local function RenderCustomWorld(translucent)
             end
         end
     end
-
+    
     if translucent then
         render.OverrideDepthEnable(false)
     end
@@ -287,11 +439,20 @@ end
 
 -- Initialization and Cleanup
 local function Initialize()
-    BuildMapMeshes()
+    local success, err = pcall(BuildMapMeshes)
+    if not success then
+        ErrorNoHalt("[RTX Fixes] Failed to build meshes: " .. tostring(err) .. "\n")
+        DisableCustomRendering()
+        return
+    end
     
     timer.Simple(1, function()
         if CONVARS.ENABLED:GetBool() then
-            EnableCustomRendering()
+            local success, err = pcall(EnableCustomRendering)
+            if not success then
+                ErrorNoHalt("[RTX Fixes] Failed to enable custom rendering: " .. tostring(err) .. "\n")
+                DisableCustomRendering()
+            end
         end
     end)
 end
@@ -338,6 +499,11 @@ cvars.AddChangeCallback("rtx_force_render", function(_, _, new)
     end
 end)
 
+cvars.AddChangeCallback("rtx_capture_mode", function(_, _, new)
+    -- Invert the value: if capture_mode is 1, r_drawworld should be 0 and vice versa
+    RunConsoleCommand("r_drawworld", new == "1" and "0" or "1")
+end)
+
 -- Menu
 hook.Add("PopulateToolMenu", "RTXCustomWorldMenu", function()
     spawnmenu.AddToolMenuOption("Utilities", "User", "RTX_ForceRender", "#RTX Custom World", "", "", function(panel)
@@ -345,15 +511,38 @@ hook.Add("PopulateToolMenu", "RTXCustomWorldMenu", function()
         
         panel:CheckBox("Enable Custom World Rendering", "rtx_force_render")
         panel:ControlHelp("Renders the world using chunked meshes")
-        
-        panel:NumSlider("Chunk Size", "rtx_chunk_size", 4, 8196, 0)
-        panel:ControlHelp("Size of chunks for mesh combining. Larger = better performance but more memory")
+
+        panel:CheckBox("Remix Capture Mode", "rtx_capture_mode")
+        panel:ControlHelp("Enable this if you're taking a capture with RTX Remix")
         
         panel:CheckBox("Show Debug Info", "rtx_force_render_debug")
-        
-        panel:Button("Rebuild Meshes", "rtx_rebuild_meshes")
     end)
 end)
 
 -- Console Commands
 concommand.Add("rtx_rebuild_meshes", BuildMapMeshes)
+
+if CONVARS.DEBUG:GetBool() then
+    hook.Add("PostDrawTranslucentRenderables", "RTXDebugNormals", function()
+        render.SetColorMaterial()
+        for renderType, chunks in pairs(mapMeshes) do
+            for _, materials in pairs(chunks) do
+                for _, group in pairs(materials) do
+                    if group.meshes then
+                        for _, mesh in ipairs(group.meshes) do
+                            -- Draw debug lines for normals
+                            local meshData = mesh:GetVertexBuffer()
+                            if meshData then
+                                for i = 1, #meshData, 3 do
+                                    local pos = meshData[i].pos
+                                    local normal = meshData[i].normal
+                                    render.DrawLine(pos, pos + normal * 10, Color(255, 0, 0), true)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end

@@ -89,6 +89,7 @@ private:
     static bool ValidatePrimitiveParams(UINT MinVertexIndex, UINT NumVertices, UINT PrimitiveCount);
     static bool ValidateVertexShader(IDirect3DVertexShader9* pShader);
     static bool IsParticleSystem();
+    static bool IsDeviceReady();
     static void LogShaderError(const char* format, ...);
 
     // State management
@@ -140,13 +141,28 @@ private:
     static ParticleRender_t g_original_ParticleRender;
     static void __fastcall ParticleRender_detour(void* thisptr);
 
-    // Skybox
-    Detouring::Hook m_R_DrawSkyBox_hook;
-    static void __fastcall R_DrawSkyBox_detour(void* thisptr, void* edx);
-    typedef void(__fastcall* R_DrawSkyBox_t)(void* thisptr);
-    static R_DrawSkyBox_t g_original_R_DrawSkyBox;
-
     // Add VEH handle storage
     PVOID m_vehHandle;
     PVOID m_vehHandlerDivision;
+
+    // Add new eye shader hooks
+    // Change these from static to member variables
+    Detouring::Hook m_InitParamsEyes_hook;
+    Detouring::Hook m_InitEyes_hook;
+    Detouring::Hook m_DrawEyes_hook;
+
+    // Function pointer typedefs for the eye shader functions
+    typedef void(__fastcall* InitParamsEyes_t)(void* thisptr);
+    typedef bool(__fastcall* InitEyes_t)(void* thisptr);
+    typedef void(__fastcall* DrawEyes_t)(void* thisptr);
+
+    // Original function pointers
+    static InitParamsEyes_t g_original_InitParamsEyes;
+    static InitEyes_t g_original_InitEyes;
+    static DrawEyes_t g_original_DrawEyes;
+
+    // Detour functions - update signatures
+    static void __fastcall InitParamsEyes_detour(void* thisptr);
+    static bool __fastcall InitEyes_detour(void* thisptr);
+    static void __fastcall DrawEyes_detour(void* thisptr);
 };

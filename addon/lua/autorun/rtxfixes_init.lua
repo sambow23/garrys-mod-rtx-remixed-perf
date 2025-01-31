@@ -7,30 +7,45 @@ if CLIENT then
 
     -- Add console command to spawn a test light
     concommand.Add("rtx_test_light", function(ply)
-        local pos = ply:GetPos()
-        -- More conservative test values
-        local size = 25            -- Smaller size
-        local brightness = 5       -- Lower brightness
-        local r, g, b = 0.5, 0.5, 0.5  -- Half brightness white
-        print(string.format("[RTX Debug] Attempting to create light at pos: %.2f, %.2f, %.2f", pos.x, pos.y, pos.z))
-        local handle = CreateRTXLight(pos.x, pos.y, pos.z + 50, size, brightness, r, g, b)
-        if handle then
-            print("[RTX Debug] Successfully created test light")
-        end
+        -- ... existing code ...
     end)
 
-    -- Draw lights each frame
-    hook.Add("PostDrawOpaqueRenderables", "rtx_fixes_render", function()
-        local count = 0
-        for _, ent in ipairs(ents.FindByClass("base_rtx_light")) do
+    local hook_name = "rtx_fixes_render"
+    local function UpdateRenderHook()
+        local lights = ents.FindByClass("base_rtx_light")
+        local hasLights = false
+        for _, ent in ipairs(lights) do
             if IsValid(ent) and ent.rtxLightHandle then
-                count = count + 1
+                hasLights = true
+                break
             end
         end
-        DrawRTXLights()
+
+        -- Only add hook if lights exist
+        if hasLights and not hook.GetTable()["PostDrawOpaqueRenderables"][hook_name] then
+            hook.Add("PostDrawOpaqueRenderables", hook_name, function()
+                DrawRTXLights()
+            end)
+        -- Remove hook if no lights exist
+        elseif not hasLights and hook.GetTable()["PostDrawOpaqueRenderables"][hook_name] then
+            hook.Remove("PostDrawOpaqueRenderables", hook_name)
+        end
+    end
+
+    -- Monitor light creation/destruction
+    hook.Add("OnEntityCreated", "rtx_fixes_monitor", function(ent)
+        if IsValid(ent) and ent:GetClass() == "base_rtx_light" then
+            UpdateRenderHook()
+        end
     end)
 
-        -- Add cleanup hook
+    hook.Add("EntityRemoved", "rtx_fixes_monitor", function(ent)
+        if IsValid(ent) and ent:GetClass() == "base_rtx_light" then
+            UpdateRenderHook()
+        end
+    end)
+
+    -- Add cleanup hook
     hook.Add("PostCleanupMap", "rtx_fixes_cleanup", function()
         -- Cleanup all RTX lights
         for _, ent in ipairs(ents.FindByClass("base_rtx_light")) do
@@ -41,5 +56,6 @@ if CLIENT then
                 ent.rtxLightHandle = nil
             end
         end
+        UpdateRenderHook()
     end)
 end

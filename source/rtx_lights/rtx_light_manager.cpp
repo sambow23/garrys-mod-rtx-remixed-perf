@@ -10,7 +10,9 @@ RTXLightManager& RTXLightManager::Instance() {
 RTXLightManager::RTXLightManager() 
     : m_remix(nullptr)
     , m_initialized(false)
-    , m_isFrameActive(false) {
+    , m_isFrameActive(false)
+    , m_isValidating(false)
+    , m_lastValidationTime(0.0f) {
     InitializeCriticalSection(&m_lightCS);
     InitializeCriticalSection(&m_updateCS);
 }
@@ -163,9 +165,7 @@ void RTXLightManager::ProcessPendingUpdates() {
             }
         }
     }
-    catch (const std::exception& e) {
-        LogMessage("Exception in ProcessPendingUpdates: %s\n", e.what());
-    }
+
     catch (...) {
         LogMessage("Unknown exception in ProcessPendingUpdates\n");
     }
@@ -276,69 +276,85 @@ void RTXLightManager::RegisterLuaEntityValidator(std::function<bool(uint64_t)> v
 void RTXLightManager::ValidateState() {
     if (!m_initialized || !m_remix) return;
 
+    bool expected = false;
+    if (!m_isValidating.compare_exchange_strong(expected, true)) {
+        return;
+    }
+
     EnterCriticalSection(&m_lightCS);
     
     try {
-        // First pass: validate RTX light handles and build a list of invalid ones
-        std::vector<remixapi_LightHandle> invalidHandles;
-        for (const auto& light : m_lights) {
-            if (!light.handle) {
-                LogMessage("Found null light handle\n");
-                invalidHandles.push_back(light.handle);
+        float currentTime = GetTickCount64() / 1000.0f;
+        if (currentTime - m_lastValidationTime < 5.0f) { // Increased delay further
+            LeaveCriticalSection(&m_lightCS);
+            m_isValidating.store(false);
+            return;
+        }
+        m_lastValidationTime = currentTime;
+
+        if (!m_luaEntityValidator) {
+            LeaveCriticalSection(&m_lightCS);
+            m_isValidating.store(false);
+            return;
+        }
+
+        std::vector<uint64_t> entitiesToRemove;
+        std::vector<uint64_t> entitiesToKeep;
+
+        // First pass: identify entities
+        for (const auto& pair : m_lightsByEntityID) {
+            bool isValid = false;
+            try {
+                isValid = m_luaEntityValidator(pair.first);
+                LogMessage("Entity %llu (Index: %llu) validation result: %s\n", 
+                    pair.first, 
+                    pair.first % 1000000,
+                    isValid ? "valid" : "invalid");
+                
+                if (isValid) {
+                    entitiesToKeep.push_back(pair.first);
+                } else {
+                    // Only mark for removal if we haven't seen this entity recently
+                    float timeSinceUpdate = currentTime - pair.second.lastUpdateTime;
+                    if (timeSinceUpdate > 10.0f) { // Only remove if not updated for 10 seconds
+                        entitiesToRemove.push_back(pair.first);
+                    }
+                }
+            }
+            catch (...) {
+                LogMessage("Exception during validation of entity %llu\n", pair.first);
                 continue;
             }
+        }
 
-            // Try to draw the light as a validity check
-            auto result = m_remix->DrawLightInstance(light.handle);
-            if (!static_cast<bool>(result)) {
-                LogMessage("Found invalid light handle: %p\n", light.handle);
-                invalidHandles.push_back(light.handle);
+        // Only remove if we have clearly invalid entities AND some valid ones
+        if (!entitiesToRemove.empty() && !entitiesToKeep.empty()) {
+            for (uint64_t entityID : entitiesToRemove) {
+                auto it = m_lightsByEntityID.find(entityID);
+                if (it != m_lightsByEntityID.end()) {
+                    LogMessage("Removing light for invalid entity %llu (Index: %llu) with handle %p\n", 
+                        entityID, entityID % 1000000, it->second.handle);
+                    
+                    if (it->second.handle) {
+                        m_remix->DestroyLight(it->second.handle);
+                    }
+
+                    auto lightIt = std::find_if(m_lights.begin(), m_lights.end(),
+                        [handle = it->second.handle](const ManagedLight& light) {
+                            return light.handle == handle;
+                        });
+                    
+                    if (lightIt != m_lights.end()) {
+                        m_lights.erase(lightIt);
+                    }
+
+                    m_lightsByEntityID.erase(it);
+                }
             }
         }
 
-        // Second pass: validate entities and their associated lights
-        for (auto it = m_lightsByEntityID.begin(); it != m_lightsByEntityID.end(); ) {
-            bool shouldKeep = false;
-
-            // Check if the entity still exists in Lua
-            if (m_luaEntityValidator) {
-                shouldKeep = m_luaEntityValidator(it->first);
-            }
-
-            // Also check if the light handle is valid
-            if (shouldKeep) {
-                auto handle = it->second.handle;
-                shouldKeep = std::find(invalidHandles.begin(), invalidHandles.end(), handle) == invalidHandles.end();
-            }
-
-            if (!shouldKeep) {
-                LogMessage("Removing light for invalid entity %llu with handle %p\n", 
-                    it->first, it->second.handle);
-                
-                // Clean up the RTX light
-                if (it->second.handle) {
-                    m_remix->DestroyLight(it->second.handle);
-                }
-
-                // Remove from main lights vector
-                auto lightIt = std::find_if(m_lights.begin(), m_lights.end(),
-                    [handle = it->second.handle](const ManagedLight& light) {
-                        return light.handle == handle;
-                    });
-                
-                if (lightIt != m_lights.end()) {
-                    m_lights.erase(lightIt);
-                }
-
-                // Remove from entity tracking
-                it = m_lightsByEntityID.erase(it);
-            } else {
-                ++it;
-            }
-        }
-
-        LogMessage("State validation complete. Remaining lights: %d, Tracked entities: %d\n", 
-            m_lights.size(), m_lightsByEntityID.size());
+        LogMessage("State validation complete. Valid: %zu, Invalid: %zu, Total remaining: %d\n", 
+            entitiesToKeep.size(), entitiesToRemove.size(), m_lights.size());
     }
     catch (const std::exception& e) {
         LogMessage("Exception in ValidateState: %s\n", e.what());
@@ -347,6 +363,7 @@ void RTXLightManager::ValidateState() {
         LogMessage("Unknown exception in ValidateState\n");
     }
 
+    m_isValidating.store(false);
     LeaveCriticalSection(&m_lightCS);
 }
 
@@ -359,61 +376,76 @@ uint64_t RTXLightManager::GenerateLightHash() const {
 bool RTXLightManager::UpdateLight(remixapi_LightHandle handle, const LightProperties& props, remixapi_LightHandle* newHandle) {
     if (!m_initialized || !m_remix) return false;
 
+    // Prevent recursive updates
+    if (m_isUpdating.exchange(true)) {
+        LogMessage("Warning: Recursive UpdateLight call detected\n");
+        return false;
+    }
+
     EnterCriticalSection(&m_updateCS);
     
     try {
-        // Verify the light exists before queuing update
-        bool lightExists = false;
+        // Validate handle before updating
+        if (!ValidateLightHandle(handle)) {
+            LogMessage("Attempted to update invalid light handle: %p\n", handle);
+            LeaveCriticalSection(&m_updateCS);
+            m_isUpdating = false;
+            return false;
+        }
+
+        // Store old properties for rollback
+        LightProperties oldProps;
+        bool foundOld = false;
         for (const auto& light : m_lights) {
             if (light.handle == handle) {
-                lightExists = true;
+                oldProps = light.properties;
+                foundOld = true;
                 break;
             }
         }
 
-        if (!lightExists) {
-            LogMessage("Warning: Attempting to update non-existent light %p\n", handle);
+        // Create new light before destroying old one
+        auto sphereLight = CreateSphereLight(props);
+        auto lightInfo = CreateLightInfo(sphereLight);
+        auto result = m_remix->CreateLight(lightInfo);
+        
+        if (!result) {
+            LogMessage("Failed to create new light during update\n");
             LeaveCriticalSection(&m_updateCS);
+            m_isUpdating = false;
             return false;
         }
 
-        // Queue the update
-        PendingUpdate update;
-        update.handle = handle;
-        update.properties = props;
-        update.needsUpdate = true;
-        update.requiresRecreation = true;
+        // Only destroy old after successful creation
+        m_remix->DestroyLight(handle);
 
-        LogMessage("Queueing update for light %p at position (%f, %f, %f)\n", 
-            handle, props.x, props.y, props.z);
-
-        m_pendingUpdates.push(update);
-
-        // Process immediately if not in active frame
-        if (!m_isFrameActive) {
-            ProcessPendingUpdates();
-            
-            // Find the new handle if requested
-            if (newHandle) {
-                for (const auto& light : m_lights) {
-                    if (light.properties.x == props.x && 
-                        light.properties.y == props.y && 
-                        light.properties.z == props.z) {
-                        *newHandle = light.handle;
-                        break;
-                    }
-                }
+        // Update tracking
+        bool updated = false;
+        for (auto& light : m_lights) {
+            if (light.handle == handle) {
+                light.handle = result.value();
+                light.properties = props;
+                light.lastUpdateTime = GetTickCount64() / 1000.0f;
+                updated = true;
+                if (newHandle) *newHandle = light.handle;
+                break;
             }
         }
+
+        if (!updated) {
+            LogMessage("Warning: Light handle not found in tracking list\n");
+        }
+
+        LeaveCriticalSection(&m_updateCS);
+        m_isUpdating = false;
+        return true;
     }
     catch (...) {
         LogMessage("Exception in UpdateLight\n");
         LeaveCriticalSection(&m_updateCS);
+        m_isUpdating = false;
         return false;
     }
-
-    LeaveCriticalSection(&m_updateCS);
-    return true;
 }
 
 void RTXLightManager::DestroyLight(remixapi_LightHandle handle) {
@@ -450,57 +482,184 @@ void RTXLightManager::DestroyLight(remixapi_LightHandle handle) {
 }
 
 void RTXLightManager::CleanupInvalidLights() {
+    EnterCriticalSection(&m_lightCS);
+    
     try {
-        auto it = m_lights.begin();
-        while (it != m_lights.end()) {
-            bool isValid = false;
-            if (it->handle) {
-                // Try to draw the light as a validity check
-                auto result = m_remix->DrawLightInstance(it->handle);
-                isValid = static_cast<bool>(result); // Use the bool operator
-            }
-
-            if (!isValid) {
-                LogMessage("Removing invalid light handle: %p\n", it->handle);
-                if (it->handle) {
-                    m_remix->DestroyLight(it->handle);
+        // Track orphaned lights (in m_lights but not in m_lightsByEntityID)
+        std::vector<remixapi_LightHandle> orphanedLights;
+        for (const auto& light : m_lights) {
+            bool found = false;
+            for (const auto& pair : m_lightsByEntityID) {
+                if (pair.second.handle == light.handle) {
+                    found = true;
+                    break;
                 }
-                it = m_lights.erase(it);
-            } else {
-                ++it;
+            }
+            if (!found) {
+                orphanedLights.push_back(light.handle);
+            }
+        }
+
+        // Cleanup orphaned lights
+        if (!orphanedLights.empty()) {
+            LogMessage("Found %zu orphaned lights, cleaning up\n", orphanedLights.size());
+            for (auto handle : orphanedLights) {
+                if (handle) {
+                    m_remix->DestroyLight(handle);
+                }
+                auto it = std::remove_if(m_lights.begin(), m_lights.end(),
+                    [handle](const ManagedLight& light) {
+                        return light.handle == handle;
+                    });
+                m_lights.erase(it, m_lights.end());
             }
         }
     }
     catch (...) {
         LogMessage("Exception in CleanupInvalidLights\n");
     }
+    
+    LeaveCriticalSection(&m_lightCS);
+}
+
+void RTXLightManager::ValidateResources() {
+    static uint32_t validationCounter = 0;
+    validationCounter++;
+
+    // Perform deep validation every 300 frames
+    if (validationCounter % 300 == 0) {
+        EnterCriticalSection(&m_lightCS);
+        
+        try {
+            size_t beforeSize = m_lights.size();
+            CleanupInvalidLights();
+            
+            // Check for mismatched counts
+            if (m_lights.size() != m_lightsByEntityID.size()) {
+                LogMessage("Warning: Light count mismatch - Lights: %zu, Entities: %zu\n",
+                    m_lights.size(), m_lightsByEntityID.size());
+            }
+
+            // Log memory usage
+            LogMessage("Resource validation - Lights: %zu, Memory: ~%zu bytes\n",
+                m_lights.size(),
+                (m_lights.size() * sizeof(ManagedLight)) + 
+                (m_lightsByEntityID.size() * sizeof(std::pair<uint64_t, ManagedLight>)));
+        }
+        catch (...) {
+            LogMessage("Exception in ValidateResources\n");
+        }
+        
+        LeaveCriticalSection(&m_lightCS);
+    }
+}
+
+bool RTXLightManager::IsHandleStillValid(remixapi_LightHandle handle) {
+    if (!handle || !m_remix) return false;
+
+    // Check if handle exists and can be drawn
+    try {
+        auto result = m_remix->DrawLightInstance(handle);
+        if (!static_cast<bool>(result)) {
+            return false;
+        }
+
+        // Verify handle isn't duplicated
+        int handleCount = 0;
+        for (const auto& light : m_lights) {
+            if (light.handle == handle) {
+                handleCount++;
+                if (handleCount > 1) {
+                    LogMessage("Warning: Duplicate handle %p detected\n", handle);
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+    catch (...) {
+        return false;
+    }
 }
 
 void RTXLightManager::DrawLights() {
     if (!m_initialized || !m_remix) return;
+    if (m_lights.empty()) return;
+
+    // Prevent recursive drawing
+    if (m_isDrawing.exchange(true)) {
+        LogMessage("Warning: Recursive DrawLights call detected\n");
+        return;
+    }
 
     EnterCriticalSection(&m_lightCS);
     
+    std::vector<remixapi_LightHandle> invalidLights;
+    
     try {
-        // Process any pending updates before drawing
-        if (!m_isFrameActive) {
+        m_frameCount++;
+
+        // Add periodic validation
+        ValidateResources();
+        
+        // Batch validation
+        for (const auto& light : m_lights) {
+            if (!ValidateLightHandle(light.handle)) {
+                invalidLights.push_back(light.handle);
+                LogMessage("Invalid light detected: %p\n", light.handle);
+            }
+        }
+
+        // Remove invalid lights first
+        if (!invalidLights.empty()) {
+            LogMessage("Cleaning up %zu invalid lights\n", invalidLights.size());
+            for (auto handle : invalidLights) {
+                DestroyLight(handle);
+            }
+        }
+
+        // Only process updates if not currently updating
+        if (!m_isFrameActive && !m_isUpdating) {
             ProcessPendingUpdates();
         }
 
+        // Draw remaining valid lights
         for (const auto& light : m_lights) {
             if (light.handle) {
-                auto result = m_remix->DrawLightInstance(light.handle);
-                if (!static_cast<bool>(result)) {
-                    LogMessage("Failed to draw light handle: %p\n", light.handle);
+                try {
+                    auto result = m_remix->DrawLightInstance(light.handle);
+                    if (!static_cast<bool>(result)) {
+                        LogMessage("Failed to draw light %p\n", light.handle);
+                    }
+                } catch (...) {
+                    LogMessage("Exception drawing light %p\n", light.handle);
                 }
             }
         }
+
+        // Add handle validation
+        for (const auto& light : m_lights) {
+            if (light.handle && !IsHandleStillValid(light.handle)) {
+                invalidLights.push_back(light.handle);
+                LogMessage("Invalid light handle detected: %p\n", light.handle);
+            }
+        }
+
+        // Periodic validation (every 60 frames)
+        if ((m_frameCount % 60) == 0) {
+            ValidateState();
+        }
+    }
+    catch (const std::exception& e) {
+        LogMessage("Exception in DrawLights: %s\n", e.what());
     }
     catch (...) {
-        LogMessage("Exception in DrawLights\n");
+        LogMessage("Unknown exception in DrawLights\n");
     }
 
     LeaveCriticalSection(&m_lightCS);
+    m_isDrawing = false;
 }
 
 // Helper functions implementation...

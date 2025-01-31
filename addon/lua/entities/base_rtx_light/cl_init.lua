@@ -30,10 +30,49 @@ local function IsValidLightHandle(handle)
         and pcall(function() return handle ~= NULL end)  -- Safe check for nil/NULL
 end
 
-local function ValidateEntityExists(entityID)
-    local ent = Entity(entityID)
-    return IsValid(ent) and ent:GetClass() == "base_rtx_light"
+function ValidateEntityExists(entityID)
+    -- Convert back to entity index from the generated ID
+    local entIndex = entityID % 1000000  -- Extract the original entity index
+    local ent = Entity(entIndex)
+    
+    -- Debug output
+    print(string.format("[RTX Light Validator] Validating - Generated ID: %d, Entity Index: %d", 
+        entityID, 
+        entIndex))
+    
+    -- Basic validity check
+    if not IsValid(ent) then 
+        print(string.format("[RTX Light Validator] Entity %d is not valid", entIndex))
+        return false 
+    end
+    
+    if ent:GetClass() ~= "base_rtx_light" then 
+        print(string.format("[RTX Light Validator] Entity %d is not a light (%s)", 
+            entIndex, 
+            ent:GetClass()))
+        return false 
+    end
+    
+    -- Verify the entity matches our generated ID
+    if ent.rtxEntityID and ent.rtxEntityID ~= entityID then
+        print(string.format("[RTX Light Validator] Entity ID mismatch - Expected: %d, Got: %d", 
+            entityID, 
+            ent.rtxEntityID))
+        return false
+    end
+    
+    return true
 end
+
+-- Register the validator with a delay to ensure module is loaded
+timer.Simple(1, function()
+    if RegisterRTXLightEntityValidator then
+        RegisterRTXLightEntityValidator(ValidateEntityExists)
+        print("[RTX Light] Registered entity validator")
+    else
+        print("[RTX Light] Warning: Could not register entity validator")
+    end
+end)
 
 function ENT:AnimateColor()
     if not self.IsAnimating then return end
@@ -61,11 +100,11 @@ function ENT:Initialize()
     self:SetNoDraw(true)
     self:DrawShadow(false)
     
-    -- Register this light in our tracking table
+    self.creationTime = CurTime()
     activeRTXLights[self:EntIndex()] = self
     
-    -- Delay light creation to ensure networked values are received
-    timer.Simple(0.1, function()
+    -- Increase delay for light creation
+    timer.Simple(0.25, function()
         if IsValid(self) then
             self:CreateRTXLight()
         end
@@ -75,13 +114,20 @@ function ENT:Initialize()
 end
 
 function ENT:CreateRTXLight()
-    -- Ensure we have a unique entity ID
+    -- Create a more stable entity ID that persists
     if not self.rtxEntityID then
-        self.rtxEntityID = self:EntIndex() + (CurTime() * 1000000) -- Create unique ID
+        -- Use entity index as base and add a timestamp component
+        local baseIndex = self:EntIndex()
+        local timeComponent = math.floor(CurTime()) % 1000
+        self.rtxEntityID = (timeComponent * 1000000) + baseIndex
     end
 
-    -- Clean up any existing light for this entity
-    if IsValidLightHandle(self.rtxLightHandle) then
+    print(string.format("[RTX Light] Creating light for entity %d with generated ID %d", 
+        self:EntIndex(), 
+        self.rtxEntityID))
+
+    -- Clean up existing light
+    if self.rtxLightHandle then
         pcall(function() 
             DestroyRTXLight(self.rtxLightHandle)
         end)
@@ -106,7 +152,7 @@ function ENT:CreateRTXLight()
             r,
             g,
             b,
-            self.rtxEntityID -- Pass entity ID to module
+            self.rtxEntityID
         )
     end)
 
@@ -114,8 +160,16 @@ function ENT:CreateRTXLight()
         self.rtxLightHandle = handle
         self.lastUpdatePos = pos
         self.lastUpdateTime = CurTime()
+        
+        -- Store in active lights table
+        activeRTXLights[self:EntIndex()] = self
+        
+        print(string.format("[RTX Light] Successfully created light handle %s for entity %d (ID: %d)", 
+            tostring(handle), 
+            self:EntIndex(),
+            self.rtxEntityID))
     else
-        ErrorNoHalt("[RTX Light] Failed to create light: ", tostring(handle), "\n")
+        ErrorNoHalt(string.format("[RTX Light] Failed to create light: %s\n", tostring(handle)))
     end
 end
 
@@ -202,16 +256,30 @@ function ENT:OnRemove()
 end
 
 -- Add a hook to handle map cleanup
-hook.Add("PreCleanupMap", "RTXLight_PreCleanupMap", function()
+hook.Add("PreCleanupMap", "RTXLight_PreCleanup", function()
+    print("[RTX Light] Pre-cleanup map, destroying all lights...")
     for entIndex, ent in pairs(activeRTXLights) do
         if IsValid(ent) and ent.rtxLightHandle then
             pcall(function()
                 DestroyRTXLight(ent.rtxLightHandle)
             end)
             ent.rtxLightHandle = nil
+            ent.rtxEntityID = nil  -- Clear the ID so it gets regenerated
         end
     end
     table.Empty(activeRTXLights)
+end)
+
+-- Add emergency cleanup
+hook.Add("Shutdown", "RTXLight_Emergency", function()
+    print("[RTX Light] Emergency cleanup on shutdown")
+    for entIndex, ent in pairs(activeRTXLights) do
+        if IsValid(ent) and ent.rtxLightHandle then
+            pcall(function()
+                DestroyRTXLight(ent.rtxLightHandle)
+            end)
+        end
+    end
 end)
 
 net.Receive("RTXLight_Cleanup", function()
@@ -452,24 +520,41 @@ hook.Add("ShutDown", "RTXLight_Cleanup", function()
 end)
 
 -- Add validation timer with error handling
-timer.Create("RTXLightValidation", 5, 0, function()
-    pcall(function()
-        -- Clean up any invalid entries in tracking table
+timer.Create("RTXLightValidation", 10, 0, function()
+    if not ValidateInProgress then
+        ValidateInProgress = true
+        local entitiesToValidate = {}
+        
+        -- Collect entities first
         for entIndex, ent in pairs(activeRTXLights) do
-            if not IsValid(ent) or not ent.rtxLightHandle then
+            if IsValid(ent) then
+                table.insert(entitiesToValidate, ent)
+            else
                 activeRTXLights[entIndex] = nil
             end
         end
-
-        -- Check for lights that need recreation
-        for _, ent in ipairs(ents.FindByClass("base_rtx_light")) do
-            if IsValid(ent) then
-                if not ent.rtxLightHandle and ent.CreateRTXLight then
+        
+        -- Process in batches
+        local batchSize = 5
+        local currentBatch = 1
+        
+        timer.Create("RTXLightValidationBatch", 0.1, math.ceil(#entitiesToValidate / batchSize), function()
+            local start = (currentBatch - 1) * batchSize + 1
+            local finish = math.min(start + batchSize - 1, #entitiesToValidate)
+            
+            for i = start, finish do
+                local ent = entitiesToValidate[i]
+                if IsValid(ent) and not ent.rtxLightHandle and ent.CreateRTXLight then
                     ent:CreateRTXLight()
                 end
             end
-        end
-    end)
+            
+            currentBatch = currentBatch + 1
+            if currentBatch > math.ceil(#entitiesToValidate / batchSize) then
+                ValidateInProgress = false
+            end
+        end)
+    end
 end)
 
 -- Add entity removal hook for more reliable cleanup

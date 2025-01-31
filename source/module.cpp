@@ -294,7 +294,6 @@ GMOD_MODULE_OPEN() {
         // Initialize modules
         CullingHooks::Instance().Initialize();
         ShaderAPIHooks::Instance().Initialize();
-        ShaderAPIHooks::Instance().EnableCustomSkyboxRendering();
         ModelRenderHooks::Instance().Initialize();
 
         // Find Source's D3D9 device
