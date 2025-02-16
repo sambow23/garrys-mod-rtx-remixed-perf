@@ -51,7 +51,6 @@
 ### Addons
 - High vram usage with a lot of addons (most likely from ARC9 or TFA precaching textures on map load)
 - Tactical RP scopes become invisible when using ADS
-- Hands become rasterized when using ADS with ARC9
 
 ## Main Settings
 ### Custom World Renderer
