@@ -262,33 +262,14 @@ function FixupMaterial(filepath)
 	end
 end
 
--- function FixupWaterMaterial(mat, filepath)
--- 	print("[RTX Fixes] - Found and fixing water material in " .. filepath)
--- 	if (string.find(filepath, "beneath")) then
--- 		local waterbeneath = Material("rtx/water_beneath")
--- 		mat:SetTexture( "$basetexture", waterbeneath:GetTexture("$basetexture") )
--- 		mat:SetString("$fallbackmaterial", "rtx/water_beneath")
--- 	else
--- 		local water = Material("rtx/water")
--- 		mat:SetTexture( "$basetexture", water:GetTexture("$basetexture") )
--- 		mat:SetString("$fallbackmaterial", "rtx/water")
--- 		mat:SetString("$bottommaterial", "rtx/water_beneath")
--- 	end
--- 	mat:SetInt( "$additive", 1 )
--- 	mat:SetInt( "$nocull", 1 )
--- 	mat:SetFloat( "$texscale", 0.25 )
--- end
 function FixupParticleMaterial(mat, filepath)
-	print("[RTX Fixes] - Found and fixing particle material in " .. filepath)
 	mat:SetInt( "$additive", 1 )
 end
 function FixupBlankMaterial(mat, filepath)
-	print("[RTX Fixes] - Found and fixing blank material in " .. filepath)
 	local blankmat = Material("debug/particleerror")
 	mat:SetTexture( "$basetexture", blankmat:GetTexture("$basetexture") )
 end
 function FixupGUIMaterial(mat, filepath)
-	print("[RTX Fixes] - Found and fixing vgui material in " .. filepath)
 	local blankmat = Material("rtx/guiwhite")
 	mat:SetTexture( "$basetexture", blankmat:GetTexture("$basetexture") )
 end

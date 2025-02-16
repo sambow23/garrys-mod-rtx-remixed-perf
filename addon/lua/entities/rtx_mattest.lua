@@ -1,38 +1,38 @@
 
-AddCSLuaFile()
-DEFINE_BASECLASS( "base_gmodentity" )
+-- AddCSLuaFile()
+-- DEFINE_BASECLASS( "base_gmodentity" )
 
-ENT.PrintName = "RTXPhysics"
-ENT.Editable = true
+-- ENT.PrintName = "RTXPhysics"
+-- ENT.Editable = true
 
--- Custom drive mode
-function ENT:GetEntityDriveMode()
+-- -- Custom drive mode
+-- function ENT:GetEntityDriveMode()
 
-	return "drive_noclip"
+-- 	return "drive_noclip"
 
-end
+-- end
 
-function ENT:Initialize()
+-- function ENT:Initialize()
 
-	self:SetModel("models/props_junk/wood_crate001a.mdl")
-	if ( SERVER ) then
+-- 	self:SetModel("models/props_junk/wood_crate001a.mdl")
+-- 	if ( SERVER ) then
 
-		self:PhysicsInit( SOLID_VPHYSICS )
-		self:DrawShadow( false )
+-- 		self:PhysicsInit( SOLID_VPHYSICS )
+-- 		self:DrawShadow( false )
 
-		local phys = self:GetPhysicsObject()
-		if ( IsValid( phys ) ) then phys:Wake() end
+-- 		local phys = self:GetPhysicsObject()
+-- 		if ( IsValid( phys ) ) then phys:Wake() end
 
-	end
+-- 	end
 
-end
+-- end
 
-if ( SERVER ) then
+-- if ( SERVER ) then
 
-	function ENT:Think()
+-- 	function ENT:Think()
 
-		self.BaseClass.Think( self )
-		print(self:GetMaterial())
+-- 		self.BaseClass.Think( self )
+-- 		print(self:GetMaterial())
 
-	end
-end
+-- 	end
+-- end
