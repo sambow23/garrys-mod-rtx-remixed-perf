@@ -505,28 +505,3 @@ end)
 
 -- Console Commands
 concommand.Add("rtx_rebuild_meshes", BuildMapMeshes)
-
-if CONVARS.DEBUG:GetBool() then
-    hook.Add("PostDrawTranslucentRenderables", "RTXDebugNormals", function()
-        render.SetColorMaterial()
-        for renderType, chunks in pairs(mapMeshes) do
-            for _, materials in pairs(chunks) do
-                for _, group in pairs(materials) do
-                    if group.meshes then
-                        for _, mesh in ipairs(group.meshes) do
-                            -- Draw debug lines for normals
-                            local meshData = mesh:GetVertexBuffer()
-                            if meshData then
-                                for i = 1, #meshData, 3 do
-                                    local pos = meshData[i].pos
-                                    local normal = meshData[i].normal
-                                    render.DrawLine(pos, pos + normal * 10, Color(255, 0, 0), true)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end)
-end

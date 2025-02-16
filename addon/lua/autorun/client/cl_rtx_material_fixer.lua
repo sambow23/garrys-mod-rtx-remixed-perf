@@ -1,26 +1,16 @@
 if not CLIENT then return end
 
-local function FixupWater() 
-	-- todo, find all water brushes and swap their texture.
-	-- sorry this is tirning into note taking area, but here's what needs to be done
-	-- fetch water, somehow (not a brush entity as far as i know)
-	-- replace the water (replacement method doesnt seem to like dx fallbacks)
-end
-
 local function FixupBlankMaterial(mat, filepath)
-	print("[RTX Fixes] - Found and fixing blank material in " .. filepath)
 	local blankmat = Material("debug/particleerror")
 	mat:SetTexture( "$basetexture", blankmat:GetTexture("$basetexture") )
 end
 
 local function FixupGUIMaterial(mat, filepath)
-	print("[RTX Fixes] - Found and fixing vgui material in " .. filepath)
 	local blankmat = Material("rtx/guiwhite")
 	mat:SetTexture( "$basetexture", blankmat:GetTexture("$basetexture") )
 end
 
 local function FixupParticleMaterial(mat, filepath)
-	print("[RTX Fixes] - Found and fixing particle material in " .. filepath)
 	mat:SetInt( "$additive", 1 )
 end
 

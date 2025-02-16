@@ -5,43 +5,17 @@ end
 if CLIENT then
     require((BRANCH == "x86-64" or BRANCH == "chromium" ) and "RTXFixesBinary" or "RTXFixesBinary_32bit")
 
-    -- Add console command to spawn a test light
-    concommand.Add("rtx_test_light", function(ply)
-        -- ... existing code ...
-    end)
-
-    local hook_name = "rtx_fixes_render"
-    local function UpdateRenderHook()
-        local lights = ents.FindByClass("base_rtx_light")
-        local hasLights = false
-        for _, ent in ipairs(lights) do
-            if IsValid(ent) and ent.rtxLightHandle then
-                hasLights = true
-                break
-            end
-        end
-
-        -- Only add hook if lights exist
-        if hasLights and not hook.GetTable()["PostDrawOpaqueRenderables"][hook_name] then
-            hook.Add("PostDrawOpaqueRenderables", hook_name, function()
-                DrawRTXLights()
-            end)
-        -- Remove hook if no lights exist
-        elseif not hasLights and hook.GetTable()["PostDrawOpaqueRenderables"][hook_name] then
-            hook.Remove("PostDrawOpaqueRenderables", hook_name)
-        end
-    end
-
-    -- Monitor light creation/destruction
+    -- Monitor light creation/destruction for cleanup purposes only
     hook.Add("OnEntityCreated", "rtx_fixes_monitor", function(ent)
         if IsValid(ent) and ent:GetClass() == "base_rtx_light" then
-            UpdateRenderHook()
+            -- Call DrawRTXLights when a new light is created
+            DrawRTXLights()
         end
     end)
 
     hook.Add("EntityRemoved", "rtx_fixes_monitor", function(ent)
         if IsValid(ent) and ent:GetClass() == "base_rtx_light" then
-            UpdateRenderHook()
+            -- No need to call DrawRTXLights on removal as the light is destroyed
         end
     end)
 
@@ -56,6 +30,5 @@ if CLIENT then
                 ent.rtxLightHandle = nil
             end
         end
-        UpdateRenderHook()
     end)
 end

@@ -46,6 +46,10 @@ function ENT:Initialize()
     print("[RTX Fixes] - Lightupdater Initialised.") 
     self:SetModel("models/hunter/blocks/cube025x025x025.mdl") 
     
+    -- Use consistent render mode and opacity
+    self:SetRenderMode(2)  // RENDERMODE_TRANSALPHA
+    self:SetColor(Color(255, 255, 255, 1))
+    
     -- Get all lights from the map using NikNaks
     self.regularLights = {}
     self.environmentLights = {}
