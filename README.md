@@ -34,8 +34,6 @@
 
 ## Known issues and stuff that doesn't work:
 ### Vanilla
-- Remix cannot lock keyboard and mouse input when the runtime menu is open (happens because of no remix bridge, nvidia will need to fix it on their end)
-- The mouse cursor will occasionally appear when moving around the camera (happens because of no remix bridge, nvidia will need to fix it on their end)
 - Shader skyboxes (gm_flatgrass, gm_construct, etc) (use the [hdri skybox](https://github.com/sambow23/hdri_cube/blob/main/README.md) addon below as an alternative)
 - Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them)
 - NPC Eyes (limitation of FF rendering)
@@ -46,8 +44,6 @@
 
 - HDR maps (limitation of FF rendering)
 - Some materials don't appear (limitation of FF rendering)
-- Material Tool (use [SubMaterial](https://steamcommunity.com/sharedfiles/filedetails/?id=2836948539&searchtext=submaterial) for now instead)
-  - investigating a fix
 - Model replacement for skinned meshes like ragdolls, view modelds, some props, etc.
 - 3D Skybox is visible within the main map
 - CEF Causes some maps to be rasterized and have vertex explosions. Use the noCEF version if you dont want to deal with these issues.
