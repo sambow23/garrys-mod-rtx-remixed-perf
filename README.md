@@ -1,7 +1,7 @@
 
 # Garry's Mod RTX Fixes 2 (x64)
 ## Binary Module Features
-- Shader fixes for known shaders that cause compatibility issues with Remix
+- Shader fixes for known shaders that cause compatibility issues with Remix (temporarily disabled)
 - Remix API Lights (WIP)
 ## Lua Features
 - Custom World Renderer
@@ -11,6 +11,10 @@
 - Water replacer
   * Replaces all map water materials with a single one so it can be replaced in Remix
     * Some non-water materials in maps might get replaced with water. If so, please make a github issue with the map name and screenshot on where its happening.
+- Light Updaters
+    * Forces Source to render all map lights
+- Material Fixer
+    * Fixes broken UI/game materials in fixed function rendering
 
 ## Installation:
 > [!WARNING]  
@@ -36,6 +40,7 @@
 ### Vanilla
 - Shader skyboxes (gm_flatgrass, gm_construct, etc) (use the [hdri skybox](https://github.com/sambow23/hdri_cube/blob/main/README.md) addon below as an alternative)
 - Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them)
+  - Looking into a potential fix
 - NPC Eyes (limitation of FF rendering)
 - Some particles will not appear (limitation of FF rendering)
 - Race conditions with Remix API Lights
@@ -72,12 +77,11 @@ Modifies render bounds to prevent culling around the player camera.
 ## Recommended Resources and Addons
 [HDRI Editor](https://github.com/sambow23/hdri_cube/blob/main/README.md)
 
-[SourceRTXTweaks](https://github.com/BlueAmulet/SourceRTXTweaks) (We use this for game binary patching; Major thank you to BlueAmulet for their hard work)
-
 [Garry's Mod RTX 32-bit installer by Skurtyyskirts](https://github.com/skurtyyskirts/GmodRTX)
 
 ## Credits
-* @vlazed for [toggle-cursor](https://github.com/vlazed/toggle-cursor)
+* [@vlazed](https://github.com/vlazed/) for [toggle-cursor](https://github.com/vlazed/toggle-cursor)
 * Yosuke Nathan on the RTX Remix Showcase server for the gmod rtx logo
 * Everyone on the RTX Remix Showcase server
 * NVIDIA for RTX Remix
+* [@BlueAmulet](https://github.com/BlueAmulet) for [SourceRTXTweaks](https://github.com/BlueAmulet/SourceRTXTweaks)  (We use this for game binary patching; Major thank you to BlueAmulet for their hard work)
