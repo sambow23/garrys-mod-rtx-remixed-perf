@@ -75,3 +75,9 @@ Modifies render bounds to prevent culling around the player camera.
 [SourceRTXTweaks](https://github.com/BlueAmulet/SourceRTXTweaks) (We use this for game binary patching; Major thank you to BlueAmulet for their hard work)
 
 [Garry's Mod RTX 32-bit installer by Skurtyyskirts](https://github.com/skurtyyskirts/GmodRTX)
+
+## Credits
+* @vlazed for [toggle-cursor](https://github.com/vlazed/toggle-cursor)
+* Yosuke Nathan on the RTX Remix Showcase server for the gmod rtx logo
+* Everyone on the RTX Remix Showcase server
+* NVIDIA for RTX Remix
