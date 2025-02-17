@@ -6,8 +6,8 @@
 ## Lua Features
 - Custom World Renderer
   * Renders map geometry with meshed chunks to prevent PVS/Frustrum culling of brush faces
-- View Frustrum "Optimizer"
-  * Modifies render bounds of static/physics props and light updaters to prevent them getting culled by the view frustrum
+- View Frustrum Forcing
+  * Modifies render bounds of static props and light updaters to prevent them getting culled by the view frustrum
 - Water replacer
   * Replaces all map water materials with a single one so it can be replaced in Remix
     * Some non-water materials in maps might get replaced with water. If so, please make a github issue with the map name and screenshot on where its happening.
