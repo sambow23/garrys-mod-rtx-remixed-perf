@@ -14,8 +14,7 @@
 - Light Updaters
     * Forces Source to render all map lights
 - Material Fixer
-    * Fixes broken UI/game materials in fixed function rendering
-
+    * Fixes some broken UI/game materials
 ## Installation:
 > [!WARNING]  
 > Ensure you have a clean 64-bit version of Garry's Mod installed with no 32-bit leftovers. 
