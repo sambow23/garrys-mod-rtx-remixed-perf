@@ -72,6 +72,10 @@ local PRESETS = {
 
 local MAP_PRESETS = {}
 
+local function GetSafeBoundsSize(size)
+    return math.max(size, 2048) -- Enforce minimum of 1024 units
+end
+
 local function CreateStaticProps()
     -- Clear existing static props
     for _, prop in pairs(staticProps) do
@@ -82,37 +86,16 @@ local function CreateStaticProps()
     staticProps = {}
 
     if cv_enabled:GetBool() and NikNaks and NikNaks.CurrentMap then
-        local regularSize = math.min(cv_static_regular_bounds:GetFloat(), 8192) -- Cap maximum size
+        local regularSize = GetSafeBoundsSize(cv_static_regular_bounds:GetFloat())
+        local bounds = Vector(regularSize, regularSize, regularSize)
+        
         local props = NikNaks.CurrentMap:GetStaticProps()
-        
-        -- Pre-calculate bounds vectors
-        local smallBounds = Vector(1024, 0, 0)  -- For small props
-        local mediumBounds = Vector(2048, 0, 0) -- For medium props
-        local largeBounds = Vector(regularSize, 0, 0) -- For large props
-        
         for _, propData in pairs(props) do
             local prop = ClientsideModel(propData:GetModel())
             if IsValid(prop) then
                 prop:SetPos(propData:GetPos())
                 prop:SetAngles(propData:GetAngles())
-                
-                -- Determine bounds based on model size
-                local mins, maxs = prop:GetModelBounds()
-                if mins and maxs then
-                    local size = maxs.x - mins.x
-                    -- Use appropriate bounds based on model size
-                    if size < 256 then
-                        prop:SetRenderBounds(-smallBounds, smallBounds)
-                    elseif size < 1024 then
-                        prop:SetRenderBounds(-mediumBounds, mediumBounds)
-                    else
-                        prop:SetRenderBounds(-largeBounds, largeBounds)
-                    end
-                else
-                    -- Fallback to medium bounds if we can't determine size
-                    prop:SetRenderBounds(-mediumBounds, mediumBounds)
-                end
-                
+                prop:SetRenderBounds(-bounds, bounds)
                 prop:SetColor(propData:GetColor())
                 prop:SetModelScale(propData:GetScale())
                 table.insert(staticProps, prop)
@@ -120,7 +103,7 @@ local function CreateStaticProps()
         end
         
         if cv_debug:GetBool() then
-            print(string.format("[RTX Fixes] Created %d static props using tiered bounds system", #staticProps))
+            print(string.format("[RTX Fixes] Created %d static props with bounds size: %d", #staticProps, regularSize))
         end
     end
 end
@@ -137,24 +120,13 @@ end
 local function SetEntityBounds(ent)
     if not IsValid(ent) then return end
     
-    -- Get static bounds sizes
-    local regularSize = cv_static_regular_bounds:GetFloat()
-    local rtxSize = cv_static_rtx_bounds:GetFloat()
-    local envSize = cv_static_env_bounds:GetFloat()
+    -- Get static bounds sizes with enforced minimums
+    local regularSize = GetSafeBoundsSize(cv_static_regular_bounds:GetFloat())
+    local rtxSize = GetSafeBoundsSize(cv_static_rtx_bounds:GetFloat())
+    local envSize = math.max(cv_static_env_bounds:GetFloat(), 16384) -- Environment lights need larger minimum
     
-    -- Special entity classes first
-    local specialBounds = SPECIAL_ENTITY_BOUNDS[ent:GetClass()]
-    if specialBounds then
-        local size = specialBounds.size
-        local bounds = Vector(size, size, size)
-        ent:SetRenderBounds(-bounds, bounds)
-        
-        if cv_debug:GetBool() then
-            print(string.format("[RTX Fixes] Special entity bounds (%s): %d", 
-                ent:GetClass(), size))
-        end
     -- HDRI cube editor handling
-    elseif ent:GetClass() == "hdri_cube_editor" then
+    if ent:GetClass() == "hdri_cube_editor" then
         local bounds = Vector(envSize, envSize, envSize)
         ent:SetRenderBounds(-bounds, bounds)
         ent:DisableMatrix("RenderMultiply")
@@ -169,15 +141,7 @@ local function SetEntityBounds(ent)
             ent:SetRenderBounds(-bounds, bounds)
         end
         ent:DisableMatrix("RenderMultiply")
-        
-        -- Use consistent render mode and opacity
-        if GetConVar("rtx_lightupdater_show"):GetBool() then
-            ent:SetRenderMode(0)  // RENDERMODE_NORMAL
-            ent:SetColor(Color(255, 255, 255, 255))
-        else
-            ent:SetRenderMode(2)  // RENDERMODE_TRANSALPHA
-            ent:SetColor(Color(255, 255, 255, 1))
-        end
+        ent:SetNoDraw(false)
     -- Regular entities
     else
         local bounds = Vector(regularSize, regularSize, regularSize)
