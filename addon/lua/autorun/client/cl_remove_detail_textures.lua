@@ -28,35 +28,46 @@ local function DebugPrint(...)
     end
 end
 
+-- Flag to track whether we're running via command (show all output) or automatically (silent)
+local runningFromCommand = false
+
 -- Function to process a single material
 local function ProcessMaterial(matName)
-    if not matName or matName == "" or modifiedMaterials[matName] then 
+    if not matName or matName == "" then 
         return false 
+    end
+    
+    -- Skip already processed materials
+    if modifiedMaterials[matName] ~= nil then
+        return modifiedMaterials[matName] -- Return true if this had a detail texture, false otherwise
     end
     
     local mat = Material(matName)
     if not mat or mat:IsError() then 
-        modifiedMaterials[matName] = true
+        modifiedMaterials[matName] = false
         return false 
     end
     
     -- Check if this material has detail textures
     local detailTexture = mat:GetString("$detail")
     if detailTexture and detailTexture ~= "" then
-        DebugPrint("Found material with detail texture:", matName, "Detail:", detailTexture)
+        if runningFromCommand or debug_mode:GetBool() then
+            DebugPrint("Found material with detail texture:", matName, "Detail:", detailTexture)
+        end
         
         -- Replace the detail texture with our error texture
         mat:SetTexture("$detail", replacementTexture)
         
         detailTexturesRemoved = detailTexturesRemoved + 1
+        materialsProcessed = materialsProcessed + 1
         modifiedMaterials[matName] = true
         return true
     else
         -- Mark as processed even if it doesn't have a detail texture
-        modifiedMaterials[matName] = true
+        materialsProcessed = materialsProcessed + 1
+        modifiedMaterials[matName] = false
     end
     
-    materialsProcessed = materialsProcessed + 1
     return false
 end
 
@@ -64,7 +75,9 @@ end
 local function ProcessBSPMaterials()
     -- Skip if NikNaks is not available or current map isn't loaded
     if not NikNaks or not NikNaks.CurrentMap then
-        error("NikNaks or CurrentMap not available - cannot process BSP materials")
+        if runningFromCommand then
+            error("NikNaks or CurrentMap not available - cannot process BSP materials")
+        end
         return
     end
     
@@ -118,30 +131,53 @@ local function ProcessLoadedEntities()
 end
 
 -- Main function to remove detail textures - can be called repeatedly
-local function RemoveDetailTextures()
-    if not enable_addon:GetBool() then return end
+local function RemoveDetailTextures(showOutput)
+    if not enable_addon:GetBool() then return 0 end
+    
+    -- Save previous counts to calculate new replacements
+    local previousProcessed = materialsProcessed
+    local previousRemoved = detailTexturesRemoved
+    
+    -- Set flag for debug messages
+    runningFromCommand = showOutput or false
     
     local startTime = SysTime()
-    DebugPrint("Checking for materials with detail textures...")
+    if runningFromCommand or debug_mode:GetBool() then
+    end
     
     -- Process BSP materials
     if NikNaks and NikNaks.CurrentMap then
         ProcessBSPMaterials()
     else
-        error("NikNaks or CurrentMap not available - cannot process detail textures")
-        return
+        if runningFromCommand then
+            error("NikNaks or CurrentMap not available - cannot process detail textures")
+        end
+        return 0
     end
     
     -- Process all loaded entities
     ProcessLoadedEntities()
     
+    -- Reset flag
+    runningFromCommand = false
+    
     local endTime = SysTime()
     local processingTime = math.Round((endTime - startTime) * 1000)
     
-    if detailTexturesRemoved > 0 then
-        DebugPrint("Processed " .. materialsProcessed .. " materials total, replaced " 
-                  .. detailTexturesRemoved .. " detail textures (took " .. processingTime .. "ms)")
+    -- Calculate new textures found
+    local newProcessed = materialsProcessed - previousProcessed
+    local newRemoved = detailTexturesRemoved - previousRemoved
+    
+    -- Only report when new textures are found or when explicitly requested
+    if newRemoved > 0 then
+        if showOutput or debug_mode:GetBool() then
+            print("[Detail Texture Remover] Found and replaced " .. newRemoved .. " new detail textures (took " .. processingTime .. "ms)")
+        end
+    elseif showOutput then
+        print("[Detail Texture Remover] No new detail textures found (processed " .. newProcessed .. " new materials)")
     end
+    
+    return newRemoved
 end
 
 -- Start the continuous checking timer
@@ -151,7 +187,7 @@ local function StartContinuousChecking()
     end
     
     -- Create a timer that runs every 2 seconds
-    timer.Create(TIMER_NAME, 2, 0, RemoveDetailTextures)
+    timer.Create(TIMER_NAME, 2, 0, function() RemoveDetailTextures(false) end)
     DebugPrint("Continuous detail texture checking enabled (every 2 seconds)")
 end
 
@@ -185,13 +221,13 @@ hook.Add("InitPostEntity", "RemoveDetailTexturesOnMapLoad", function()
                         error("[Detail Texture Remover] NikNaks or CurrentMap not available after waiting")
                         return
                     end
-                    RemoveDetailTextures()
+                    local found = RemoveDetailTextures(true)
                     StartContinuousChecking()
                 end)
                 return
             end
             
-            RemoveDetailTextures()
+            local found = RemoveDetailTextures(true)
             
             -- Start continuous checking after initial scan
             StartContinuousChecking()
@@ -206,15 +242,18 @@ end)
 -- Reset variables on map change
 hook.Add("ShutDown", "CleanupDetailTextureRemover", function()
     StopContinuousChecking()
+    modifiedMaterials = {}
+    materialsProcessed = 0
+    detailTexturesRemoved = 0
 end)
 
 -- Add command to manually trigger detail texture removal
 concommand.Add("remove_detail_textures", function()
     local oldCount = detailTexturesRemoved
-    RemoveDetailTextures()
+    RemoveDetailTextures(true) -- Force showing output when using command
     local newCount = detailTexturesRemoved - oldCount
     
-    print("[Detail Texture Remover] Scan complete. Found and replaced " .. newCount .. " new detail textures.")
+    -- Don't need to duplicate the console output here since RemoveDetailTextures() will already output with showOutput=true
     notification.AddLegacy("Replaced " .. newCount .. " new detail textures", NOTIFY_GENERIC, 3)
 end)
 
