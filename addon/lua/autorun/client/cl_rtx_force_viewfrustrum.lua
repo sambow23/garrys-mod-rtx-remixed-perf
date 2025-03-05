@@ -225,14 +225,58 @@ end
 -- Store original bounds for an entity
 local function StoreOriginalBounds(ent)
     if not IsValid(ent) or originalBounds[ent] then return end
+    
+    -- Try to get model bounds first
+    local modelMins, modelMaxs = ent:GetModelBounds()
+    
+    if modelMins and modelMaxs then
+        -- Reset to model bounds if available
+        ent:SetRenderBounds(modelMins, modelMaxs)
+    end
+    
+    -- Now store the current render bounds
     local mins, maxs = ent:GetRenderBounds()
-    originalBounds[ent] = {mins = mins, maxs = maxs}
+    
+    -- Only store if we have valid vectors
+    if mins and maxs then
+        originalBounds[ent] = {mins = mins, maxs = maxs}
+    else
+        -- For entities without bounds, store some small default bounds
+        -- This prevents errors when resetting later
+        originalBounds[ent] = {
+            mins = Vector(-1, -1, -1),
+            maxs = Vector(1, 1, 1)
+        }
+    end
+end
+
+-- Properly reset before applying new bounds
+local function ResetAndUpdateBounds(useOriginal)
+    -- First pass: Reset all entities to original bounds
+    for _, ent in ipairs(ents.GetAll()) do
+        if IsValid(ent) and originalBounds[ent] then
+            ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+        end
+    end
+    
+    -- Only apply new bounds if not using original
+    if not useOriginal then
+        -- Second pass: Apply new bounds
+        for _, ent in ipairs(ents.GetAll()) do
+            if IsValid(ent) then
+                SetEntityBounds(ent, false)
+            end
+        end
+    end
 end
 
 -- RTX updater cache management functions
 local function AddToRTXCache(ent)
     if not IsValid(ent) or rtxUpdaterCache[ent] then return end
     if IsRTXUpdater(ent) then
+        -- Store original bounds before modifying
+        StoreOriginalBounds(ent)
+        
         rtxUpdaterCache[ent] = true
         rtxUpdaterCount = rtxUpdaterCount + 1
         
@@ -378,10 +422,15 @@ local function UpdateAllEntitiesBatched(useOriginal)
         local startIdx = (batchNum - 1) * batchSize + 1
         local endIdx = math.min(batchNum * batchSize, totalEntities)
         
-        local batchEntities = {}
         for i = startIdx, endIdx do
             local ent = allEntities[i]
             if IsValid(ent) then
+                -- Always reset to original bounds first if we have them stored
+                if not useOriginal and originalBounds[ent] then
+                    ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+                end
+                
+                -- Now apply the appropriate bounds
                 SetEntityBounds(ent, useOriginal)
             end
         end
@@ -484,11 +533,14 @@ hook.Add("OnEntityCreated", "SetLargeRenderBounds", function(ent)
     
     timer.Simple(0, function()
         if IsValid(ent) then
+            -- Store original bounds BEFORE adding to cache
+            StoreOriginalBounds(ent)
             AddToRTXCache(ent)
             SetEntityBounds(ent, not cv_enabled:GetBool())
         end
     end)
 end)
+
 -- Initial setup
 hook.Add("InitPostEntity", "InitialBoundsSetup", function()
     timer.Simple(1, function()
@@ -501,8 +553,15 @@ end)
 
 -- Map cleanup/reload handler
 hook.Add("OnReloaded", "RefreshStaticProps", function()
+    -- Reset all entities to original bounds first
+    for _, ent in ipairs(ents.GetAll()) do
+        if IsValid(ent) and originalBounds[ent] then
+            ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+        end
+    end
+    
     -- Clear bounds cache
-    originalBounds = {}
+    originalBounds = setmetatable({}, weakEntityTable)
     
     -- Remove existing static props
     for _, prop in pairs(staticProps) do
@@ -514,7 +573,16 @@ hook.Add("OnReloaded", "RefreshStaticProps", function()
     
     -- Recreate if enabled
     if cv_enabled:GetBool() then
-        timer.Simple(1, CreateStaticProps)
+        timer.Simple(1, function()
+            CreateStaticProps()
+            -- Recapture original bounds and apply new ones
+            for _, ent in ipairs(ents.GetAll()) do
+                if IsValid(ent) then
+                    StoreOriginalBounds(ent)
+                    SetEntityBounds(ent, false)
+                end
+            end
+        end)
     end
 end)
 
@@ -522,14 +590,17 @@ end)
 cvars.AddChangeCallback("fr_enabled", function(_, _, new)
     local enabled = tobool(new)
     
+    -- Always reset first
+    ResetAndUpdateBounds(true)
+    
     if enabled then
+        -- Then update with new bounds
         UpdateAllEntitiesBatched(false)
         CreateStaticProps()
         
         -- Disable engine static props when enabled
         RunConsoleCommand("r_drawstaticprops", "1")
     else
-        UpdateAllEntitiesBatched(true)
         -- Remove static props
         for _, prop in pairs(staticProps) do
             if IsValid(prop) then
@@ -544,15 +615,29 @@ end)
 
 cvars.AddChangeCallback("fr_bounds_size", function(_, _, new)
     CreateManagedTimer(boundsUpdateTimer, DEBOUNCE_TIME, 1, function()
+        -- First reset all entities to original bounds
+        for _, ent in ipairs(ents.GetAll()) do
+            if IsValid(ent) and originalBounds[ent] then
+                ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+            end
+        end
+        
+        -- Then update the bounds vectors
         UpdateBoundsVectors(tonumber(new))
         
         if cv_enabled:GetBool() then
+            -- Apply the new bounds
             UpdateAllEntitiesBatched(false)
+            
+            -- Recreate static props with new bounds
+            for _, prop in pairs(staticProps) do
+                if IsValid(prop) then prop:Remove() end
+            end
+            staticProps = {}
             CreateStaticProps()
         end
     end)
 end)
-
 
 cvars.AddChangeCallback("fr_rtx_distance", function(_, _, new)
     if not cv_enabled:GetBool() then return end
@@ -564,6 +649,11 @@ cvars.AddChangeCallback("fr_rtx_distance", function(_, _, new)
         -- Only update non-environment light updaters
         for ent in pairs(rtxUpdaterCache) do
             if IsValid(ent) then
+                -- Reset to original bounds first
+                if originalBounds[ent] then
+                    ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+                end
+                
                 -- Explicitly skip environment lights
                 if ent.lightType ~= "light_environment" then
                     ent:SetRenderBounds(-rtxBoundsSize, rtxBoundsSize)
@@ -586,6 +676,10 @@ cvars.AddChangeCallback("fr_environment_light_distance", function(_, _, new)
         -- Only update environment light updaters
         for ent in pairs(rtxUpdaterCache) do
             if IsValid(ent) and ent.lightType == "light_environment" then
+                if originalBounds[ent] then
+                    ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+                end
+
                 ent:SetRenderBounds(-envBoundsSize, envBoundsSize)
                 
                 -- Only print if debug is enabled
@@ -599,18 +693,36 @@ end)
 
 -- ConCommand to refresh all entities' bounds
 concommand.Add("fr_refresh", function()
-    -- Clear bounds cache
-    originalBounds = {}
+    -- Clear bounds cache completely
+    originalBounds = setmetatable({}, weakEntityTable)
     
+    -- Remove all static props
+    for _, prop in pairs(staticProps) do
+        if IsValid(prop) then prop:Remove() end
+    end
+    staticProps = {}
+    
+    -- Rebuild from scratch
     if cv_enabled:GetBool() then
         boundsSize = cv_bounds_size:GetFloat()
-        mins = Vector(-boundsSize, -boundsSize, -boundsSize)
-        maxs = Vector(boundsSize, boundsSize, boundsSize)
+        UpdateBoundsVectors(boundsSize)
         
-        UpdateAllEntitiesBatched(false)
+        -- Capture original bounds and then update
+        for _, ent in ipairs(ents.GetAll()) do
+            if IsValid(ent) then
+                StoreOriginalBounds(ent)
+                SetEntityBounds(ent, false)
+            end
+        end
+        
         CreateStaticProps()
     else
-        UpdateAllEntitiesBatched(true)
+        -- Just reset to original model bounds
+        for _, ent in ipairs(ents.GetAll()) do
+            if IsValid(ent) then
+                ent:SetRenderBounds(ent:GetModelBounds())
+            end
+        end
     end
     
     print("Refreshed render bounds for all entities" .. (cv_enabled:GetBool() and " with large bounds" or " with original bounds"))
