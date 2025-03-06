@@ -11,6 +11,7 @@ local cv_use_pvs = CreateClientConVar("fr_use_pvs", "1", true, false, "Use Poten
 local cv_pvs_update_interval = CreateClientConVar("fr_pvs_update_interval", "0.5", true, false, "How often to update the PVS data (seconds)")
 local cv_pvs_hud = CreateClientConVar("fr_pvs_hud", "0", true, false, "Show HUD information about PVS optimization")
 
+
 -- Cache the bounds vectors
 local boundsSize = cv_bounds_size:GetFloat()
 local mins = Vector(-boundsSize, -boundsSize, -boundsSize)
@@ -50,6 +51,7 @@ rtxUpdaterCache = setmetatable({}, weakEntityTable)
 local managedTimers = {}
 local currentPVS = nil
 local lastPVSUpdateTime = 0
+local entitiesInPVS = setmetatable({}, weakEntityTable)  -- Track which entities were in PVS
 
 
 -- RTX Light Updater model list
@@ -137,45 +139,6 @@ local stats = {
 }
 
 -- Helper Functions
-local function UpdatePlayerPVS()
-    if not cv_enabled:GetBool() or not NikNaks or not NikNaks.CurrentMap then return end
-    
-    local player = LocalPlayer()
-    if not IsValid(player) then return end
-    
-    local playerPos = player:GetPos()
-    local startTime = SysTime()
-    currentPVS = NikNaks.CurrentMap:PVSForOrigin(playerPos)
-    stats.updateTime = SysTime() - startTime
-    lastPVSUpdateTime = CurTime()
-    
-    -- Update statistics if HUD is enabled
-    if cv_pvs_hud:GetBool() then
-        -- Count entities in PVS
-        stats.entitiesInPVS = 0
-        stats.totalEntities = 0
-        
-        for _, ent in ipairs(ents.GetAll()) do
-            if IsValid(ent) then
-                stats.totalEntities = stats.totalEntities + 1
-                if currentPVS and currentPVS:TestPosition(ent:GetPos()) then
-                    stats.entitiesInPVS = stats.entitiesInPVS + 1
-                end
-            end
-        end
-        
-        -- Get leaf counts
-        stats.pvsLeafCount = 0
-        if currentPVS then
-            stats.pvsLeafCount = table.Count(currentPVS:GetLeafs())
-        end
-        stats.totalLeafCount = table.Count(NikNaks.CurrentMap:GetLeafs())
-    end
-    
-    if cv_debug:GetBool() then
-        print("[RTX Fixes] Updated PVS for player at position", playerPos)
-    end
-end
 
 local function CreateManagedTimer(name, delay, repetitions, func)
     -- Remove existing timer if it exists
@@ -269,6 +232,94 @@ local function GetSpecialBoundsForClass(className)
     
     -- No match found
     return nil
+end
+
+local function UpdatePlayerPVS()
+    if not cv_enabled:GetBool() or not NikNaks or not NikNaks.CurrentMap then return end
+    
+    local player = LocalPlayer()
+    if not IsValid(player) then return end
+    
+    local playerPos = player:GetPos()
+    local startTime = SysTime()
+    
+    -- Store previous PVS to detect entities leaving the PVS
+    local previousPVS = currentPVS
+    local previousEntitiesInPVS = {}
+    
+    -- Copy current tracked entities before updating
+    if cv_use_pvs:GetBool() then
+        for ent in pairs(entitiesInPVS) do
+            if IsValid(ent) then
+                previousEntitiesInPVS[ent] = true
+            end
+        end
+    end
+    
+    -- Generate new PVS
+    currentPVS = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+    stats.updateTime = SysTime() - startTime
+    lastPVSUpdateTime = CurTime()
+    
+    -- Reset bounds for entities that left the PVS
+    if cv_use_pvs:GetBool() and cv_enabled:GetBool() then
+        -- Clear the tracking table
+        entitiesInPVS = setmetatable({}, weakEntityTable)
+        
+        -- Check all entities and update tracking
+        for _, ent in ipairs(ents.GetAll()) do
+            if not IsValid(ent) then continue end
+            
+            local entPos = ent:GetPos()
+            if not entPos then continue end
+            
+            -- Skip special entities and RTX updaters
+            local className = ent:GetClass()
+            if GetSpecialBoundsForClass(className) or SPECIAL_ENTITIES[className] or rtxUpdaterCache[ent] then
+                continue
+            end
+            
+            -- If entity is now in PVS, track it
+            if currentPVS and currentPVS:TestPosition(entPos) then
+                entitiesInPVS[ent] = true
+            -- If entity was previously in PVS but now isn't, reset its bounds
+            elseif previousEntitiesInPVS[ent] then
+                if originalBounds[ent] then
+                    ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+                    if cv_debug:GetBool() then
+                        print("[RTX Fixes] Entity left PVS, reset bounds: " .. tostring(ent))
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Update statistics if HUD is enabled
+    if cv_pvs_hud:GetBool() then
+        -- Count entities in PVS
+        stats.entitiesInPVS = 0
+        stats.totalEntities = 0
+        
+        for _, ent in ipairs(ents.GetAll()) do
+            if IsValid(ent) then
+                stats.totalEntities = stats.totalEntities + 1
+                if currentPVS and currentPVS:TestPosition(ent:GetPos()) then
+                    stats.entitiesInPVS = stats.entitiesInPVS + 1
+                end
+            end
+        end
+        
+        -- Get leaf counts
+        stats.pvsLeafCount = 0
+        if currentPVS then
+            stats.pvsLeafCount = table.Count(currentPVS:GetLeafs())
+        end
+        stats.totalLeafCount = table.Count(NikNaks.CurrentMap:GetLeafs())
+    end
+    
+    if cv_debug:GetBool() then
+        print("[RTX Fixes] Updated PVS for player at position", playerPos)
+    end
 end
 
 -- Helper function to identify RTX updaters
@@ -704,17 +755,53 @@ hook.Add("HUDPaint", "RTXPVSDebugHUD", function()
 end)
 
 -- Handle ConVar changes
+cvars.AddChangeCallback("fr_use_pvs", function(_, _, new)
+    local enabled = tobool(new)
+    
+    -- If disabling PVS, reset all entities to large bounds
+    if not enabled and cv_enabled:GetBool() then
+        print("[RTX Fixes] PVS optimization disabled, resetting all entities to large bounds")
+        
+        -- Clear PVS tracking
+        entitiesInPVS = setmetatable({}, weakEntityTable)
+        currentPVS = nil
+        
+        -- Reset all entities to use large bounds
+        UpdateAllEntitiesBatched(false)
+    elseif enabled and cv_enabled:GetBool() then
+        -- If enabling PVS, immediately update the PVS
+        print("[RTX Fixes] PVS optimization enabled, updating bounds based on PVS")
+        UpdatePlayerPVS()
+        UpdateAllEntitiesBatched(false)
+    end
+end)
+
 cvars.AddChangeCallback("fr_enabled", function(_, _, new)
     local enabled = tobool(new)
     
     if enabled then
+        -- Reset PVS tracking when enabling
+        entitiesInPVS = setmetatable({}, weakEntityTable)
+        
+        -- Initial PVS update if PVS optimization is enabled
+        if cv_use_pvs:GetBool() and NikNaks and NikNaks.CurrentMap then
+            UpdatePlayerPVS()
+        end
+        
         UpdateAllEntitiesBatched(false)
         CreateStaticProps()
         
         -- Disable engine static props when enabled
         RunConsoleCommand("r_drawstaticprops", "1")
     else
+        -- When disabling, ensure ALL entities get their original bounds back
+        print("[RTX Fixes] System disabled, restoring original bounds for all entities")
         UpdateAllEntitiesBatched(true)
+        
+        -- Clear PVS tracking
+        entitiesInPVS = setmetatable({}, weakEntityTable)
+        currentPVS = nil
+        
         -- Remove static props
         for _, prop in pairs(staticProps) do
             if IsValid(prop) then
@@ -1002,4 +1089,29 @@ concommand.Add("fr_debug_pvs", function()
     end
     
     print("----------------------------------")
+end)
+
+concommand.Add("fr_reset_bounds", function()
+    print("[RTX Fixes] Performing complete bounds reset...")
+    
+    -- First restore original bounds for everything
+    UpdateAllEntitiesBatched(true)
+    
+    -- Clear all tracking
+    entitiesInPVS = setmetatable({}, weakEntityTable)
+    currentPVS = nil
+    lastPVSUpdateTime = 0
+    
+    -- Then if enabled, reapply based on current settings
+    if cv_enabled:GetBool() then
+        -- Update PVS if using PVS optimization
+        if cv_use_pvs:GetBool() and NikNaks and NikNaks.CurrentMap then
+            UpdatePlayerPVS()
+        end
+        
+        -- Apply new bounds
+        UpdateAllEntitiesBatched(false)
+    end
+    
+    print("[RTX Fixes] Bounds reset complete")
 end)
