@@ -10,6 +10,7 @@ local cv_show_advanced = CreateClientConVar("fr_show_advanced", "0", true, false
 local cv_use_pvs = CreateClientConVar("fr_use_pvs", "1", true, false, "Use Potentially Visible Set for render bounds optimization")
 local cv_pvs_update_interval = CreateClientConVar("fr_pvs_update_interval", "0.5", true, false, "How often to update the PVS data (seconds)")
 local cv_pvs_hud = CreateClientConVar("fr_pvs_hud", "0", true, false, "Show HUD information about PVS optimization")
+local cv_static_props_pvs = CreateClientConVar("fr_static_props_pvs", "1", true, false, "Use PVS for static prop optimization")
 
 
 -- Cache the bounds vectors
@@ -130,6 +131,8 @@ local SPECIAL_ENTITY_BOUNDS = {
 local stats = {
     entitiesInPVS = 0,
     totalEntities = 0,
+    staticPropsInPVS = 0,
+    staticPropsTotal = 0,
     pvsLeafCount = 0,
     totalLeafCount = 0,
     frameTime = 0,
@@ -139,6 +142,22 @@ local stats = {
 }
 
 -- Helper Functions
+local function UpdateStaticPropBounds(prop, inPVS)
+    if not IsValid(prop) then return false end
+    
+    if inPVS then
+        -- In PVS: use large bounds for RTX lighting
+        prop:SetRenderBounds(mins, maxs)
+        prop:SetNoDraw(false)
+    else
+        -- Out of PVS: use small bounds for performance
+        local smallBounds = Vector(64, 64, 64)
+        prop:SetRenderBounds(-smallBounds, smallBounds)
+        -- Alternative: prop:SetNoDraw(true) for maximum performance
+    end
+    
+    return true
+end
 
 local function CreateManagedTimer(name, delay, repetitions, func)
     -- Remove existing timer if it exists
@@ -293,12 +312,58 @@ local function UpdatePlayerPVS()
             end
         end
     end
+
+    if cv_use_pvs:GetBool() and cv_static_props_pvs:GetBool() and cv_enabled:GetBool() then
+        local propsInPVS = 0
+        local propsOutPVS = 0
+        
+        for prop, data in pairs(staticProps) do
+            if IsValid(prop) then
+                local propPos = data.pos
+                local wasInPVS = data.inPVS
+                local nowInPVS = currentPVS and currentPVS:TestPosition(propPos)
+                
+                -- Update PVS state if changed
+                if wasInPVS ~= nowInPVS then
+                    UpdateStaticPropBounds(prop, nowInPVS)
+                    data.inPVS = nowInPVS
+                    
+                    if cv_debug:GetBool() then
+                        print("[RTX Fixes] Static prop " .. (nowInPVS and "entered" or "left") .. " PVS")
+                    end
+                end
+                
+                -- Count statistics
+                if nowInPVS then
+                    propsInPVS = propsInPVS + 1
+                else
+                    propsOutPVS = propsOutPVS + 1
+                end
+            end
+        end
+        
+        if cv_debug:GetBool() then
+            print(string.format("[RTX Fixes] Static Props: %d in PVS, %d outside PVS", 
+                propsInPVS, propsOutPVS))
+        end
+    end
     
     -- Update statistics if HUD is enabled
     if cv_pvs_hud:GetBool() then
         -- Count entities in PVS
         stats.entitiesInPVS = 0
         stats.totalEntities = 0
+        stats.staticPropsInPVS = 0
+        stats.staticPropsTotal = 0
+        
+        for prop, data in pairs(staticProps) do
+            if IsValid(prop) then
+                stats.staticPropsTotal = stats.staticPropsTotal + 1
+                if data.inPVS then
+                    stats.staticPropsInPVS = stats.staticPropsInPVS + 1
+                end
+            end
+        end
         
         for _, ent in ipairs(ents.GetAll()) do
             if IsValid(ent) then
@@ -531,7 +596,7 @@ local function CreateStaticProps()
     for _, prop in pairs(staticProps) do
         if IsValid(prop) then prop:Remove() end
     end
-    staticProps = {}
+    staticProps = setmetatable({}, weakEntityTable)
     
     -- Store original ConVar value
     local originalPropSetting = GetConVar("r_drawstaticprops"):GetInt()
@@ -566,14 +631,25 @@ local function CreateStaticProps()
                         if IsValid(prop) then
                             prop:SetPos(propPos)
                             prop:SetAngles(propData:GetAngles())
-                            prop:SetRenderBounds(mins, maxs)
+                            
+                            -- Check if in PVS and set bounds accordingly
+                            local inPVS = not cv_static_props_pvs:GetBool() or 
+                                         (currentPVS and currentPVS:TestPosition(propPos))
+                            
+                            UpdateStaticPropBounds(prop, inPVS)
+                            
                             prop:SetColor(propData:GetColor())
                             prop:SetSkin(propData:GetSkin())
                             local scale = propData:GetScale()
                             if scale != 1 then
                                 prop:SetModelScale(scale)
                             end
-                            table.insert(staticProps, prop)
+                            
+                            -- Store with position information
+                            staticProps[prop] = {
+                                pos = propPos,
+                                inPVS = inPVS
+                            }
                             propCount = propCount + 1
                         end
                     end)
@@ -727,6 +803,10 @@ hook.Add("HUDPaint", "RTXPVSDebugHUD", function()
          color = stats.frameTimeAvg < 16.67 and goodColor or badColor}, -- 60fps threshold
         {text = string.format("PVS update time: %.2f ms", stats.updateTime * 1000)},
         {text = string.format("Last update: %.1f sec ago", CurTime() - lastPVSUpdateTime)},
+        {text = string.format("Static Props in PVS: %d / %d (%.1f%%)", 
+        stats.staticPropsInPVS, stats.staticPropsTotal, 
+        stats.staticPropsTotal > 0 and (stats.staticPropsInPVS / stats.staticPropsTotal * 100) or 0),
+     color = cv_static_props_pvs:GetBool() and textColor or Color(150, 150, 150, 220)},
         {text = string.format("Position: %.1f, %.1f, %.1f", 
             player:GetPos().x, player:GetPos().y, player:GetPos().z)}
     }
@@ -755,6 +835,28 @@ hook.Add("HUDPaint", "RTXPVSDebugHUD", function()
 end)
 
 -- Handle ConVar changes
+cvars.AddChangeCallback("fr_static_props_pvs", function(_, _, new)
+    local enabled = tobool(new)
+    
+    -- If toggling static prop PVS, update all static props
+    if cv_enabled:GetBool() then
+        if enabled then
+            print("[RTX Fixes] Static prop PVS optimization enabled")
+            -- PVS will be applied on next update
+        else
+            print("[RTX Fixes] Static prop PVS optimization disabled, using large bounds for all props")
+            
+            -- Set all props to use large bounds
+            for prop, data in pairs(staticProps) do
+                if IsValid(prop) then
+                    UpdateStaticPropBounds(prop, true)
+                    data.inPVS = true
+                end
+            end
+        end
+    end
+end)
+
 cvars.AddChangeCallback("fr_use_pvs", function(_, _, new)
     local enabled = tobool(new)
     
