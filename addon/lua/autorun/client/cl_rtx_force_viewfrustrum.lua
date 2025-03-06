@@ -148,13 +148,12 @@ local function UpdateStaticPropBounds(prop, inPVS)
     
     if inPVS then
         -- In PVS: use large bounds for RTX lighting
-        prop:SetRenderBounds(mins, maxs)
+        EntityManager.SetEntityRenderBounds(prop, mins, maxs)
         prop:SetNoDraw(false)
     else
         -- Out of PVS: use small bounds for performance
         local smallBounds = Vector(64, 64, 64)
-        prop:SetRenderBounds(-smallBounds, smallBounds)
-        -- Alternative: prop:SetNoDraw(true) for maximum performance
+        EntityManager.SetEntityRenderBounds(prop, -smallBounds, smallBounds)
     end
     
     return true
@@ -344,8 +343,9 @@ local function UpdatePVSWithNative()
             SetEntityBounds(ent, false)
         else
             -- Out of PVS: reset to original bounds
-            if originalBounds[ent] then
-                ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+            if not inPVS[i] then
+                -- Out of PVS: reset to original bounds using our native function
+                EntityManager.RestoreEntityOriginalBounds(ent, originalBounds)
                 if cv_debug:GetBool() then
                     print("[RTX Fixes] Entity left PVS, reset bounds: " .. tostring(ent))
                 end
@@ -430,8 +430,15 @@ end
 -- Store original bounds for an entity
 local function StoreOriginalBounds(ent)
     if not IsValid(ent) or originalBounds[ent] then return end
-    local mins, maxs = ent:GetRenderBounds()
-    originalBounds[ent] = {mins = mins, maxs = maxs}
+    
+    -- Call our native function, which should handle error checking internally
+    local success = pcall(function()
+        EntityManager.StoreEntityOriginalBounds(ent, originalBounds)
+    end)
+    
+    if cv_debug:GetBool() and not success then
+        print("[RTX Fixes] Warning: Failed to store original bounds for " .. tostring(ent))
+    end
 end
 
 -- RTX updater cache management functions
@@ -471,8 +478,12 @@ function SetEntityBounds(ent, useOriginal)
     
     -- Original bounds restoration code
     if useOriginal then
-        if originalBounds[ent] then
-            ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+        local success = pcall(function()
+            EntityManager.RestoreEntityOriginalBounds(ent, originalBounds)
+        end)
+        
+        if cv_debug:GetBool() and not success then
+            print("[RTX Fixes] Warning: Failed to restore original bounds for " .. tostring(ent))
         end
         return
     end
@@ -492,12 +503,12 @@ function SetEntityBounds(ent, useOriginal)
         
         -- For doors, use our native implementation
         if className == "prop_door_rotating" then
-            EntityManager.CalculateSpecialEntityBounds(ent, size)
+            EntityManager.CalculateDoorEntityBounds(ent, size)
         else
             -- Regular special entities
             local bounds = RTXMath_CreateVector(size, size, size)
             local negBounds = RTXMath_NegateVector(bounds)
-            ent:SetRenderBounds(negBounds, bounds)
+            EntityManager.SetEntityRenderBounds(ent, negBounds, bounds)
         end
         
         -- Debug output if enabled
@@ -507,58 +518,32 @@ function SetEntityBounds(ent, useOriginal)
                 className, size, patternText))
         end
         return
-        
+    
     -- HDRI cube editor - always visible
     elseif ent:GetClass() == "hdri_cube_editor" then
         local hdriSize = 32768
-        local hdriBounds = RTXMath_CreateVector(hdriSize, hdriSize, hdriSize)
-        local negHdriBounds = RTXMath_NegateVector(hdriBounds)
-            
-        -- Use native bounds check
-        if RTXMath_IsWithinBounds(entPos, negHdriBounds, hdriBounds) then
-            ent:SetRenderBounds(negHdriBounds, hdriBounds)
-            ent:DisableMatrix("RenderMultiply")
-            ent:SetNoDraw(false)
-        end
+        local hdriBounds = Vector(hdriSize, hdriSize, hdriSize)
+        local negHdriBounds = Vector(-hdriSize, -hdriSize, -hdriSize)
+        EntityManager.SetEntityRenderBounds(ent, negHdriBounds, hdriBounds)
+        ent:DisableMatrix("RenderMultiply")
+        ent:SetNoDraw(false)
         
     -- RTX updaters - always handle separately
     elseif rtxUpdaterCache[ent] then
-        -- Completely separate handling for environment lights
+        -- Handle light types differently
         if ent.lightType == LIGHT_TYPES.ENVIRONMENT then
             local envSize = cv_environment_light_distance:GetFloat()
-            local envBounds = RTXMath_CreateVector(envSize, envSize, envSize)
-            local negEnvBounds = RTXMath_NegateVector(envBounds)
-            
-            -- Use native bounds and distance check
-            if RTXMath_IsWithinBounds(entPos, negEnvBounds, envBounds) then
-                ent:SetRenderBounds(negEnvBounds, envBounds)
-                
-                -- Only print if debug is enabled
-                if cv_enabled:GetBool() and cv_debug:GetBool() then
-                    local distSqr = RTXMath_DistToSqr(entPos, vector_origin)
-                    print(string.format("[RTX Fixes] Environment light bounds: %d (Distance: %.2f)", 
-                        envSize, math.sqrt(distSqr)))
-                end
-            end
-            
-        elseif REGULAR_LIGHT_TYPES[ent.lightType] then
+            local envBounds = Vector(envSize, envSize, envSize)
+            local negEnvBounds = Vector(-envSize, -envSize, -envSize)
+            EntityManager.SetEntityRenderBounds(ent, negEnvBounds, envBounds)
+        else
             local rtxDistance = cv_rtx_updater_distance:GetFloat()
-            local rtxBounds = RTXMath_CreateVector(rtxDistance, rtxDistance, rtxDistance)
-            local negRtxBounds = RTXMath_NegateVector(rtxBounds)
-            
-            -- Use native bounds and distance check
-            if RTXMath_IsWithinBounds(entPos, negRtxBounds, rtxBounds) then
-                ent:SetRenderBounds(negRtxBounds, rtxBounds)
-                
-                -- Only print if debug is enabled
-                if cv_enabled:GetBool() and cv_debug:GetBool() then
-                    local distSqr = RTXMath_DistToSqr(entPos, vector_origin)
-                    print(string.format("[RTX Fixes] Regular light bounds (%s): %d (Distance: %.2f)", 
-                        ent.lightType, rtxDistance, math.sqrt(distSqr)))
-                end
-            end
+            local rtxBounds = Vector(rtxDistance, rtxDistance, rtxDistance)
+            local negRtxBounds = Vector(-rtxDistance, -rtxDistance, -rtxDistance)
+            EntityManager.SetEntityRenderBounds(ent, negRtxBounds, rtxBounds)
         end
         
+        -- Common RTX updater settings  
         ent:DisableMatrix("RenderMultiply")
         if GetConVar("rtx_lightupdater_show"):GetBool() then
             ent:SetRenderMode(0)
@@ -567,28 +552,24 @@ function SetEntityBounds(ent, useOriginal)
             ent:SetRenderMode(2)
             ent:SetColor(Color(255, 255, 255, 1))
         end
-    
+        
     -- Regular entities - Check PVS if enabled
     else
-        if cv_use_pvs:GetBool() and not pvs_update_in_progress then -- Don't check during an update
+        if cv_use_pvs:GetBool() and not pvs_update_in_progress then
             -- Ensure PVS is updated
             if not currentPVS or (CurTime() - lastPVSUpdateTime > cv_pvs_update_interval:GetFloat()) then
                 UpdatePlayerPVS()
             end
             
             -- If entity is not in PVS, use original bounds
-            if currentPVS and not currentPVS:TestPosition(entPos) then
-                if originalBounds[ent] then
-                    ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
-                end
+            if currentPVS and entPos and not currentPVS:TestPosition(entPos) then
+                EntityManager.RestoreEntityOriginalBounds(ent, originalBounds)
                 return
             end
         end
         
         -- Entity is in PVS or PVS optimization is disabled, use large bounds
-        if RTXMath_IsWithinBounds(entPos, mins, maxs) then
-            ent:SetRenderBounds(mins, maxs)
-        end
+        EntityManager.SetEntityRenderBounds(ent, mins, maxs)
     end
 end
 
