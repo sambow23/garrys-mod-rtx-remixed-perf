@@ -53,6 +53,7 @@ local managedTimers = {}
 local currentPVS = nil
 local lastPVSUpdateTime = 0
 local entitiesInPVS = setmetatable({}, weakEntityTable)  -- Track which entities were in PVS
+local pvs_update_in_progress = false
 
 
 -- RTX Light Updater model list
@@ -253,8 +254,11 @@ local function GetSpecialBoundsForClass(className)
     return nil
 end
 
-local function UpdatePlayerPVS()
+local function UpdatePVSWithNative()
     if not cv_enabled:GetBool() or not NikNaks or not NikNaks.CurrentMap then return end
+    if pvs_update_in_progress then return end -- Prevent recursion
+    
+    pvs_update_in_progress = true -- Set flag to prevent recursion
     
     local player = LocalPlayer()
     if not IsValid(player) then return end
@@ -263,7 +267,6 @@ local function UpdatePlayerPVS()
     local startTime = SysTime()
     
     -- Store previous PVS to detect entities leaving the PVS
-    local previousPVS = currentPVS
     local previousEntitiesInPVS = {}
     
     -- Copy current tracked entities before updating
@@ -277,82 +280,119 @@ local function UpdatePlayerPVS()
     
     -- Generate new PVS
     currentPVS = NikNaks.CurrentMap:PVSForOrigin(playerPos)
-    stats.updateTime = SysTime() - startTime
-    lastPVSUpdateTime = CurTime()
     
-    -- Reset bounds for entities that left the PVS
-    if cv_use_pvs:GetBool() and cv_enabled:GetBool() then
-        -- Clear the tracking table
-        entitiesInPVS = setmetatable({}, weakEntityTable)
-        
-        -- Check all entities and update tracking
-        for _, ent in ipairs(ents.GetAll()) do
-            if not IsValid(ent) then continue end
-            
-            local entPos = ent:GetPos()
-            if not entPos then continue end
-            
-            -- Skip special entities and RTX updaters
-            local className = ent:GetClass()
-            if GetSpecialBoundsForClass(className) or SPECIAL_ENTITIES[className] or rtxUpdaterCache[ent] then
-                continue
-            end
-            
-            -- If entity is now in PVS, track it
-            if currentPVS and currentPVS:TestPosition(entPos) then
-                entitiesInPVS[ent] = true
-            -- If entity was previously in PVS but now isn't, reset its bounds
-            elseif previousEntitiesInPVS[ent] then
-                if originalBounds[ent] then
-                    ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
-                    if cv_debug:GetBool() then
-                        print("[RTX Fixes] Entity left PVS, reset bounds: " .. tostring(ent))
-                    end
-                end
-            end
-        end
-    end
-
-    if cv_use_pvs:GetBool() and cv_static_props_pvs:GetBool() and cv_enabled:GetBool() then
-        local propsInPVS = 0
-        local propsOutPVS = 0
-        
-        for prop, data in pairs(staticProps) do
-            if IsValid(prop) then
-                local propPos = data.pos
-                local wasInPVS = data.inPVS
-                local nowInPVS = currentPVS and currentPVS:TestPosition(propPos)
+    -- Create a table of all PVS leaf positions
+    local pvsLeafPositions = {}
+    if currentPVS then
+        local leafs = currentPVS:GetLeafs()
+        for _, leaf in pairs(leafs) do
+            -- Check if leaf is valid before trying to use it
+            if leaf then
+                -- Access the mins and maxs properties directly, or use OBBMins/OBBMaxs methods
+                local mins = leaf.mins or leaf:OBBMins()
+                local maxs = leaf.maxs or leaf:OBBMaxs()
                 
-                -- Update PVS state if changed
-                if wasInPVS ~= nowInPVS then
-                    UpdateStaticPropBounds(prop, nowInPVS)
-                    data.inPVS = nowInPVS
-                    
-                    if cv_debug:GetBool() then
-                        print("[RTX Fixes] Static prop " .. (nowInPVS and "entered" or "left") .. " PVS")
-                    end
-                end
-                
-                -- Count statistics
-                if nowInPVS then
-                    propsInPVS = propsInPVS + 1
-                else
-                    propsOutPVS = propsOutPVS + 1
+                if mins and maxs then
+                    -- Calculate center by averaging mins and maxs
+                    local center = Vector(
+                        (mins.x + maxs.x) * 0.5,
+                        (mins.y + maxs.y) * 0.5,
+                        (mins.z + maxs.z) * 0.5
+                    )
+                    table.insert(pvsLeafPositions, center)
+                elseif cv_debug:GetBool() then
+                    print("[RTX Fixes] Leaf without mins/maxs found")
                 end
             end
         end
         
         if cv_debug:GetBool() then
-            print(string.format("[RTX Fixes] Static Props: %d in PVS, %d outside PVS", 
-                propsInPVS, propsOutPVS))
+            print("[RTX Fixes] Processed " .. #pvsLeafPositions .. " leaf positions")
         end
     end
     
+    -- Get all entities and their positions
+    local allEntities = ents.GetAll()
+    local entityPositions = {}
+    local entityTable = {}
+    
+    for i, ent in ipairs(allEntities) do
+        if IsValid(ent) then
+            local entPos = ent:GetPos()
+            if entPos then
+                -- Skip special entities and RTX updaters that have their own handling
+                local className = ent:GetClass()
+                if not GetSpecialBoundsForClass(className) and not SPECIAL_ENTITIES[className] and not rtxUpdaterCache[ent] then
+                    table.insert(entityPositions, entPos)
+                    entityTable[#entityTable + 1] = ent
+                end
+            end
+        end
+    end
+    
+    -- Use native function to test PVS visibility in batch
+    local inPVS, visibleCount = EntityManager.BatchTestPVSVisibility(entityPositions, pvsLeafPositions)
+    
+    -- Reset tracking table
+    entitiesInPVS = setmetatable({}, weakEntityTable)
+    
+    -- Apply results
+    for i, ent in ipairs(entityTable) do
+        if inPVS[i] then
+            -- In PVS: set large bounds and track
+            entitiesInPVS[ent] = true
+            SetEntityBounds(ent, false)
+        else
+            -- Out of PVS: reset to original bounds
+            if originalBounds[ent] then
+                ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+                if cv_debug:GetBool() then
+                    print("[RTX Fixes] Entity left PVS, reset bounds: " .. tostring(ent))
+                end
+            end
+        end
+    end
+    
+    -- Do the same for static props using native function
+    if cv_static_props_pvs:GetBool() then
+        local propPositions = {}
+        local propTable = {}
+        
+        for prop, data in pairs(staticProps) do
+            if IsValid(prop) then
+                table.insert(propPositions, data.pos)
+                propTable[#propTable + 1] = prop
+            end
+        end
+        
+        local propsInPVS = EntityManager.BatchTestPVSVisibility(propPositions, pvsLeafPositions)
+        
+        for i, prop in ipairs(propTable) do
+            if IsValid(prop) then
+                local data = staticProps[prop]
+                if data then
+                    local wasInPVS = data.inPVS
+                    local nowInPVS = propsInPVS[i]
+                    
+                    if wasInPVS ~= nowInPVS then
+                        UpdateStaticPropBounds(prop, nowInPVS)
+                        data.inPVS = nowInPVS
+                    end
+                end
+            end
+        end
+    end
+    
+    stats.updateTime = SysTime() - startTime
+    lastPVSUpdateTime = CurTime()
+    
     -- Update statistics if HUD is enabled
     if cv_pvs_hud:GetBool() then
-        -- Count entities in PVS
-        stats.entitiesInPVS = 0
-        stats.totalEntities = 0
+        -- Regular entity stats
+        stats.entitiesInPVS = visibleCount
+        stats.totalEntities = #entityTable
+        
+        -- Static prop stats
         stats.staticPropsInPVS = 0
         stats.staticPropsTotal = 0
         
@@ -365,27 +405,19 @@ local function UpdatePlayerPVS()
             end
         end
         
-        for _, ent in ipairs(ents.GetAll()) do
-            if IsValid(ent) then
-                stats.totalEntities = stats.totalEntities + 1
-                if currentPVS and currentPVS:TestPosition(ent:GetPos()) then
-                    stats.entitiesInPVS = stats.entitiesInPVS + 1
-                end
-            end
-        end
-        
-        -- Get leaf counts
-        stats.pvsLeafCount = 0
-        if currentPVS then
-            stats.pvsLeafCount = table.Count(currentPVS:GetLeafs())
-        end
+        -- Leaf counts
+        stats.pvsLeafCount = #pvsLeafPositions
         stats.totalLeafCount = table.Count(NikNaks.CurrentMap:GetLeafs())
     end
     
     if cv_debug:GetBool() then
         print("[RTX Fixes] Updated PVS for player at position", playerPos)
     end
+    pvs_update_in_progress = false
 end
+
+-- Replace the original UpdatePlayerPVS function with the new one
+UpdatePlayerPVS = UpdatePVSWithNative
 
 -- Helper function to identify RTX updaters
 local function IsRTXUpdater(ent)
@@ -538,7 +570,7 @@ function SetEntityBounds(ent, useOriginal)
     
     -- Regular entities - Check PVS if enabled
     else
-        if cv_use_pvs:GetBool() then
+        if cv_use_pvs:GetBool() and not pvs_update_in_progress then -- Don't check during an update
             -- Ensure PVS is updated
             if not currentPVS or (CurTime() - lastPVSUpdateTime > cv_pvs_update_interval:GetFloat()) then
                 UpdatePlayerPVS()

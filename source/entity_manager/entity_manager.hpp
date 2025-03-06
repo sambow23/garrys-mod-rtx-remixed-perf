@@ -102,6 +102,11 @@ namespace EntityManager {
         float angularFalloff;
     };
 
+    struct PVSBatchResult {
+        std::vector<bool> isInPVS;
+        int visibleCount;
+    };
+
     // Static storage
     extern std::vector<Light> cachedLights;
     extern std::random_device rd;
@@ -125,6 +130,33 @@ namespace EntityManager {
     bool ProcessRegionBatch(const std::vector<Vector>& vertices, 
                           const Vector& playerPos,
                           float threshold);
+
+    PVSBatchResult BatchTestPVSVisibility(
+    const std::vector<Vector>& entityPositions,
+    const std::vector<Vector>& pvsLeafPositions,
+    float threshold = 128.0f
+    );
+
+    bool BatchSetEntityRenderBounds(
+        const std::vector<void*>& entities,
+        const std::vector<bool>& inPVS,
+        const Vector& largeMins, 
+        const Vector& largeMaxs,
+        const Vector& originalMins, 
+        const Vector& originalMaxs
+    );
+
+    // Optimize static prop bounds based on PVS
+    struct StaticPropData {
+        Vector position;
+        bool inPVS;
+    };
+
+    std::vector<bool> ProcessStaticPropsPVS(
+        const std::vector<Vector>& propPositions,
+        const std::vector<Vector>& pvsLeafPositions,
+        float threshold = 128.0f
+    );
 
     // Initialize entity manager
     void Initialize(GarrysMod::Lua::ILuaBase* LUA);

@@ -687,6 +687,148 @@ LUA_FUNCTION(GetRandomLights_Native) {
     return 1;
 }
 
+// Batch test all positions against PVS leaf positions
+PVSBatchResult EntityManager::BatchTestPVSVisibility(
+    const std::vector<Vector>& entityPositions,
+    const std::vector<Vector>& pvsLeafPositions,
+    float threshold
+) {
+    PVSBatchResult result;
+    result.isInPVS.resize(entityPositions.size(), false);
+    result.visibleCount = 0;
+    
+    // Early exit if no PVS data
+    if (pvsLeafPositions.empty()) {
+        // If no PVS data, consider everything visible
+        std::fill(result.isInPVS.begin(), result.isInPVS.end(), true);
+        result.visibleCount = entityPositions.size();
+        return result;
+    }
+    
+    float thresholdSqr = threshold * threshold;
+    
+    // Optimized: Use spatial partitioning for large datasets
+    if (pvsLeafPositions.size() > 100) {
+        // Create an AABB for the PVS region for quick rejection
+        Vector pvsMins(FLT_MAX, FLT_MAX, FLT_MAX);
+        Vector pvsMaxs(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+        
+        for (const auto& leafPos : pvsLeafPositions) {
+            pvsMins.x = std::min(pvsMins.x, leafPos.x - threshold);
+            pvsMins.y = std::min(pvsMins.y, leafPos.y - threshold);
+            pvsMins.z = std::min(pvsMins.z, leafPos.z - threshold);
+            
+            pvsMaxs.x = std::max(pvsMaxs.x, leafPos.x + threshold);
+            pvsMaxs.y = std::max(pvsMaxs.y, leafPos.y + threshold);
+            pvsMaxs.z = std::max(pvsMaxs.z, leafPos.z + threshold);
+        }
+        
+        // Check entities against PVS bounds first, then do detailed tests
+        for (size_t i = 0; i < entityPositions.size(); i++) {
+            const Vector& pos = entityPositions[i];
+            
+            // Quick AABB test first
+            if (pos.x >= pvsMins.x && pos.x <= pvsMaxs.x &&
+                pos.y >= pvsMins.y && pos.y <= pvsMaxs.y &&
+                pos.z >= pvsMins.z && pos.z <= pvsMaxs.z) {
+                
+                // Detailed test against individual leafs
+                for (const auto& leafPos : pvsLeafPositions) {
+                    float dx = pos.x - leafPos.x;
+                    float dy = pos.y - leafPos.y;
+                    float dz = pos.z - leafPos.z;
+                    float distSqr = dx*dx + dy*dy + dz*dz;
+                    
+                    if (distSqr <= thresholdSqr) {
+                        result.isInPVS[i] = true;
+                        result.visibleCount++;
+                        break;
+                    }
+                }
+            }
+        }
+    } else {
+        // Simple approach for small PVS sets
+        for (size_t i = 0; i < entityPositions.size(); i++) {
+            const Vector& pos = entityPositions[i];
+            
+            for (const auto& leafPos : pvsLeafPositions) {
+                float dx = pos.x - leafPos.x;
+                float dy = pos.y - leafPos.y;
+                float dz = pos.z - leafPos.z;
+                float distSqr = dx*dx + dy*dy + dz*dz;
+                
+                if (distSqr <= thresholdSqr) {
+                    result.isInPVS[i] = true;
+                    result.visibleCount++;
+                    break;
+                }
+            }
+        }
+    }
+    
+    return result;
+}
+
+LUA_FUNCTION(BatchTestPVSVisibility_Native) {
+    LUA->CheckType(1, Type::TABLE);  // entity positions
+    LUA->CheckType(2, Type::TABLE);  // PVS leaf positions
+    float threshold = 128.0f;
+    
+    if (LUA->IsType(3, Type::NUMBER)) {
+        threshold = LUA->GetNumber(3);
+    }
+    
+    std::vector<Vector> entityPositions;
+    std::vector<Vector> pvsLeafPositions;
+    
+    // Parse entity positions table
+    LUA->PushNil();
+    while (LUA->Next(1) != 0) {
+        if (LUA->IsType(-1, Type::Vector)) {
+            Vector* pos = LUA->GetUserType<Vector>(-1, Type::Vector);
+            entityPositions.push_back(*pos);
+        }
+        LUA->Pop();
+    }
+    
+    // Parse PVS leaf positions table
+    LUA->PushNil();
+    while (LUA->Next(2) != 0) {
+        if (LUA->IsType(-1, Type::Vector)) {
+            Vector* pos = LUA->GetUserType<Vector>(-1, Type::Vector);
+            pvsLeafPositions.push_back(*pos);
+        }
+        LUA->Pop();
+    }
+    
+    PVSBatchResult result = EntityManager::BatchTestPVSVisibility(
+        entityPositions, pvsLeafPositions, threshold);
+    
+    // Create result table with boolean entries
+    LUA->CreateTable();
+    for (size_t i = 0; i < result.isInPVS.size(); i++) {
+        LUA->PushNumber(i + 1);
+        LUA->PushBool(result.isInPVS[i]);
+        LUA->SetTable(-3);
+    }
+    
+    // Return total visible count as second return value
+    LUA->PushNumber(result.visibleCount);
+    
+    return 2;  // Return two values
+}
+
+// Process static props against PVS
+std::vector<bool> EntityManager::ProcessStaticPropsPVS(
+    const std::vector<Vector>& propPositions,
+    const std::vector<Vector>& pvsLeafPositions,
+    float threshold
+) {
+    PVSBatchResult result = BatchTestPVSVisibility(propPositions, pvsLeafPositions, threshold);
+    return result.isInPVS;
+}
+
 void Initialize(ILuaBase* LUA) {
     LUA->CreateTable();
 
@@ -711,6 +853,9 @@ void Initialize(ILuaBase* LUA) {
 
     LUA->PushCFunction(ProcessRegionBatch_Native);
     LUA->SetField(-2, "ProcessRegionBatch");
+
+    LUA->PushCFunction(BatchTestPVSVisibility_Native);
+    LUA->SetField(-2, "BatchTestPVSVisibility");
 
     LUA->SetField(-2, "EntityManager");
 }
