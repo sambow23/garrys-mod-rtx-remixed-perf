@@ -7,6 +7,9 @@ local cv_rtx_updater_distance = CreateClientConVar("fr_rtx_distance", "2048", tr
 local cv_environment_light_distance = CreateClientConVar("fr_environment_light_distance", "32768", true, false, "Maximum render distance for environment light updaters")
 local cv_debug = CreateClientConVar("fr_debug_messages", "0", true, false, "Enable debug messages for RTX view frustum optimization")
 local cv_show_advanced = CreateClientConVar("fr_show_advanced", "0", true, false, "Show advanced RTX view frustum settings")
+local cv_use_pvs = CreateClientConVar("fr_use_pvs", "1", true, false, "Use Potentially Visible Set for render bounds optimization")
+local cv_pvs_update_interval = CreateClientConVar("fr_pvs_update_interval", "0.5", true, false, "How often to update the PVS data (seconds)")
+local cv_pvs_hud = CreateClientConVar("fr_pvs_hud", "0", true, false, "Show HUD information about PVS optimization")
 
 -- Cache the bounds vectors
 local boundsSize = cv_bounds_size:GetFloat()
@@ -45,6 +48,9 @@ local weakEntityTable = {__mode = "k"} -- Allows garbage collection of invalid e
 originalBounds = setmetatable({}, weakEntityTable)
 rtxUpdaterCache = setmetatable({}, weakEntityTable)
 local managedTimers = {}
+local currentPVS = nil
+local lastPVSUpdateTime = 0
+
 
 -- RTX Light Updater model list
 local RTX_UPDATER_MODELS = {
@@ -118,7 +124,58 @@ local SPECIAL_ENTITY_BOUNDS = {
     -- ["entity_class"] = { size = number, description = "description" }
 }
 
+-- For statistics tracking
+local stats = {
+    entitiesInPVS = 0,
+    totalEntities = 0,
+    pvsLeafCount = 0,
+    totalLeafCount = 0,
+    frameTime = 0,
+    frameTimeAvg = 0,
+    frameTimeHistory = {},
+    updateTime = 0
+}
+
 -- Helper Functions
+local function UpdatePlayerPVS()
+    if not cv_enabled:GetBool() or not NikNaks or not NikNaks.CurrentMap then return end
+    
+    local player = LocalPlayer()
+    if not IsValid(player) then return end
+    
+    local playerPos = player:GetPos()
+    local startTime = SysTime()
+    currentPVS = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+    stats.updateTime = SysTime() - startTime
+    lastPVSUpdateTime = CurTime()
+    
+    -- Update statistics if HUD is enabled
+    if cv_pvs_hud:GetBool() then
+        -- Count entities in PVS
+        stats.entitiesInPVS = 0
+        stats.totalEntities = 0
+        
+        for _, ent in ipairs(ents.GetAll()) do
+            if IsValid(ent) then
+                stats.totalEntities = stats.totalEntities + 1
+                if currentPVS and currentPVS:TestPosition(ent:GetPos()) then
+                    stats.entitiesInPVS = stats.entitiesInPVS + 1
+                end
+            end
+        end
+        
+        -- Get leaf counts
+        stats.pvsLeafCount = 0
+        if currentPVS then
+            stats.pvsLeafCount = table.Count(currentPVS:GetLeafs())
+        end
+        stats.totalLeafCount = table.Count(NikNaks.CurrentMap:GetLeafs())
+    end
+    
+    if cv_debug:GetBool() then
+        print("[RTX Fixes] Updated PVS for player at position", playerPos)
+    end
+end
 
 local function CreateManagedTimer(name, delay, repetitions, func)
     -- Remove existing timer if it exists
@@ -264,7 +321,7 @@ end
 function SetEntityBounds(ent, useOriginal)
     if not IsValid(ent) then return end
     
-    -- Original bounds restoration code...
+    -- Original bounds restoration code
     if useOriginal then
         if originalBounds[ent] then
             ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
@@ -277,10 +334,11 @@ function SetEntityBounds(ent, useOriginal)
     local entPos = ent:GetPos()
     if not entPos then return end
     
-    -- Use pattern-aware lookup
+    -- Get entity class for special handling
     local className = ent:GetClass()
     local specialBounds = GetSpecialBoundsForClass(className)
     
+    -- Special entities - Always use custom bounds regardless of PVS
     if specialBounds then
         local size = specialBounds.size
         
@@ -302,12 +360,12 @@ function SetEntityBounds(ent, useOriginal)
         end
         return
         
-    -- Then check other entity types
-elseif ent:GetClass() == "hdri_cube_editor" then
-    local hdriSize = 32768
-    local hdriBounds = RTXMath_CreateVector(hdriSize, hdriSize, hdriSize)
-    local negHdriBounds = RTXMath_NegateVector(hdriBounds)
-        
+    -- HDRI cube editor - always visible
+    elseif ent:GetClass() == "hdri_cube_editor" then
+        local hdriSize = 32768
+        local hdriBounds = RTXMath_CreateVector(hdriSize, hdriSize, hdriSize)
+        local negHdriBounds = RTXMath_NegateVector(hdriBounds)
+            
         -- Use native bounds check
         if RTXMath_IsWithinBounds(entPos, negHdriBounds, hdriBounds) then
             ent:SetRenderBounds(negHdriBounds, hdriBounds)
@@ -315,6 +373,7 @@ elseif ent:GetClass() == "hdri_cube_editor" then
             ent:SetNoDraw(false)
         end
         
+    -- RTX updaters - always handle separately
     elseif rtxUpdaterCache[ent] then
         -- Completely separate handling for environment lights
         if ent.lightType == LIGHT_TYPES.ENVIRONMENT then
@@ -360,8 +419,25 @@ elseif ent:GetClass() == "hdri_cube_editor" then
             ent:SetRenderMode(2)
             ent:SetColor(Color(255, 255, 255, 1))
         end
+    
+    -- Regular entities - Check PVS if enabled
     else
-        -- Default bounds with native check
+        if cv_use_pvs:GetBool() then
+            -- Ensure PVS is updated
+            if not currentPVS or (CurTime() - lastPVSUpdateTime > cv_pvs_update_interval:GetFloat()) then
+                UpdatePlayerPVS()
+            end
+            
+            -- If entity is not in PVS, use original bounds
+            if currentPVS and not currentPVS:TestPosition(entPos) then
+                if originalBounds[ent] then
+                    ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+                end
+                return
+            end
+        end
+        
+        -- Entity is in PVS or PVS optimization is disabled, use large bounds
         if RTXMath_IsWithinBounds(entPos, mins, maxs) then
             ent:SetRenderBounds(mins, maxs)
         end
@@ -489,20 +565,38 @@ hook.Add("OnEntityCreated", "SetLargeRenderBounds", function(ent)
         end
     end)
 end)
+
 -- Initial setup
 hook.Add("InitPostEntity", "InitialBoundsSetup", function()
     timer.Simple(1, function()
         if cv_enabled:GetBool() then
+            -- Initial PVS update if PVS optimization is enabled
+            if cv_use_pvs:GetBool() and NikNaks and NikNaks.CurrentMap then
+                UpdatePlayerPVS()
+            end
+            
             UpdateAllEntitiesBatched(false)
             CreateStaticProps()
         end
     end)
 end)
 
+hook.Add("Think", "UpdateRTXPVSState", function()
+    if not cv_enabled:GetBool() or not cv_use_pvs:GetBool() then return end
+    
+    if CurTime() - lastPVSUpdateTime > cv_pvs_update_interval:GetFloat() then
+        UpdatePlayerPVS()
+    end
+end)
+
 -- Map cleanup/reload handler
 hook.Add("OnReloaded", "RefreshStaticProps", function()
     -- Clear bounds cache
     originalBounds = {}
+    
+    -- Reset PVS cache
+    currentPVS = nil
+    lastPVSUpdateTime = 0
     
     -- Remove existing static props
     for _, prop in pairs(staticProps) do
@@ -515,6 +609,97 @@ hook.Add("OnReloaded", "RefreshStaticProps", function()
     -- Recreate if enabled
     if cv_enabled:GetBool() then
         timer.Simple(1, CreateStaticProps)
+    end
+end)
+
+hook.Add("OnMapChange", "ClearRTXPVSCache", function()
+    currentPVS = nil
+    lastPVSUpdateTime = 0
+end)
+
+-- Track frame times when HUD is enabled
+hook.Add("Think", "RTXPVSFrameTimeTracker", function()
+    if cv_pvs_hud:GetBool() then
+        local frameTime = FrameTime() * 1000 -- Convert to ms
+        
+        -- Track in history for moving average
+        table.insert(stats.frameTimeHistory, frameTime)
+        if #stats.frameTimeHistory > 60 then -- Keep last 60 frames
+            table.remove(stats.frameTimeHistory, 1)
+        end
+        
+        -- Calculate average
+        local sum = 0
+        for _, time in ipairs(stats.frameTimeHistory) do
+            sum = sum + time
+        end
+        stats.frameTimeAvg = sum / #stats.frameTimeHistory
+        
+        stats.frameTime = frameTime
+    end
+end)
+
+hook.Add("HUDPaint", "RTXPVSDebugHUD", function()
+    if not cv_pvs_hud:GetBool() then return end
+    
+    local player = LocalPlayer()
+    if not IsValid(player) then return end
+    
+    local textColor = Color(255, 255, 255, 220)
+    local bgColor = Color(0, 0, 0, 150)
+    local headerColor = Color(100, 200, 255, 220)
+    local goodColor = Color(100, 255, 100, 220)
+    local badColor = Color(255, 100, 100, 220)
+    
+    -- Get current leaf if available
+    local currentLeaf = "Unknown"
+    if NikNaks and NikNaks.CurrentMap then
+        local leaf = NikNaks.CurrentMap:PointInLeaf(0, player:GetPos())
+        if leaf then
+            currentLeaf = leaf:GetIndex()
+        end
+    end
+    
+    -- Create info text
+    local infoLines = {
+        {text = "RTX View Frustum PVS Statistics", color = headerColor},
+        {text = "PVS Optimization: " .. (cv_use_pvs:GetBool() and "Enabled" or "Disabled"), 
+         color = cv_use_pvs:GetBool() and goodColor or badColor},
+        {text = string.format("Entities in PVS: %d / %d (%.1f%%)", 
+            stats.entitiesInPVS, stats.totalEntities, 
+            stats.totalEntities > 0 and (stats.entitiesInPVS / stats.totalEntities * 100) or 0)},
+        {text = string.format("Leafs in PVS: %d / %d (%.1f%%)", 
+            stats.pvsLeafCount, stats.totalLeafCount,
+            stats.totalLeafCount > 0 and (stats.pvsLeafCount / stats.totalLeafCount * 100) or 0)},
+        {text = string.format("Current leaf: %s", currentLeaf)},
+        {text = string.format("Frame time: %.2f ms (avg: %.2f ms)", stats.frameTime, stats.frameTimeAvg),
+         color = stats.frameTimeAvg < 16.67 and goodColor or badColor}, -- 60fps threshold
+        {text = string.format("PVS update time: %.2f ms", stats.updateTime * 1000)},
+        {text = string.format("Last update: %.1f sec ago", CurTime() - lastPVSUpdateTime)},
+        {text = string.format("Position: %.1f, %.1f, %.1f", 
+            player:GetPos().x, player:GetPos().y, player:GetPos().z)}
+    }
+    
+    -- Calculate panel size
+    local margin = 10
+    local lineHeight = 20
+    local panelWidth = 350
+    local panelHeight = (#infoLines * lineHeight) + (margin * 2)
+    
+    -- Draw background
+    draw.RoundedBox(4, 10, 10, panelWidth, panelHeight, bgColor)
+    
+    -- Draw text
+    for i, line in ipairs(infoLines) do
+        draw.SimpleText(
+            line.text, 
+            "DermaDefault", 
+            20, 
+            10 + margin + ((i-1) * lineHeight), 
+            line.color or textColor, 
+            TEXT_ALIGN_LEFT, 
+            TEXT_ALIGN_CENTER
+        )
     end
 end)
 
@@ -750,4 +935,71 @@ concommand.Add("fr_add_special_entity", function(ply, cmd, args)
     
     AddSpecialEntityBounds(class, size, description)
     print(string.format("Added special entity bounds for %s: %d units", class, size))
+end)
+
+local function CountEntitiesByPVSStatus()
+    local inPVS = 0
+    local outsidePVS = 0
+    local specialEntities = 0
+    local rtxUpdaters = 0
+    
+    for _, ent in ipairs(ents.GetAll()) do
+        if not IsValid(ent) then continue end
+        
+        local entPos = ent:GetPos()
+        if not entPos then continue end
+        
+        if IsRTXUpdater(ent) then
+            rtxUpdaters = rtxUpdaters + 1
+        elseif GetSpecialBoundsForClass(ent:GetClass()) then
+            specialEntities = specialEntities + 1
+        elseif currentPVS and currentPVS:TestPosition(entPos) then
+            inPVS = inPVS + 1
+        else
+            outsidePVS = outsidePVS + 1
+        end
+    end
+    
+    return inPVS, outsidePVS, specialEntities, rtxUpdaters
+end
+
+concommand.Add("fr_debug_pvs", function()
+    if not cv_enabled:GetBool() then
+        print("[RTX Fixes] PVS optimization system not enabled")
+        return
+    end
+
+    if not cv_use_pvs:GetBool() then
+        print("[RTX Fixes] PVS optimization feature not enabled")
+        return
+    end
+    
+    -- Update PVS if needed
+    if not currentPVS then
+        UpdatePlayerPVS()
+        if not currentPVS then
+            print("[RTX Fixes] Failed to generate PVS data - NikNaks may not be working")
+            return
+        end
+    end
+    
+    local inPVS, outsidePVS, specialEntities, rtxUpdaters = CountEntitiesByPVSStatus()
+    local total = inPVS + outsidePVS + specialEntities + rtxUpdaters
+    
+    print("\n--- RTX View Frustum PVS Debug ---")
+    print("PVS Optimization: ACTIVE")
+    print("Last PVS Update: " .. math.Round(CurTime() - lastPVSUpdateTime, 1) .. " seconds ago")
+    print("Total Entities: " .. total)
+    print("  • Entities in PVS (large bounds): " .. inPVS .. " (" .. math.Round(inPVS/total*100) .. "%)")
+    print("  • Entities outside PVS (original bounds): " .. outsidePVS .. " (" .. math.Round(outsidePVS/total*100) .. "%)")
+    print("  • Special entities (always large bounds): " .. specialEntities .. " (" .. math.Round(specialEntities/total*100) .. "%)")
+    print("  • RTX updaters (custom bounds): " .. rtxUpdaters .. " (" .. math.Round(rtxUpdaters/total*100) .. "%)")
+    
+    if outsidePVS > 0 then
+        print("\nPerformance Impact:")
+        print("  • " .. outsidePVS .. " entities are using original render bounds")
+        print("  • This should improve performance while maintaining RTX quality")
+    end
+    
+    print("----------------------------------")
 end)
