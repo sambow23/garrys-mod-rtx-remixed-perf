@@ -2,8 +2,9 @@ if not CLIENT then return end
 
 -- ConVars
 local cv_enabled = CreateClientConVar("fr_enabled", "1", true, false, "Enable large render bounds for all entities")
-local cv_bounds_size = CreateClientConVar("fr_bounds_size", "4096", true, false, "Size of render bounds")
-local cv_rtx_updater_distance = CreateClientConVar("fr_rtx_distance", "2048", true, false, "Maximum render distance for regular RTX light updaters")
+local cv_bounds_size = CreateClientConVar("fr_bounds_size", "256", true, false, "Size of render bounds")
+local cv_standard_light_bounds = CreateClientConVar("fr_standard_light_bounds", "256", true, false, "Size of render bounds for standard lights")
+local cv_rtx_updater_distance = CreateClientConVar("fr_rtx_distance", "256", true, false, "Maximum render distance for regular RTX light updaters")
 local cv_environment_light_distance = CreateClientConVar("fr_environment_light_distance", "32768", true, false, "Maximum render distance for environment light updaters")
 local cv_debug = CreateClientConVar("fr_debug_messages", "0", true, false, "Enable debug messages for RTX view frustum optimization")
 local cv_show_advanced = CreateClientConVar("fr_show_advanced", "0", true, false, "Show advanced RTX view frustum settings")
@@ -55,6 +56,7 @@ local currentPVS = nil
 local lastPVSUpdateTime = 0
 local entitiesInPVS = setmetatable({}, weakEntityTable)  -- Track which entities were in PVS
 local pvs_update_in_progress = false
+local MAP_PRESETS = {}
 
 
 -- RTX Light Updater model list
@@ -88,6 +90,14 @@ local REGULAR_LIGHT_TYPES = {
     [LIGHT_TYPES.DIRECTIONAL] = true
 }
 
+local PRESETS = {
+    ["Very Low"] = { entity = 64, light = 256, environment = 16384 },
+    ["Low"] = { entity = 256, light = 256, environment = 32768 },
+    ["Medium"] = { entity = 512, light = 256, environment = 32768 },
+    ["High"] = { entity = 2048, light = 1024, environment = 32768 },
+    ["Very High"] = { entity = 4096, light = 2048, environment = 65536 }
+}
+
 local SPECIAL_ENTITY_BOUNDS = {
     ["prop_door_rotating"] = {
         size = 512, -- Default size for doors
@@ -112,12 +122,6 @@ local SPECIAL_ENTITY_BOUNDS = {
     ["^npc_%w+"] = {
         size = 512,
         description = "All npc_ entities",
-        isPattern = true
-    },
-
-    ["^_rope%w+"] = {
-        size = 512,
-        description = "All _rope entities",
         isPattern = true
     },
 
@@ -154,6 +158,30 @@ local pvs_stats = {
 }
 
 -- Helper Functions
+
+-- Save/load functions for map presets
+local function SaveMapPresets()
+    file.Write("rtx_frustum_map_presets.json", util.TableToJSON(MAP_PRESETS))
+end
+
+local function LoadMapPresets()
+    if file.Exists("rtx_frustum_map_presets.json", "DATA") then
+        MAP_PRESETS = util.JSONToTable(file.Read("rtx_frustum_map_presets.json", "DATA")) or {}
+    end
+end
+
+local function ApplyPreset(presetName)
+    -- Default to "Low" if no preset specified
+    presetName = presetName or "Low"
+    
+    local preset = PRESETS[presetName]
+    if not preset then return end
+    
+    RunConsoleCommand("fr_bounds_size", tostring(preset.entity))
+    RunConsoleCommand("fr_standard_light_bounds", tostring(preset.light))
+    RunConsoleCommand("fr_environment_light_distance", tostring(preset.environment))
+end
+
 local function UpdateStaticPropBounds(prop, inPVS)
     if not IsValid(prop) then return false end
     
@@ -825,6 +853,20 @@ local function UpdateAllEntities(useOriginal)
 end
 
 -- Hook for new entities
+hook.Add("Initialize", "LoadRTXFrustumMapPresets", LoadMapPresets)
+
+hook.Add("InitPostEntity", "ApplyMapRTXPreset", function()
+    timer.Simple(1, function()
+        local currentMap = game.GetMap()
+        if MAP_PRESETS[currentMap] then
+            ApplyPreset(MAP_PRESETS[currentMap])
+        else
+            -- Default to Low preset for maps without configuration
+            ApplyPreset("Low")
+        end
+    end)
+end)
+
 hook.Add("OnEntityCreated", "SetLargeRenderBounds", function(ent)
     if not IsValid(ent) then return end
     
@@ -1224,85 +1266,216 @@ concommand.Add("fr_debug", function()
     end
 end)
 
-local function CreateSettingsPanel(panel)
+function CreateSettingsPanel(panel)
     -- Clear the panel first
     panel:ClearControls()
     
-    -- Main toggle
-    panel:CheckBox("Enable RTX View Frustum", "fr_enabled")
-    panel:ControlHelp("Enables optimized render bounds for all entities")
-    
-    panel:Help("")
-    
-    -- Advanced settings toggle
-    local advancedToggle = panel:CheckBox("Show Advanced Settings", "fr_show_advanced")
-    panel:ControlHelp("Enable manual control of render bounds (Use with caution!)")
-    
-    -- Create a container for advanced settings
-    local advancedPanel = vgui.Create("DPanel", panel)
-    advancedPanel:Dock(TOP)
-    advancedPanel:DockMargin(8, 8, 8, 8)
-    advancedPanel:SetPaintBackground(false)
-    advancedPanel:SetVisible(cv_show_advanced:GetBool())
-    advancedPanel:SetTall(200) -- Adjust height as needed
-    
-    -- Advanced settings content
-    local advancedContent = vgui.Create("DScrollPanel", advancedPanel)
-    advancedContent:Dock(FILL)
-    
-    -- Regular entity bounds
-    local boundsGroup = vgui.Create("DForm", advancedContent)
-    boundsGroup:Dock(TOP)
-    boundsGroup:DockMargin(0, 0, 0, 5)
-    boundsGroup:SetName("Entity Bounds")
-    
-    local boundsSlider = boundsGroup:NumSlider("Regular Entity Bounds", "fr_bounds_size", 256, 32000, 0)
-    boundsSlider:SetTooltip("Size of render bounds for regular entities")
+    -- Main header and toggle
+    panel:CheckBox("Enable Forced View Frustrum", "fr_enabled")
+    panel:ControlHelp("Enables forced render bounds for all entities")
 
-    -- Light settings
-    local lightGroup = vgui.Create("DForm", advancedContent)
-    lightGroup:Dock(TOP)
-    lightGroup:DockMargin(0, 0, 0, 5)
-    lightGroup:SetName("Light Settings")
+    panel:CheckBox("Enable PVS", "fr_use_pvs")
+    panel:ControlHelp("Uses the engine's PVS system to cull objects that are not visible to the player, helps performance in large/dense maps.")
     
-    local rtxDistanceSlider = lightGroup:NumSlider("Regular Light Distance", "fr_rtx_distance", 256, 32000, 0)
-    rtxDistanceSlider:SetTooltip("Maximum render distance for regular RTX light updaters")
+    -- Static Bounds Settings section
+    local boundsCategory = vgui.Create("DCollapsibleCategory", panel)
+    boundsCategory:SetLabel("Static Bounds Settings")
+    boundsCategory:SetExpanded(true)
+    boundsCategory:Dock(TOP)
+    boundsCategory:DockMargin(0, 5, 0, 0)
+    boundsCategory:SetPaintBackground(true)
     
-    local envLightSlider = lightGroup:NumSlider("Environment Light Distance", "fr_environment_light_distance", 16384, 65536, 0)
-    envLightSlider:SetTooltip("Maximum render distance for environment light updaters")
+    -- Use a DScrollPanel to contain everything with proper scrolling
+    local scrollPanel = vgui.Create("DScrollPanel", boundsCategory)
+    scrollPanel:Dock(FILL)
     
-    -- Warning text
-    local warningLabel = vgui.Create("DLabel", advancedContent)
-    warningLabel:Dock(TOP)
-    warningLabel:DockMargin(5, 5, 5, 5)
-    warningLabel:SetTextColor(Color(255, 200, 0))
-    warningLabel:SetText("Warning: Changing these values may affect performance and visual quality.")
-    warningLabel:SetWrap(true)
-    warningLabel:SetTall(40)
+    -- Create the main panel that will hold our content
+    local boundsPanel = vgui.Create("DPanel", scrollPanel)
+    boundsPanel:Dock(TOP)
+    boundsPanel:DockPadding(5, 5, 5, 5)
+    boundsPanel:SetPaintBackground(false)
+    boundsPanel:SetTall(650) -- Reduced height for more condensed layout
+    boundsCategory:SetContents(scrollPanel)
     
-    -- Tools section
-    local toolsGroup = vgui.Create("DForm", advancedContent)
-    toolsGroup:Dock(TOP)
-    toolsGroup:DockMargin(0, 0, 0, 5)
-    toolsGroup:SetName("Tools")
+    -- Presets dropdown
+    local presetLabel = vgui.Create("DLabel", boundsPanel)
+    presetLabel:SetText("Presets")
+    presetLabel:SetTextColor(Color(0, 0, 0))
+    presetLabel:Dock(TOP)
+    presetLabel:DockMargin(0, 0, 0, 2)
     
-    local refreshBtn = toolsGroup:Button("Refresh All Bounds")
-    function refreshBtn:DoClick()
-        RunConsoleCommand("fr_refresh")
-        surface.PlaySound("buttons/button14.wav")
+    local presetCombo = vgui.Create("DComboBox", boundsPanel)
+    presetCombo:Dock(TOP)
+    presetCombo:DockMargin(0, 0, 0, 5)
+    presetCombo:SetValue("Low")
+    presetCombo:SetTall(20) -- Smaller height
+    
+    for preset, _ in pairs(PRESETS) do
+        presetCombo:AddChoice(preset)
     end
     
-    -- Debug settings
-    panel:Help("\nDebug Settings")
-    panel:CheckBox("Show Debug Messages", "fr_debug_messages")
-    panel:ControlHelp("Show detailed debug messages in console")
+    presetCombo.OnSelect = function(_, _, presetName)
+        ApplyPreset(presetName)
+    end
     
-    -- Update advanced panel visibility when the ConVar changes
-    cvars.AddChangeCallback("fr_show_advanced", function(_, _, new)
-        if IsValid(advancedPanel) then
-            advancedPanel:SetVisible(tobool(new))
+    -- Description text (combined to save space)
+    local descText = vgui.Create("DLabel", boundsPanel)
+    descText:SetText("The static render bounds dictate how far entities should be culled around the player.\nThe higher the values, the further they cull, at the cost of performance depending on the map.")
+    descText:SetTextColor(Color(0, 0, 0))
+    descText:SetWrap(true)
+    descText:SetTall(50) -- Combined height for both texts
+    descText:Dock(TOP)
+    descText:DockMargin(0, 0, 0, 5)
+    
+    -- Create a more compact form for the sliders
+    local slidersForm = vgui.Create("DForm", boundsPanel)
+    slidersForm:Dock(TOP)
+    slidersForm:DockMargin(0, 0, 0, 5)
+    slidersForm:SetName("") -- Empty name to avoid duplicate heading
+    slidersForm:SetSpacing(2) -- Reduce spacing between form elements
+    slidersForm:SetPadding(2) -- Reduce padding
+    
+    -- More compact sliders
+    local entitySlider = slidersForm:NumSlider("Regular Entity Bounds", "fr_bounds_size", 256, 16384, 0)
+    entitySlider:DockMargin(0, 0, 0, 2)
+    
+    local lightSlider = slidersForm:NumSlider("Standard Light Bounds", "fr_standard_light_bounds", 256, 4096, 0)
+    lightSlider:DockMargin(0, 0, 0, 2)
+    
+    local envLightSlider = slidersForm:NumSlider("Environment Light Bounds", "fr_environment_light_distance", 4096, 65536, 0)
+    envLightSlider:DockMargin(0, 0, 0, 2)
+    
+    -- Map Preset Management
+    local presetMgmtLabel = vgui.Create("DLabel", boundsPanel)
+    presetMgmtLabel:SetText("Map Preset Management")
+    presetMgmtLabel:SetTextColor(Color(0, 0, 0))
+    presetMgmtLabel:Dock(TOP)
+    presetMgmtLabel:DockMargin(0, 10, 0, 3)
+    
+    -- Map list (slightly shorter)
+    local mapList = vgui.Create("DListView", boundsPanel)
+    mapList:Dock(TOP)
+    mapList:SetTall(120)
+    mapList:AddColumn("Map")
+    mapList:AddColumn("Preset")
+    
+    -- Populate the map list
+    local function RefreshMapList()
+        mapList:Clear()
+        for map, preset in pairs(MAP_PRESETS) do
+            mapList:AddLine(map, preset)
         end
-    end)
+    end
+    
+    RefreshMapList()
+    
+    -- Buttons panel (more compact)
+    local buttonsPanel = vgui.Create("DPanel", boundsPanel)
+    buttonsPanel:Dock(TOP)
+    buttonsPanel:SetPaintBackground(false)
+    buttonsPanel:SetTall(30)
+    buttonsPanel:DockMargin(0, 3, 0, 10)
+    
+    -- Add Current Map button
+    local addMapBtn = vgui.Create("DButton", buttonsPanel)
+    addMapBtn:SetText("Add Current Map")
+    addMapBtn:Dock(LEFT)
+    addMapBtn:SetWide(120)
+    addMapBtn:DockMargin(0, 0, 5, 0)
+    
+    addMapBtn.DoClick = function()
+        local currentMap = game.GetMap()
+        local frame = vgui.Create("DFrame")
+        frame:SetSize(300, 120)
+        frame:SetTitle("Select Preset for " .. currentMap)
+        frame:Center()
+        frame:MakePopup()
+        
+        local presetSelect = vgui.Create("DComboBox", frame)
+        presetSelect:Dock(TOP)
+        presetSelect:DockMargin(10, 10, 10, 0)
+        presetSelect:SetValue("Select preset...")
+        
+        for preset, _ in pairs(PRESETS) do
+            presetSelect:AddChoice(preset)
+        end
+        
+        local saveBtn = vgui.Create("DButton", frame)
+        saveBtn:Dock(BOTTOM)
+        saveBtn:DockMargin(10, 10, 10, 10)
+        saveBtn:SetText("Save")
+        saveBtn:SetDisabled(true)
+        
+        presetSelect.OnSelect = function(_, _, value)
+            saveBtn:SetDisabled(false)
+        end
+        
+        saveBtn.DoClick = function()
+            local preset = presetSelect:GetValue()
+            if preset ~= "Select preset..." then
+                MAP_PRESETS[currentMap] = preset
+                SaveMapPresets()
+                RefreshMapList()
+                
+                frame:Close()
+                
+                -- Apply the preset for current map
+                ApplyPreset(preset)
+            end
+        end
+    end
+    
+    -- Remove Selected button
+    local removeBtn = vgui.Create("DButton", buttonsPanel)
+    removeBtn:SetText("Remove Selected")
+    removeBtn:Dock(RIGHT)
+    removeBtn:SetWide(120)
+    removeBtn:DockMargin(5, 0, 0, 0)
+    
+    removeBtn.DoClick = function()
+        local selected = mapList:GetSelectedLine()
+        if selected then
+            local mapName = mapList:GetLine(selected):GetValue(1)
+            MAP_PRESETS[mapName] = nil
+            SaveMapPresets()
+            mapList:RemoveLine(selected)
+        end
+    end
+    
+    -- Debug section
+    local debugLabel = vgui.Create("DLabel", boundsPanel)
+    debugLabel:SetText("Debug Options")
+    debugLabel:SetTextColor(Color(0, 0, 0))
+    debugLabel:Dock(TOP)
+    debugLabel:DockMargin(0, 5, 0, 2)
+    
+    -- More compact debug form
+    local debugForm = vgui.Create("DForm", boundsPanel)
+    debugForm:Dock(TOP)
+    debugForm:DockMargin(0, 0, 0, 0)
+    debugForm:SetName("") -- Empty name to avoid duplicate heading
+    debugForm:SetSpacing(2) -- Reduced spacing
+    debugForm:SetPadding(2) -- Reduced padding
+    
+    debugForm:CheckBox("Show PVS Debug HUD", "fr_pvs_hud")
+    debugForm:ControlHelp("Shows performance statistics in HUD")
+    
+    debugForm:CheckBox("Show Debug Messages", "fr_debug_messages")
+    debugForm:ControlHelp("Shows detailed debug information in console")
+    
+    -- Init - load saved map presets
+    LoadMapPresets()
+    
+    -- Apply current map preset if exists, otherwise use Low preset
+    local currentMap = game.GetMap()
+    if MAP_PRESETS[currentMap] then
+        ApplyPreset(MAP_PRESETS[currentMap])
+        presetCombo:SetValue(MAP_PRESETS[currentMap])
+    else
+        -- Default to Low preset
+        ApplyPreset("Low")
+        presetCombo:SetValue("Low")
+    end
 end
 
 -- Add to Utilities menu
