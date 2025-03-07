@@ -13,6 +13,10 @@ namespace EntityManager {
 std::vector<Light> cachedLights;
 std::random_device rd;
 std::mt19937 rng(rd());
+PVSCache g_pvsCache = { {}, Vector(0,0,0), 0.0f, false };
+PVSUpdateJob g_pvsUpdateJob = { false, 0, 0, {}, {}, {}, Vector(), Vector(), 100 };
+PreallocatedPVSData g_pvsData = {}; // Zero-initialize all members
+
 
 // Helper function to parse color string "r g b a"
 Vector ParseColorString(const char* colorStr) {
@@ -1141,6 +1145,268 @@ LUA_FUNCTION(SetEntityBoundsComprehensive_Native) {
     return 0;
 }
 
+bool StorePVSLeafData(const std::vector<Vector>& leafPositions, const Vector& playerPos) {
+    if (g_pvsUpdateJob.inProgress) return false;
+    
+    g_pvsCache.leafPositions = leafPositions;
+    g_pvsCache.playerPos = playerPos;
+    g_pvsCache.lastUpdateTime = Plat_FloatTime();
+    g_pvsCache.valid = true;
+    return true;
+}
+
+bool BeginPVSEntityBatchProcessing(const std::vector<int>& entityIndices, 
+                                  const std::vector<Vector>& positions,
+                                  const Vector& largeMins,
+                                  const Vector& largeMaxs,
+                                  int batchSize) {
+    if (g_pvsUpdateJob.inProgress || !g_pvsCache.valid || 
+        entityIndices.size() != positions.size()) 
+        return false;
+    
+    g_pvsUpdateJob.inProgress = true;
+    g_pvsUpdateJob.currentBatch = 0;
+    g_pvsUpdateJob.entityIndices = entityIndices;
+    g_pvsUpdateJob.entityPositions = positions;
+    g_pvsUpdateJob.results.clear();
+    g_pvsUpdateJob.largeMins = largeMins;
+    g_pvsUpdateJob.largeMaxs = largeMaxs;
+    g_pvsUpdateJob.batchSize = batchSize;
+    g_pvsUpdateJob.totalBatches = (entityIndices.size() + batchSize - 1) / batchSize;
+    
+    return true;
+}
+
+std::pair<std::vector<bool>, bool> ProcessNextEntityBatch() {
+    std::vector<bool> results;
+    
+    if (!g_pvsUpdateJob.inProgress || !g_pvsCache.valid) {
+        return { results, true }; // Return empty results and completion flag
+    }
+    
+    // Calculate batch range
+    size_t startIdx = g_pvsUpdateJob.currentBatch * g_pvsUpdateJob.batchSize;
+    size_t endIdx = std::min(startIdx + g_pvsUpdateJob.batchSize, 
+                            g_pvsUpdateJob.entityPositions.size());
+    
+    // Check if we're done
+    if (startIdx >= g_pvsUpdateJob.entityPositions.size()) {
+        g_pvsUpdateJob.inProgress = false;
+        return { results, true };
+    }
+    
+    // Process this batch
+    std::vector<Vector> batchPositions;
+    for (size_t i = startIdx; i < endIdx; i++) {
+        batchPositions.push_back(g_pvsUpdateJob.entityPositions[i]);
+    }
+    
+    // Test PVS visibility for this batch
+    PVSBatchResult batchResult = BatchTestPVSVisibility(
+        batchPositions, g_pvsCache.leafPositions);
+    
+    // Increment batch counter
+    g_pvsUpdateJob.currentBatch++;
+    
+    // Check if this was the last batch
+    bool isComplete = (g_pvsUpdateJob.currentBatch >= g_pvsUpdateJob.totalBatches);
+    if (isComplete) {
+        g_pvsUpdateJob.inProgress = false;
+    }
+    
+    return { batchResult.isInPVS, isComplete };
+}
+
+bool IsPVSUpdateInProgress() {
+    return g_pvsUpdateJob.inProgress;
+}
+
+float GetPVSProgress() {
+    if (!g_pvsUpdateJob.inProgress) return 1.0f;
+    return static_cast<float>(g_pvsUpdateJob.currentBatch) / 
+            static_cast<float>(g_pvsUpdateJob.totalBatches);
+}
+
+
+LUA_FUNCTION(StorePVSLeafData_Native) {
+    LUA->CheckType(1, Type::TABLE);  // leaf positions
+    LUA->CheckType(2, Type::Vector);  // player position
+    
+    std::vector<Vector> leafPositions;
+    Vector* playerPos = LUA->GetUserType<Vector>(2, Type::Vector);
+    
+    // Parse leaf positions table
+    LUA->PushNil();
+    while (LUA->Next(1) != 0) {
+        if (LUA->IsType(-1, Type::Vector)) {
+            Vector* pos = LUA->GetUserType<Vector>(-1, Type::Vector);
+            leafPositions.push_back(*pos);
+        }
+        LUA->Pop();
+    }
+    
+    bool success = EntityManager::StorePVSLeafData(leafPositions, *playerPos);
+    LUA->PushBool(success);
+    return 1;
+}
+
+LUA_FUNCTION(BeginPVSEntityBatchProcessing_Native) {
+    LUA->CheckType(1, Type::TABLE);  // entities
+    LUA->CheckType(2, Type::TABLE);  // positions
+    LUA->CheckType(3, Type::Vector);  // largeMins
+    LUA->CheckType(4, Type::Vector);  // largeMaxs
+    int batchSize = LUA->CheckNumber(5);
+    
+    std::vector<int> entityIndices;  // Store entity indices instead of pointers
+    std::vector<Vector> positions;
+    
+    // Parse entities table - extract entity indices
+    LUA->PushNil();
+    while (LUA->Next(1) != 0) {
+        if (LUA->IsType(-1, Type::Entity)) {
+            // Get entity index
+            LUA->GetField(-1, "EntIndex");
+            LUA->Push(-2);
+            LUA->Call(1, 1);
+            int entIndex = LUA->GetNumber(-1);
+            LUA->Pop();
+            
+            entityIndices.push_back(entIndex);
+        }
+        LUA->Pop();
+    }
+    
+    // Parse positions table
+    LUA->PushNil();
+    while (LUA->Next(2) != 0) {
+        if (LUA->IsType(-1, Type::Vector)) {
+            Vector* pos = LUA->GetUserType<Vector>(-1, Type::Vector);
+            positions.push_back(*pos);
+        }
+        LUA->Pop();
+    }
+    
+    Vector* largeMins = LUA->GetUserType<Vector>(3, Type::Vector);
+    Vector* largeMaxs = LUA->GetUserType<Vector>(4, Type::Vector);
+    
+    bool success = EntityManager::BeginPVSEntityBatchProcessing(
+        entityIndices, positions, *largeMins, *largeMaxs, batchSize);
+    
+    LUA->PushBool(success);
+    return 1;
+}
+
+LUA_FUNCTION(ProcessNextEntityBatch_Native) {
+    auto [results, complete] = EntityManager::ProcessNextEntityBatch();
+    
+    // Return batch results table
+    LUA->CreateTable();
+    for (size_t i = 0; i < results.size(); i++) {
+        LUA->PushNumber(i+1);
+        LUA->PushBool(results[i]);
+        LUA->SetTable(-3);
+    }
+    
+    // Return completion status
+    LUA->PushBool(complete);
+    
+    return 2;
+}
+
+LUA_FUNCTION(IsPVSUpdateInProgress_Native) {
+    LUA->PushBool(EntityManager::IsPVSUpdateInProgress());
+    return 1;
+}
+
+LUA_FUNCTION(GetPVSProgress_Native) {
+    LUA->PushNumber(EntityManager::GetPVSProgress());
+    return 1;
+}
+
+LUA_FUNCTION(SetPVSLeafData_Optimized) {
+    LUA->CheckType(1, Type::TABLE);  // leaf positions
+    LUA->CheckType(2, Type::Vector);  // player position
+    
+    Vector* playerPos = LUA->GetUserType<Vector>(2, Type::Vector);
+    
+    // Clear previous data
+    g_pvsData.leafCount = 0;
+    g_pvsData.playerPos = *playerPos;
+    g_pvsData.lastUpdateTime = Plat_FloatTime();
+    
+    // Find bounds for spatial grid
+    Vector mins(FLT_MAX, FLT_MAX, FLT_MAX);
+    Vector maxs(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+    
+    // First pass - determine map bounds
+    LUA->PushNil();
+    while (LUA->Next(1) != 0) {
+        if (LUA->IsType(-1, Type::Vector)) {
+            Vector* pos = LUA->GetUserType<Vector>(-1, Type::Vector);
+            
+            mins.x = std::min(mins.x, pos->x);
+            mins.y = std::min(mins.y, pos->y);
+            mins.z = std::min(mins.z, pos->z);
+            
+            maxs.x = std::max(maxs.x, pos->x);
+            maxs.y = std::max(maxs.y, pos->y);
+            maxs.z = std::max(maxs.z, pos->z);
+        }
+        LUA->Pop();
+    }
+    
+    // Setup spatial grid
+    g_pvsData.spatialGrid.Setup(mins, maxs);
+    
+    // Second pass - store data and build spatial grid
+    LUA->PushNil();
+    size_t leafIndex = 0;
+    while (LUA->Next(1) != 0 && leafIndex < MAX_PVS_LEAVES) {
+        if (LUA->IsType(-1, Type::Vector)) {
+            Vector* pos = LUA->GetUserType<Vector>(-1, Type::Vector);
+            g_pvsData.leafPositions[leafIndex++] = *pos;
+            g_pvsData.spatialGrid.AddLeaf(*pos);
+        }
+        LUA->Pop();
+    }
+    
+    g_pvsData.leafCount = leafIndex;
+    LUA->PushBool(true);
+    return 1;
+}
+
+// Test a single position against PVS - super efficient!
+LUA_FUNCTION(TestPositionInPVS_Optimized) {
+    LUA->CheckType(1, Type::Vector);
+    Vector* pos = LUA->GetUserType<Vector>(1, Type::Vector);
+    
+    bool isInPVS = g_pvsData.spatialGrid.TestPosition(*pos, 128.0f);
+    LUA->PushBool(isInPVS);
+    return 1;
+}
+
+// Process a single entity safely
+LUA_FUNCTION(ProcessEntityPVS_Optimized) {
+    LUA->CheckType(1, Type::Entity);
+    
+    // Get entity position
+    LUA->GetField(1, "GetPos");
+    LUA->Push(1);
+    LUA->Call(1, 1);
+    
+    if (LUA->IsType(-1, Type::Vector)) {
+        Vector* pos = LUA->GetUserType<Vector>(-1, Type::Vector);
+        bool isInPVS = g_pvsData.spatialGrid.TestPosition(*pos, 128.0f);
+        LUA->Pop(); // Pop position
+        LUA->PushBool(isInPVS);
+        return 1;
+    }
+    
+    LUA->Pop(); // Pop position
+    LUA->PushBool(false);
+    return 1;
+}
+
 void Initialize(ILuaBase* LUA) {
     LUA->CreateTable();
 
@@ -1186,6 +1452,30 @@ void Initialize(ILuaBase* LUA) {
     
     LUA->PushCFunction(SetEntityBoundsComprehensive_Native);
     LUA->SetField(-2, "SetEntityBoundsComprehensive");
+
+    LUA->PushCFunction(StorePVSLeafData_Native);
+    LUA->SetField(-2, "StorePVSLeafData");
+    
+    LUA->PushCFunction(BeginPVSEntityBatchProcessing_Native);
+    LUA->SetField(-2, "BeginPVSEntityBatchProcessing");
+    
+    LUA->PushCFunction(ProcessNextEntityBatch_Native);
+    LUA->SetField(-2, "ProcessNextEntityBatch");
+    
+    LUA->PushCFunction(IsPVSUpdateInProgress_Native);
+    LUA->SetField(-2, "IsPVSUpdateInProgress");
+    
+    LUA->PushCFunction(GetPVSProgress_Native);
+    LUA->SetField(-2, "GetPVSProgress");
+
+    LUA->PushCFunction(SetPVSLeafData_Optimized);
+    LUA->SetField(-2, "SetPVSLeafData_Optimized");
+    
+    LUA->PushCFunction(TestPositionInPVS_Optimized);
+    LUA->SetField(-2, "TestPositionInPVS_Optimized");
+    
+    LUA->PushCFunction(ProcessEntityPVS_Optimized);
+    LUA->SetField(-2, "ProcessEntityPVS_Optimized");
 
     LUA->SetField(-2, "EntityManager");
 }

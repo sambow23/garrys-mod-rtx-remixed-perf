@@ -158,6 +158,115 @@ namespace EntityManager {
         float threshold = 128.0f
     );
 
+    struct PVSCache {
+        std::vector<Vector> leafPositions;
+        Vector playerPos;
+        float lastUpdateTime;
+        bool valid;
+    };
+    
+    struct PVSUpdateJob {
+        bool inProgress;
+        int currentBatch;
+        int totalBatches;
+        std::vector<Vector> entityPositions;
+        std::vector<int> entityIndices;
+        std::vector<bool> results;
+        Vector largeMins;
+        Vector largeMaxs;
+        int batchSize;
+    };
+    
+    // Static cache instances
+    extern PVSCache g_pvsCache;
+    extern PVSUpdateJob g_pvsUpdateJob;
+    
+    // PVS management functions
+    bool StorePVSLeafData(const std::vector<Vector>& leafPositions, const Vector& playerPos);
+    bool BeginPVSEntityBatchProcessing(const std::vector<int>& entityIndices, 
+                                    const std::vector<Vector>& positions,
+                                    const Vector& largeMins,
+                                    const Vector& largeMaxs,
+                                    int batchSize);
+    std::pair<std::vector<bool>, bool> ProcessNextEntityBatch();
+    bool IsPVSUpdateInProgress();
+    float GetPVSProgress();
+
+    const size_t MAX_PVS_LEAVES = 4096;
+    const size_t MAX_ENTITIES = 8192;
+    
+    struct PreallocatedPVSData {
+        Vector leafPositions[MAX_PVS_LEAVES];
+        size_t leafCount;
+        Vector playerPos;
+        float lastUpdateTime;
+        
+        // Spatial partitioning grid (simple but effective)
+        struct SpatialGrid {
+            static const int GRID_SIZE = 64;
+            static const int CELL_SIZE = 512; // 512 unit cells
+            
+            bool grid[GRID_SIZE][GRID_SIZE][GRID_SIZE];
+            Vector gridMin;
+            Vector gridMax;
+            float cellSize;
+            
+            void Clear() {
+                memset(grid, 0, sizeof(grid));
+            }
+            
+            void Setup(const Vector& min, const Vector& max) {
+                gridMin = min;
+                gridMax = max;
+                cellSize = CELL_SIZE;
+                Clear();
+            }
+            
+            // Add a position to the grid
+            void AddLeaf(const Vector& pos) {
+                int x = (pos.x - gridMin.x) / cellSize;
+                int y = (pos.y - gridMin.y) / cellSize;
+                int z = (pos.z - gridMin.z) / cellSize;
+                
+                if (x >= 0 && x < GRID_SIZE && y >= 0 && y < GRID_SIZE && z >= 0 && z < GRID_SIZE) {
+                    grid[x][y][z] = true;
+                }
+            }
+            
+            // Test if a position is near a PVS leaf
+            bool TestPosition(const Vector& pos, float threshold) {
+                // Get grid cell
+                int x = (pos.x - gridMin.x) / cellSize;
+                int y = (pos.y - gridMin.y) / cellSize;
+                int z = (pos.z - gridMin.z) / cellSize;
+                
+                // Check the current cell and neighboring cells
+                for (int dx = -1; dx <= 1; dx++) {
+                    for (int dy = -1; dy <= 1; dy++) {
+                        for (int dz = -1; dz <= 1; dz++) {
+                            int nx = x + dx;
+                            int ny = y + dy;
+                            int nz = z + dz;
+                            
+                            if (nx >= 0 && nx < GRID_SIZE && 
+                                ny >= 0 && ny < GRID_SIZE && 
+                                nz >= 0 && nz < GRID_SIZE) {
+                                if (grid[nx][ny][nz]) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                return false;
+            }
+        } spatialGrid;
+    };
+    
+    // Global preallocated data
+    extern PreallocatedPVSData g_pvsData;
+
     // Initialize entity manager
     void Initialize(GarrysMod::Lua::ILuaBase* LUA);
 }
