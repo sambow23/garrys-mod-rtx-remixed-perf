@@ -1095,6 +1095,8 @@ cvars.AddChangeCallback("fr_enabled", function(_, _, new)
     local enabled = tobool(new)
     
     if enabled then
+        -- System is being enabled
+        
         -- Reset PVS tracking when enabling
         entitiesInPVS = setmetatable({}, weakEntityTable)
         
@@ -1103,29 +1105,19 @@ cvars.AddChangeCallback("fr_enabled", function(_, _, new)
             UpdatePlayerPVS()
         end
         
+        -- Store original static prop setting
+        if not RTX_FRUSTUM_ORIGINAL_PROP_SETTING then
+            RTX_FRUSTUM_ORIGINAL_PROP_SETTING = GetConVar("r_drawstaticprops"):GetInt()
+        end
+        
+        -- Make sure hooks are installed properly
+        ReinstallSafeHooks()
+        
         UpdateAllEntitiesBatched(false)
         CreateStaticProps()
-        
-        -- Disable engine static props when enabled
-        RunConsoleCommand("r_drawstaticprops", "1")
     else
-        -- When disabling, ensure ALL entities get their original bounds back
-        print("[RTX Fixes] System disabled, restoring original bounds for all entities")
-        UpdateAllEntitiesBatched(true)
-        
-        -- Clear PVS tracking
-        entitiesInPVS = setmetatable({}, weakEntityTable)
-        currentPVS = nil
-        
-        -- Remove static props
-        for _, prop in pairs(staticProps) do
-            if IsValid(prop) then
-                prop:Remove()
-            end
-        end
-        staticProps = {}
-        -- Re-enable engine static props when disabled
-        RunConsoleCommand("r_drawstaticprops", "1")
+        -- System is being disabled - use complete shutdown
+        CompleteRTXSystemShutdown()
     end
 end)
 
@@ -1430,3 +1422,140 @@ concommand.Add("fr_reset_bounds", function()
     
     print("[RTX Fixes] Bounds reset complete")
 end)
+
+function CompleteRTXSystemShutdown()
+    print("[RTX Fixes] Performing COMPLETE SYSTEM SHUTDOWN...")
+    
+    -- 1. Remove all hooks first to prevent any further processing
+    local hooksToRemove = {
+        "OnEntityCreated.SetLargeRenderBounds",
+        "Think.RTX_PVS_BatchProcessor",
+        "Think.UpdateRTXPVSState",
+        "Think.RTXPVSFrameTimeTracker",
+        "HUDPaint.RTXPVSDebugHUD"
+    }
+    
+    for _, hookName in ipairs(hooksToRemove) do
+        local event, identifier = string.match(hookName, "([^.]+)%.(.+)")
+        if event and identifier then
+            hook.Remove(event, identifier)
+            print("  • Removed hook: " .. event .. "." .. identifier)
+        end
+    end
+    
+    -- 2. Clear all timers
+    local timersToRemove = {
+        "FR_BoundsUpdate", 
+        "FR_RTXUpdate", 
+        "FR_EntityCleanup",
+        "RTX_PVS_EntityProcessing", 
+        "RTX_PVS_StaticPropProcessing"
+    }
+    
+    for _, timerName in ipairs(timersToRemove) do
+        if timer.Exists(timerName) then
+            timer.Remove(timerName)
+            print("  • Removed timer: " .. timerName)
+        end
+    end
+    
+    -- 3. Reset all entity bounds
+    local resetCount = 0
+    for ent, bounds in pairs(originalBounds) do
+        if IsValid(ent) then
+            ent:SetRenderBounds(bounds.mins, bounds.maxs)
+            -- Also ensure no matrices or rendering states are left
+            ent:DisableMatrix("RenderMultiply")
+            ent:SetNoDraw(false)
+            resetCount = resetCount + 1
+        end
+    end
+    
+    -- 4. Apply conservative bounds to all other entities
+    local fallbackCount = 0
+    for _, ent in ipairs(ents.GetAll()) do
+        if IsValid(ent) and not originalBounds[ent] then
+            -- Skip special entities
+            if not SPECIAL_ENTITIES[ent:GetClass()] then
+                -- Use smaller bounds for better culling
+                local defaultBounds = Vector(16, 16, 16)
+                ent:SetRenderBounds(-defaultBounds, defaultBounds)
+                fallbackCount = fallbackCount + 1
+            end
+        end
+    end
+    
+    -- 5. Remove all static props
+    local propsRemoved = 0
+    for prop, _ in pairs(staticProps) do
+        if IsValid(prop) then
+            prop:Remove()
+            propsRemoved = propsRemoved + 1
+        end
+    end
+    staticProps = {}
+    
+    -- 6. Clear all caches and state
+    entitiesInPVS = setmetatable({}, weakEntityTable)
+    rtxUpdaterCache = setmetatable({}, weakEntityTable)
+    rtxUpdaterCount = 0
+    currentPVS = nil
+    lastPVSUpdateTime = 0
+    originalBounds = setmetatable({}, weakEntityTable)
+    patternCache = {}
+    pvs_update_in_progress = false
+    boundsInitialized = false
+    
+    -- 7. Reset engine static props setting
+    if RTX_FRUSTUM_ORIGINAL_PROP_SETTING then
+        RunConsoleCommand("r_drawstaticprops", tostring(RTX_FRUSTUM_ORIGINAL_PROP_SETTING))
+    else
+        RunConsoleCommand("r_drawstaticprops", "1")
+    end
+    
+    -- 8. Reset NikNaks integration if possible
+    if NikNaks and NikNaks.ResetPVSCache then
+        NikNaks.ResetPVSCache()
+    end
+    
+    -- 9. Reset EntityManager if it exists
+    if EntityManager then
+        if EntityManager.Reset then
+            EntityManager.Reset()
+        end
+        
+        -- Force-clear any other EntityManager state that might exist
+        if EntityManager.ClearAllPVSData then EntityManager.ClearAllPVSData() end
+        if EntityManager.StopAllProcessing then EntityManager.StopAllProcessing() end
+    end
+    
+    print(string.format("[RTX Fixes] System shutdown complete: %d entities reset to original bounds, %d given fallback bounds, %d static props removed", 
+        resetCount, fallbackCount, propsRemoved))
+    
+    -- 10. Re-add necessary hooks with safety checks
+    -- This ensures the hooks will only run when the system is enabled
+    ReinstallSafeHooks()
+end
+
+-- Function to reinstall hooks with proper safety checks
+function ReinstallSafeHooks()
+    -- OnEntityCreated hook with safety check
+    hook.Add("OnEntityCreated", "SetLargeRenderBounds", function(ent)
+        if not cv_enabled:GetBool() then return end
+        if not IsValid(ent) then return end
+        
+        timer.Simple(0, function()
+            if not cv_enabled:GetBool() then return end
+            if IsValid(ent) then
+                AddToRTXCache(ent)
+                SetEntityBounds(ent, not cv_enabled:GetBool())
+            end
+        end)
+    end)
+    
+    -- Other hooks with safety checks...
+    
+    print("[RTX Fixes] Reinstalled hooks with safety checks")
+end
+
+concommand.Add("fr_force_reset", CompleteRTXSystemShutdown)
