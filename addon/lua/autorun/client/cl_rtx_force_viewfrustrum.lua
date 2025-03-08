@@ -124,11 +124,6 @@ local SPECIAL_ENTITY_BOUNDS = {
         description = "All npc_ entities",
         isPattern = true
     },
-
-    ["prop_physics"] = {
-        size = 512, -- Default size for doors
-        description = "Prop entities", -- For debug/documentation
-    },
     -- Add more entities here as needed:
     -- ["entity_class"] = { size = number, description = "description" }
 }
