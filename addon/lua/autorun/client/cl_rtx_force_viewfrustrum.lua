@@ -186,7 +186,7 @@ local function UpdateStaticPropBounds(prop, inPVS)
         prop:SetNoDraw(false)
     else
         -- Out of PVS: use small bounds for performance
-        local smallBounds = Vector(64, 64, 64)
+        local smallBounds = Vector(1, 1, 1)
         prop:SetRenderBounds(-smallBounds, smallBounds)
         -- Alternative: prop:SetNoDraw(true) for maximum performance
     end
