@@ -28,6 +28,14 @@ local table_insert = table.insert
 local MAX_VERTICES = 10000
 local MAX_CHUNK_VERTS = 32768
 
+-- Get native functions
+local MeshRenderer = MeshRenderer or {}
+local CreateOptimizedMeshBatch = MeshRenderer.CreateOptimizedMeshBatch or function() error("MeshRenderer module not loaded") end
+local ProcessRegionBatch = MeshRenderer.ProcessRegionBatch or function() error("MeshRenderer module not loaded") end
+local GenerateChunkKey = MeshRenderer.GenerateChunkKey or function(x, y, z) return x .. "," .. y .. "," .. z end
+local CalculateEntityBounds = MeshRenderer.CalculateEntityBounds or function() error("MeshRenderer module not loaded") end
+local FilterEntitiesByDistance = MeshRenderer.FilterEntitiesByDistance or function() error("MeshRenderer module not loaded") end
+
 -- Pre-allocate common vectors and tables for reuse
 local vertexBuffer = {
     positions = {},
@@ -36,16 +44,19 @@ local vertexBuffer = {
 }
 
 local function ValidateVertex(pos)
-    -- Check for NaN or extreme values
-    if not pos or 
-       not pos.x or not pos.y or not pos.z or
-       pos.x ~= pos.x or pos.y ~= pos.y or pos.z ~= pos.z or -- NaN check
-       math.abs(pos.x) > 16384 or 
-       math.abs(pos.y) > 16384 or 
-       math.abs(pos.z) > 16384 then
+    -- First check if pos exists
+    if not pos then return false end
+    
+    -- Check vertex bounds (16384 is the Source engine map limit)
+    local mapLimits = Vector(16384, 16384, 16384)
+    local negLimits = Vector(-16384, -16384, -16384)
+    
+    -- Check if pos has valid numbers before IsWithinBounds
+    if pos.x ~= pos.x or pos.y ~= pos.y or pos.z ~= pos.z then -- NaN check
         return false
     end
-    return true
+    
+    return RTXMath.IsWithinBounds(pos, negLimits, mapLimits)
 end
 
 local function IsBrushEntity(face)
@@ -162,7 +173,8 @@ local function CreateMeshBatch(vertices, material, maxVertsPerMesh)
 end
 
 local function GetChunkKey(x, y, z)
-    return x .. "," .. y .. "," .. z
+    -- Use native RTXMath implementation for better performance
+    return tostring(RTXMath.GenerateChunkKey(x, y, z))
 end
 
 -- Main Mesh Building Function
