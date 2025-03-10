@@ -27,6 +27,7 @@ local math_floor = math.floor
 local table_insert = table.insert
 local MAX_VERTICES = 10000
 local MAX_CHUNK_VERTS = 32768
+local bDrawingSkybox = false
 
 -- Get native functions
 local MeshRenderer = MeshRenderer or {}
@@ -399,26 +400,42 @@ local function RenderCustomWorld(translucent)
     renderStats.draws = draws
 end
 
+-- Skybox Hooks
+hook.Add("PreDrawSkyBox", "RTXSkyboxDetection", function()
+    bDrawingSkybox = true
+end)
+
+hook.Add("PostDrawSkyBox", "RTXSkyboxDetection", function()
+    bDrawingSkybox = false
+end)
+
 -- Enable/Disable Functions
 local function EnableCustomRendering()
     if isEnabled then return end
     isEnabled = true
 
-    -- Disable world rendering using render.OverrideDepthEnable
     hook.Add("PreDrawWorld", "RTXHideWorld", function()
+        if render.GetRenderTarget() then return end
+        if bDrawingSkybox then return end
         render.OverrideDepthEnable(true, false)
         return true
     end)
     
     hook.Add("PostDrawWorld", "RTXHideWorld", function()
+        if render.GetRenderTarget() then return end
+        if bDrawingSkybox then return end
         render.OverrideDepthEnable(false)
     end)
     
     hook.Add("PreDrawOpaqueRenderables", "RTXCustomWorld", function()
+        if bDrawingSkybox then return end
+        if render.GetRenderTarget() then return end
         RenderCustomWorld(false)
     end)
     
     hook.Add("PreDrawTranslucentRenderables", "RTXCustomWorld", function()
+        if bDrawingSkybox then return end
+        if render.GetRenderTarget() then return end
         RenderCustomWorld(true)
     end)
 end
