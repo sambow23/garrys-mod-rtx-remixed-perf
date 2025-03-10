@@ -215,6 +215,9 @@ LUA_FUNCTION(PrintRemixUIState) {
 GMOD_MODULE_OPEN() { 
     try {
         Msg("[RTX Remix Fixes 2] - Module loaded!\n"); 
+
+        // Initialize shader protection
+        // ShaderAPIHooks::Instance().Initialize();                      // Need to properly update signatures to catch new shaderapidx9/materialsystem crashes
         
         // if (Interfaces::Initialize()) {                              // Disabled for now until i dump the vtables for materialsystem
         //     Msg("[RTX] Interfaces initialized successfully\n");
@@ -306,8 +309,11 @@ GMOD_MODULE_OPEN() {
 GMOD_MODULE_CLOSE() {
     try {
         Msg("[RTX] Shutting down module...\n");
+
+        // Shutdown shader protection
+        // ShaderAPIHooks::Instance().Shutdown();      // Need to properly update signatures to catch new shaderapidx9/materialsystem crashes
         
-        // RTXLightManager::Instance().Shutdown();
+        // RTXLightManager::Instance().Shutdown();     // Remix API lights are dead for now, too unstable.
 
         // // Restore original Present function if needed
         // if (Present_Original) {
