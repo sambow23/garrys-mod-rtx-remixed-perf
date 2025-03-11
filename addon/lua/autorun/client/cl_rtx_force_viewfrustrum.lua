@@ -13,7 +13,6 @@ local cv_pvs_update_interval = CreateClientConVar("fr_pvs_update_interval", "0.5
 local cv_pvs_hud = CreateClientConVar("fr_pvs_hud", "0", true, false, "Show HUD information about PVS optimization")
 local cv_static_props_pvs = CreateClientConVar("fr_static_props_pvs", "1", true, false, "Use PVS for static prop optimization")
 
-
 -- Cache the bounds vectors
 local boundsSize = cv_bounds_size:GetFloat()
 local mins = Vector(-boundsSize, -boundsSize, -boundsSize)
@@ -1283,8 +1282,10 @@ function CreateSettingsPanel(panel)
     panel:CheckBox("Enable Forced View Frustrum", "fr_enabled")
     panel:ControlHelp("Enables forced render bounds for all entities")
 
-    panel:CheckBox("Enable PVS", "fr_use_pvs")
+    panel:CheckBox("Enable PVS", "fr_static_props_pvs")
     panel:ControlHelp("Uses the engine's PVS system to cull objects that are not visible to the player, helps performance in large/dense maps.")
+    panel:ControlHelp("")
+    panel:ControlHelp("(Reload the map when changing this setting)")
     
     -- Static Bounds Settings section
     local boundsCategory = vgui.Create("DCollapsibleCategory", panel)
