@@ -12,7 +12,6 @@ local cv_use_pvs = CreateClientConVar("fr_use_pvs", "1", true, false, "Use Poten
 local cv_pvs_update_interval = CreateClientConVar("fr_pvs_update_interval", "0.5", true, false, "How often to update the PVS data (seconds)")
 local cv_pvs_hud = CreateClientConVar("fr_pvs_hud", "0", true, false, "Show HUD information about PVS optimization")
 local cv_static_props_pvs = CreateClientConVar("fr_static_props_pvs", "1", true, false, "Use PVS for static prop optimization")
-local cv_pvs_update_interval = CreateClientConVar("fr_pvs_update_interval", "1.5", true, false, "How often to update the PVS data (seconds)")
 
 
 -- Cache the bounds vectors
@@ -153,6 +152,15 @@ local pvs_stats = {
 }
 
 -- Helper Functions
+function IsEntityNearPlayer(ent, maxDistance)
+    if not IsValid(ent) or not IsValid(LocalPlayer()) then return false end
+    
+    local playerPos = LocalPlayer():GetPos()
+    local entPos = ent:GetPos()
+    local distSq = playerPos:DistToSqr(entPos)
+    
+    return distSq < (maxDistance * maxDistance)
+end
 
 -- Save/load functions for map presets
 local function SaveMapPresets()
@@ -708,6 +716,12 @@ function SetEntityBounds(ent, useOriginal)
             -- Ensure PVS is updated
             if not currentPVS or (CurTime() - lastPVSUpdateTime > cv_pvs_update_interval:GetFloat()) then
                 UpdatePlayerPVS()
+            end
+
+            local nearPlayerDistance = 2048 -- Adjust as needed
+            if IsEntityNearPlayer(ent, nearPlayerDistance) then
+                ent:SetRenderBounds(mins, maxs)
+                return
             end
             
             -- If entity is not in PVS, use original bounds

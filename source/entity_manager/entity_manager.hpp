@@ -203,8 +203,8 @@ namespace EntityManager {
         
         // Spatial partitioning grid (simple but effective)
         struct SpatialGrid {
-            static const int GRID_SIZE = 64;
-            static const int CELL_SIZE = 512; // 512 unit cells
+            static const int GRID_SIZE = 128;
+            static const int CELL_SIZE = 256; // 512 unit cells
             
             bool grid[GRID_SIZE][GRID_SIZE][GRID_SIZE];
             Vector gridMin;
