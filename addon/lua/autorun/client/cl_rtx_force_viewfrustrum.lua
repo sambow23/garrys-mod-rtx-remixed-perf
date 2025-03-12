@@ -3,11 +3,9 @@ if not CLIENT then return end
 -- ConVars
 local cv_enabled = CreateClientConVar("fr_enabled", "1", true, false, "Enable large render bounds for all entities")
 local cv_bounds_size = CreateClientConVar("fr_bounds_size", "256", true, false, "Size of render bounds")
-local cv_standard_light_bounds = CreateClientConVar("fr_standard_light_bounds", "256", true, false, "Size of render bounds for standard lights")
 local cv_rtx_updater_distance = CreateClientConVar("fr_rtx_distance", "256", true, false, "Maximum render distance for regular RTX light updaters")
 local cv_environment_light_distance = CreateClientConVar("fr_environment_light_distance", "32768", true, false, "Maximum render distance for environment light updaters")
 local cv_debug = CreateClientConVar("fr_debug_messages", "0", true, false, "Enable debug messages for RTX view frustum optimization")
-local cv_show_advanced = CreateClientConVar("fr_show_advanced", "0", true, false, "Show advanced RTX view frustum settings")
 local cv_use_pvs = CreateClientConVar("fr_use_pvs", "1", true, false, "Use Potentially Visible Set for render bounds optimization")
 local cv_pvs_update_interval = CreateClientConVar("fr_pvs_update_interval", "0.5", true, false, "How often to update the PVS data (seconds)")
 local cv_pvs_hud = CreateClientConVar("fr_pvs_hud", "0", true, false, "Show HUD information about PVS optimization")
@@ -21,12 +19,8 @@ local maxs = Vector(boundsSize, boundsSize, boundsSize)
 -- Cache RTXMath functions
 local RTXMath_IsWithinBounds = RTXMath.IsWithinBounds
 local RTXMath_DistToSqr = RTXMath.DistToSqr
-local RTXMath_LerpVector = RTXMath.LerpVector
-local RTXMath_GenerateChunkKey = RTXMath.GenerateChunkKey
-local RTXMath_ComputeNormal = RTXMath.ComputeNormal
 local RTXMath_CreateVector = RTXMath.CreateVector
 local RTXMath_NegateVector = RTXMath.NegateVector
-local RTXMath_MultiplyVector = RTXMath.MultiplyVector
 
 -- Constants and caches
 local Vector = Vector
@@ -35,26 +29,22 @@ local pairs = pairs
 local ipairs = ipairs
 local DEBOUNCE_TIME = 0.1
 local boundsUpdateTimer = "FR_BoundsUpdate"
-local rtxUpdateTimer = "FR_RTXUpdate"
 local rtxUpdaterCache = {}
 local rtxUpdaterCount = 0
-local staticProps = {}
-local originalBounds = {}
 local mapBounds = {
     min = Vector(-16384, -16384, -16384),
     max = Vector(16384, 16384, 16384)
 }
-local boundsInitialized = false
 local patternCache = {}
 local weakEntityTable = {__mode = "k"} -- Allows garbage collection of invalid entities
 originalBounds = setmetatable({}, weakEntityTable)
 rtxUpdaterCache = setmetatable({}, weakEntityTable)
-local managedTimers = {}
 local currentPVS = nil
 local lastPVSUpdateTime = 0
 local entitiesInPVS = setmetatable({}, weakEntityTable)  -- Track which entities were in PVS
 local pvs_update_in_progress = false
 local MAP_PRESETS = {}
+local managedTimers = managedTimers or {}
 
 
 -- RTX Light Updater model list
@@ -126,7 +116,7 @@ local SPECIAL_ENTITY_BOUNDS = {
     -- ["entity_class"] = { size = number, description = "description" }
 }
 
--- For statistics tracking
+-- Statistics tracking
 local stats = {
     entitiesInPVS = 0,
     totalEntities = 0,
@@ -150,7 +140,88 @@ local pvs_stats = {
     updateDelay = 1.5 -- Only update every 1.5 seconds minimum
 }
 
+-- Hook Management
+local managedHooks = {}
+
+local function AddManagedHook(event, name, func)
+    -- Remove existing hook if present
+    hook.Remove(event, name)
+    
+    -- Add the new hook
+    hook.Add(event, name, func)
+    
+    -- Track it
+    managedHooks[event .. "." .. name] = true
+end
+
+local function RemoveAllManagedHooks()
+    for hookID in pairs(managedHooks) do
+        local event, name = string.match(hookID, "([^.]+)%.(.+)")
+        if event and name then
+            hook.Remove(event, name)
+        end
+    end
+    managedHooks = {}
+end
+
+-- State Management
+local processingState = {
+    pvs = { active = false, startTime = 0, lastCompleteTime = 0 },
+    staticProps = { active = false, startTime = 0, lastCompleteTime = 0 },
+    entities = { active = false, startTime = 0, lastCompleteTime = 0 }
+}
+
+local RTX_SYSTEM = {
+    active = false,           -- Whether the system is turned on
+    initialized = false,      -- If initial setup was completed
+    lastPVSUpdate = 0,        -- Last PVS update timestamp
+    processingUpdate = false  -- Flag to prevent concurrent updates
+}
+
+function SafeCall(funcName, func, ...)
+    if not func then
+        if cv_debug:GetBool() then
+            print("[RTX Fixes] Error: Function '" .. funcName .. "' not available")
+        end
+        return nil
+    end
+    
+    local success, result = pcall(func, ...)
+    if not success then
+        if cv_debug:GetBool() then
+            print("[RTX Fixes] Error in '" .. funcName .. "': " .. tostring(result))
+        end
+        return nil
+    end
+    
+    return result
+end
+
+function ClearTable(tbl)
+    local mt = getmetatable(tbl)
+    for k in pairs(tbl) do tbl[k] = nil end
+    return tbl
+end
+
+local function beginProcessing(category)
+    -- Check if any other critical process is running
+    if processingState.pvs.active or 
+       (category ~= "pvs" and processingState[category].active) then
+        return false
+    end
+    
+    processingState[category].active = true
+    processingState[category].startTime = SysTime()
+    return true
+end
+
+local function endProcessing(category)
+    processingState[category].active = false
+    processingState[category].lastCompleteTime = SysTime()
+end
+
 -- Helper Functions
+
 function IsEntityNearPlayer(ent, maxDistance)
     if not IsValid(ent) or not IsValid(LocalPlayer()) then return false end
     
@@ -443,6 +514,7 @@ end
 
 local function UpdatePVSWithNative()
     if not cv_enabled:GetBool() or not cv_use_pvs:GetBool() or not NikNaks or not NikNaks.CurrentMap then return end
+    if not beginProcessing("pvs") then return end
     if pvs_update_in_progress then return end
     
     -- Only update after sufficient delay
@@ -505,6 +577,7 @@ local function UpdatePVSWithNative()
     end
     
     pvs_update_in_progress = false
+    endProcessing("pvs")
     lastPVSUpdateTime = CurTime()
 end
 
@@ -771,11 +844,26 @@ end
 
 -- Create clientside static props
 local function CreateStaticProps()
-    -- Clean up existing props first
+    -- Clean up existing props
     for _, prop in pairs(staticProps) do
         if IsValid(prop) then prop:Remove() end
     end
     staticProps = setmetatable({}, weakEntityTable)
+    
+    -- Skip if disabled or dependencies missing
+    if not (cv_enabled:GetBool() and NikNaks and NikNaks.CurrentMap) then return end
+    
+    -- Detect system capabilities (FPS-based adaptive limit)
+    local systemPerformance = 1.0
+    if stats.frameTimeAvg > 0 then
+        systemPerformance = math.Clamp(16.7 / stats.frameTimeAvg, 0.5, 2.0)
+    end
+    
+    -- Apply limits based on performance
+    local props = NikNaks.CurrentMap:GetStaticProps()
+    local batchSize = math.floor(50 * systemPerformance)
+    local maxProps = math.floor(1000 * systemPerformance)
+    local propCount = 0
     
     -- Store original ConVar value
     local originalPropSetting = GetConVar("r_drawstaticprops"):GetInt()
@@ -853,17 +941,70 @@ local function CreateStaticProps()
     RTX_FRUSTUM_ORIGINAL_PROP_SETTING = originalPropSetting
 end
 
--- Update all entities
-local function UpdateAllEntities(useOriginal)
-    for _, ent in ipairs(ents.GetAll()) do
-        SetEntityBounds(ent, useOriginal)
+
+function ResetAndUpdateBounds(preserveOriginals)
+    -- Stop any ongoing processing
+    RTX_SYSTEM.processingUpdate = true
+    
+    -- Cancel any pending update timers
+    for timerName in pairs(managedTimers) do
+        if timer.Exists(timerName) then
+            timer.Remove(timerName)
+        end
+    end
+    
+    -- First restore all original bounds to prevent leaks
+    local entitiesWithOriginals = {}
+    for ent, bounds in pairs(originalBounds) do
+        if IsValid(ent) then
+            -- Store for later if we need to update them
+            table.insert(entitiesWithOriginals, ent)
+            
+            -- Restore original bounds temporarily
+            ent:SetRenderBounds(bounds.mins, bounds.maxs)
+        end
+    end
+    
+    -- Clear caches while preserving weak tables
+    if not preserveOriginals then
+        for k in pairs(originalBounds) do originalBounds[k] = nil end
+    end
+    for k in pairs(entitiesInPVS) do entitiesInPVS[k] = nil end
+    
+    -- Update cached vectors for new bounds size
+    boundsSize = cv_bounds_size:GetFloat()
+    mins = Vector(-boundsSize, -boundsSize, -boundsSize)
+    maxs = Vector(boundsSize, boundsSize, boundsSize)
+    
+    -- Reset PVS data
+    currentPVS = nil
+    lastPVSUpdateTime = 0
+    pvs_update_in_progress = false
+    
+    -- If system is active, update all bounds
+    if RTX_SYSTEM.active then
+        -- First update RTX light updaters with new settings
+        UpdateRTXLightUpdaters()
+        
+        -- Then batch update all entities
+        UpdateAllEntitiesBatched(false)
+        
+        -- Recreate static props if needed
+        CreateStaticProps()
+    end
+    
+    -- Allow processing again
+    RTX_SYSTEM.processingUpdate = false
+    
+    if cv_debug:GetBool() then
+        print("[RTX Fixes] Reset and updated all entity bounds with new settings")
     end
 end
 
--- Hook for new entities
-hook.Add("Initialize", "LoadRTXFrustumMapPresets", LoadMapPresets)
+-- Hooks
+AddManagedHook("Initialize", "LoadRTXFrustumMapPresets", LoadMapPresets)
 
-hook.Add("InitPostEntity", "ApplyMapRTXPreset", function()
+AddManagedHook("InitPostEntity", "ApplyMapRTXPreset", function()
     timer.Simple(1, function()
         local currentMap = game.GetMap()
         if MAP_PRESETS[currentMap] then
@@ -875,8 +1016,8 @@ hook.Add("InitPostEntity", "ApplyMapRTXPreset", function()
     end)
 end)
 
-hook.Add("OnEntityCreated", "SetLargeRenderBounds", function(ent)
-    if not IsValid(ent) then return end
+AddManagedHook("OnEntityCreated", "SetLargeRenderBounds", function(ent)
+    if not RTX_SYSTEM.active or not IsValid(ent) then return end
     
     timer.Simple(0, function()
         if IsValid(ent) then
@@ -887,9 +1028,12 @@ hook.Add("OnEntityCreated", "SetLargeRenderBounds", function(ent)
 end)
 
 -- Initial setup
-hook.Add("InitPostEntity", "InitialBoundsSetup", function()
+AddManagedHook("InitPostEntity", "InitialBoundsSetup", function()
     timer.Simple(1, function()
-        if cv_enabled:GetBool() then
+        RTX_SYSTEM.active = cv_enabled:GetBool()
+        RTX_SYSTEM.initialized = true
+        
+        if RTX_SYSTEM.active then
             -- Initial PVS update if PVS optimization is enabled
             if cv_use_pvs:GetBool() and NikNaks and NikNaks.CurrentMap then
                 UpdatePlayerPVS()
@@ -901,8 +1045,8 @@ hook.Add("InitPostEntity", "InitialBoundsSetup", function()
     end)
 end)
 
-hook.Add("Think", "RTX_PVS_BatchProcessor", function()
-    if not cv_enabled:GetBool() or not cv_use_pvs:GetBool() then return end
+AddManagedHook("Think", "RTX_PVS_BatchProcessor", function()
+    if not RTX_SYSTEM.active or not cv_use_pvs:GetBool() then return end
     
     -- Check if there's batch processing to do
     if EntityManager.IsPVSUpdateInProgress() then
@@ -966,7 +1110,7 @@ hook.Add("Think", "RTX_PVS_BatchProcessor", function()
     end
 end)
 
-hook.Add("Think", "UpdateRTXPVSState", function()
+AddManagedHook("Think", "UpdateRTXPVSState", function()
     if not cv_enabled:GetBool() or not cv_use_pvs:GetBool() then return end
     
     if CurTime() - lastPVSUpdateTime > cv_pvs_update_interval:GetFloat() then
@@ -975,7 +1119,7 @@ hook.Add("Think", "UpdateRTXPVSState", function()
 end)
 
 -- Map cleanup/reload handler
-hook.Add("OnReloaded", "RefreshStaticProps", function()
+AddManagedHook("OnReloaded", "RefreshStaticProps", function()
     -- Clear bounds cache
     originalBounds = {}
     
@@ -997,13 +1141,13 @@ hook.Add("OnReloaded", "RefreshStaticProps", function()
     end
 end)
 
-hook.Add("OnMapChange", "ClearRTXPVSCache", function()
+AddManagedHook("OnMapChange", "ClearRTXPVSCache", function()
     currentPVS = nil
     lastPVSUpdateTime = 0
 end)
 
 -- Track frame times when HUD is enabled
-hook.Add("Think", "RTXPVSFrameTimeTracker", function()
+AddManagedHook("Think", "RTXPVSFrameTimeTracker", function()
     if cv_pvs_hud:GetBool() then
         local frameTime = FrameTime() * 1000 -- Convert to ms
         
@@ -1024,7 +1168,7 @@ hook.Add("Think", "RTXPVSFrameTimeTracker", function()
     end
 end)
 
-hook.Add("HUDPaint", "RTXPVSDebugHUD", function()
+AddManagedHook("HUDPaint", "RTXPVSDebugHUD", function()
     if not cv_pvs_hud:GetBool() then return end
     
     local player = LocalPlayer()
@@ -1097,6 +1241,193 @@ hook.Add("HUDPaint", "RTXPVSDebugHUD", function()
     end
 end)
 
+
+-- Hook States
+function UpdateRTXLightUpdaters()
+    if not RTX_SYSTEM.active then return end
+    
+    -- Clear existing cache but maintain the weak table
+    for k in pairs(rtxUpdaterCache) do rtxUpdaterCache[k] = nil end
+    rtxUpdaterCount = 0
+    
+    local updatedCount = 0
+    
+    -- Find and process all potential RTX updaters
+    for className, _ in pairs(SPECIAL_ENTITIES) do
+        for _, ent in ipairs(ents.FindByClass(className)) do
+            if IsValid(ent) then
+                rtxUpdaterCache[ent] = true
+                rtxUpdaterCount = rtxUpdaterCount + 1
+                updatedCount = updatedCount + 1
+                
+                -- Set appropriate bounds based on entity type
+                if className == "hdri_cube_editor" then
+                    local hdriSize = 32768
+                    local hdriBounds = Vector(hdriSize, hdriSize, hdriSize)
+                    ent:SetRenderBounds(-hdriBounds, hdriBounds)
+                elseif ent.lightType == LIGHT_TYPES.ENVIRONMENT then
+                    local envSize = cv_environment_light_distance:GetFloat()
+                    local envBounds = Vector(envSize, envSize, envSize)
+                    ent:SetRenderBounds(-envBounds, envBounds)
+                elseif REGULAR_LIGHT_TYPES[ent.lightType] then
+                    local rtxDistance = cv_rtx_updater_distance:GetFloat()
+                    local rtxBounds = Vector(rtxDistance, rtxDistance, rtxDistance)
+                    ent:SetRenderBounds(-rtxBounds, rtxBounds)
+                end
+                
+                -- Apply render settings
+                ent:DisableMatrix("RenderMultiply")
+                ent:SetRenderMode(GetConVar("rtx_lightupdater_show"):GetBool() and 0 or 2)
+                ent:SetColor(Color(255, 255, 255, GetConVar("rtx_lightupdater_show"):GetBool() and 255 or 1))
+            end
+        end
+    end
+    
+    -- Find by model
+    for model, _ in pairs(RTX_UPDATER_MODELS) do
+        for _, ent in ipairs(ents.FindByModel(model)) do
+            if IsValid(ent) and not rtxUpdaterCache[ent] then
+                rtxUpdaterCache[ent] = true
+                rtxUpdaterCount = rtxUpdaterCount + 1
+                updatedCount = updatedCount + 1
+                
+                local rtxDistance = cv_rtx_updater_distance:GetFloat()
+                local rtxBounds = Vector(rtxDistance, rtxDistance, rtxDistance)
+                ent:SetRenderBounds(-rtxBounds, rtxBounds)
+                ent:DisableMatrix("RenderMultiply")
+                ent:SetNoDraw(false)
+            end
+        end
+    end
+    
+    if cv_debug:GetBool() then
+        print(string.format("[RTX Fixes] Updated bounds for %d RTX light updaters", updatedCount))
+    end
+end
+
+
+function ResetRTXSystem()
+    -- Reset data structures while maintaining weak tables
+    for k in pairs(entitiesInPVS) do entitiesInPVS[k] = nil end
+    for k in pairs(rtxUpdaterCache) do rtxUpdaterCache[k] = nil end
+    rtxUpdaterCount = 0
+    
+    -- Reset PVS tracking
+    currentPVS = nil
+    lastPVSUpdateTime = 0
+    pvs_update_in_progress = false
+    
+    -- Reset stats
+    stats = {
+        entitiesInPVS = 0,
+        totalEntities = 0,
+        staticPropsInPVS = 0,
+        staticPropsTotal = 0,
+        pvsLeafCount = 0,
+        totalLeafCount = 0,
+        frameTime = 0,
+        frameTimeAvg = 0,
+        frameTimeHistory = {},
+        updateTime = 0
+    }
+    
+    -- Update system state
+    RTX_SYSTEM.active = cv_enabled:GetBool()
+    RTX_SYSTEM.initialized = true
+    RTX_SYSTEM.lastPVSUpdate = 0
+    RTX_SYSTEM.processingUpdate = false
+end
+
+function DeactivateRTXSystem()
+    print("[RTX Fixes] Deactivating RTX view frustum system...")
+    
+    -- Update system state immediately
+    RTX_SYSTEM.active = false
+    
+    -- 1. Stop all timers
+    for timerName in pairs(managedTimers) do
+        if timer.Exists(timerName) then
+            timer.Remove(timerName)
+        end
+    end
+    
+    -- 2. Forcibly remove all clientside static props FIRST
+    local propsRemoved = 0
+    for prop, _ in pairs(staticProps) do
+        if IsValid(prop) then
+            -- Force immediate removal
+            SafeCall("RemoveStaticProp", function()
+                prop:Remove()
+                prop = nil  -- Force cleanup
+            end)
+            propsRemoved = propsRemoved + 1
+        end
+    end
+    
+    -- Clear static props table completely and recreate with weak table
+    staticProps = {}
+    staticProps = setmetatable({}, weakEntityTable)
+    
+    -- 3. Reset entity bounds - create a complete entity list first
+    local allEntities = ents.GetAll()
+    local entitiesReset = 0
+    
+    for _, ent in ipairs(allEntities) do
+        if IsValid(ent) then
+            if originalBounds[ent] then
+                -- Restore original bounds
+                ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
+                entitiesReset = entitiesReset + 1
+            else
+                -- For entities without stored bounds, use a reasonable default
+                local defaultBounds = Vector(32, 32, 32)
+                ent:SetRenderBounds(-defaultBounds, defaultBounds)
+            end
+            
+            -- Remove any render modifiers that might have been applied
+            ent:DisableMatrix("RenderMultiply")
+            ent:SetNoDraw(false)
+        end
+    end
+    
+    -- 4. Clear all caches completely and recreate with weak tables
+    entitiesInPVS = {}
+    entitiesInPVS = setmetatable({}, weakEntityTable)
+    
+    rtxUpdaterCache = {}
+    rtxUpdaterCache = setmetatable({}, weakEntityTable)
+    rtxUpdaterCount = 0
+    
+    originalBounds = {}
+    originalBounds = setmetatable({}, weakEntityTable)
+    
+    patternCache = {}
+    
+    -- 5. Reset other state variables
+    currentPVS = nil
+    lastPVSUpdateTime = 0
+    pvs_update_in_progress = false
+    
+    -- 6. Reset engine static props setting
+    if RTX_FRUSTUM_ORIGINAL_PROP_SETTING then
+        RunConsoleCommand("r_drawstaticprops", tostring(RTX_FRUSTUM_ORIGINAL_PROP_SETTING))
+    else
+        RunConsoleCommand("r_drawstaticprops", "1")
+    end
+    
+    -- 7. Force garbage collection
+    collectgarbage("collect")
+    
+    print(string.format("[RTX Fixes] System deactivated: %d entities reset, %d static props removed", 
+        entitiesReset, propsRemoved))
+    
+    -- Return values to help with debugging
+    return {
+        entitiesReset = entitiesReset,
+        propsRemoved = propsRemoved
+    }
+end
+
 -- Handle ConVar changes
 cvars.AddChangeCallback("fr_static_props_pvs", function(_, _, new)
     local enabled = tobool(new)
@@ -1141,16 +1472,21 @@ cvars.AddChangeCallback("fr_use_pvs", function(_, _, new)
     end
 end)
 
-cvars.AddChangeCallback("fr_enabled", function(_, _, new)
-    local enabled = tobool(new)
+cvars.AddChangeCallback("fr_enabled", function(_, oldValue, newValue)
+    local oldEnabled = tobool(oldValue)
+    local newEnabled = tobool(newValue)
     
-    if enabled then
-        -- System is being enabled
+    print(string.format("[RTX Fixes] Enabled state changing: %s -> %s", 
+        tostring(oldEnabled), tostring(newEnabled)))
+    
+    if newEnabled then
+        -- System being enabled
+        RTX_SYSTEM.active = true
         
-        -- Reset PVS tracking when enabling
-        entitiesInPVS = setmetatable({}, weakEntityTable)
+        -- Reset PVS tracking
+        for k in pairs(entitiesInPVS) do entitiesInPVS[k] = nil end
         
-        -- Initial PVS update if PVS optimization is enabled
+        -- Initial PVS update if optimization is enabled
         if cv_use_pvs:GetBool() and NikNaks and NikNaks.CurrentMap then
             UpdatePlayerPVS()
         end
@@ -1160,99 +1496,78 @@ cvars.AddChangeCallback("fr_enabled", function(_, _, new)
             RTX_FRUSTUM_ORIGINAL_PROP_SETTING = GetConVar("r_drawstaticprops"):GetInt()
         end
         
-        -- Make sure hooks are installed properly
-        ReinstallSafeHooks()
-        
-        -- Restore RTX light updater bounds - add this line!
-        RestoreRTXLightUpdaterBounds()
+        -- Update RTX light updaters
+        UpdateRTXLightUpdaters()
         
         UpdateAllEntitiesBatched(false)
         CreateStaticProps()
+        
+        print("[RTX Fixes] System activated")
     else
-        -- System is being disabled - use complete shutdown
-        CompleteRTXSystemShutdown()
+        -- System being disabled
+        local result = DeactivateRTXSystem()
+        print(string.format("[RTX Fixes] Deactivation complete: %d entities reset, %d props removed", 
+            result.entitiesReset, result.propsRemoved))
     end
 end)
 
 cvars.AddChangeCallback("fr_bounds_size", function(_, _, new)
+    -- Use debounce timer to avoid multiple rapid updates
     CreateManagedTimer(boundsUpdateTimer, DEBOUNCE_TIME, 1, function()
-        UpdateBoundsVectors(tonumber(new))
-        
-        if cv_enabled:GetBool() then
-            UpdateAllEntitiesBatched(false)
-            CreateStaticProps()
-        end
+        ResetAndUpdateBounds(false)
     end)
 end)
-
 
 cvars.AddChangeCallback("fr_rtx_distance", function(_, _, new)
-    if not cv_enabled:GetBool() then return end
+    if not RTX_SYSTEM.active then return end
     
     CreateManagedTimer(boundsUpdateTimer, DEBOUNCE_TIME, 1, function()
+        -- We can do a targeted update for just RTX updaters
         local rtxDistance = tonumber(new)
-        local rtxBoundsSize = Vector(rtxDistance, rtxDistance, rtxDistance)
         
-        -- Only update non-environment light updaters
+        -- First restore all RTX updaters to original bounds
         for ent in pairs(rtxUpdaterCache) do
-            if IsValid(ent) then
-                -- Explicitly skip environment lights
-                if ent.lightType ~= "light_environment" then
-                    ent:SetRenderBounds(-rtxBoundsSize, rtxBoundsSize)
+            if IsValid(ent) and ent.lightType ~= "light_environment" then
+                if originalBounds[ent] then
+                    ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
                 end
-            else
-                RemoveFromRTXCache(ent)
             end
         end
+        
+        -- Then update them with new bounds
+        UpdateRTXLightUpdaters()
     end)
 end)
 
--- Separate callback for environment light distance changes
 cvars.AddChangeCallback("fr_environment_light_distance", function(_, _, new)
-    if not cv_enabled:GetBool() then return end
+    if not RTX_SYSTEM.active then return end
     
     CreateManagedTimer(boundsUpdateTimer, DEBOUNCE_TIME, 1, function()
+        -- Targeted update for environment lights only
         local envDistance = tonumber(new)
-        local envBoundsSize = Vector(envDistance, envDistance, envDistance)
         
-        -- Only update environment light updaters
+        -- First restore environment lights to original bounds
         for ent in pairs(rtxUpdaterCache) do
             if IsValid(ent) and ent.lightType == "light_environment" then
-                ent:SetRenderBounds(-envBoundsSize, envBoundsSize)
-                
-                -- Only print if debug is enabled
-                if cv_enabled:GetBool() and cv_debug:GetBool() then
-                    print(string.format("[RTX Fixes] Updating environment light bounds to %d", envDistance))
+                if originalBounds[ent] then
+                    ent:SetRenderBounds(originalBounds[ent].mins, originalBounds[ent].maxs)
                 end
             end
         end
+        
+        -- Then update them with new bounds
+        UpdateRTXLightUpdaters()
     end)
 end)
 
 -- ConCommand to refresh all entities' bounds
 concommand.Add("fr_refresh", function()
-    -- Clear bounds cache
-    originalBounds = {}
-    
-    if cv_enabled:GetBool() then
-        boundsSize = cv_bounds_size:GetFloat()
-        mins = Vector(-boundsSize, -boundsSize, -boundsSize)
-        maxs = Vector(boundsSize, boundsSize, boundsSize)
-        
-        -- Add this line to restore RTX light updater bounds
-        RestoreRTXLightUpdaterBounds()
-        
-        UpdateAllEntitiesBatched(false)
-        CreateStaticProps()
-    else
-        UpdateAllEntitiesBatched(true)
-    end
-    
-    print("Refreshed render bounds for all entities" .. (cv_enabled:GetBool() and " with large bounds" or " with original bounds"))
+    ResetAndUpdateBounds(false)
+    print("Refreshed render bounds for all entities" .. (RTX_SYSTEM.active and " with large bounds" or " with original bounds"))
 end)
 
 -- Entity cleanup
-hook.Add("EntityRemoved", "CleanupRTXCache", function(ent)
+AddManagedHook("EntityRemoved", "CleanupRTXCache", function(ent)
     RemoveFromRTXCache(ent)
     originalBounds[ent] = nil
 end)
@@ -1355,7 +1670,7 @@ function CreateSettingsPanel(panel)
     local entitySlider = slidersForm:NumSlider("Regular Entity Bounds", "fr_bounds_size", 256, 16384, 0)
     entitySlider:DockMargin(0, 0, 0, 2)
     
-    local lightSlider = slidersForm:NumSlider("Standard Light Bounds", "fr_standard_light_bounds", 256, 4096, 0)
+    local lightSlider = slidersForm:NumSlider("Standard Light Bounds", "fr_rtx_distance", 256, 4096, 0)
     lightSlider:DockMargin(0, 0, 0, 2)
     
     local envLightSlider = slidersForm:NumSlider("Environment Light Bounds", "fr_environment_light_distance", 4096, 65536, 0)
@@ -1501,92 +1816,6 @@ hook.Add("PopulateToolMenu", "RTXFrustumOptimizationMenu", function()
     end)
 end)
 
-concommand.Add("fr_add_special_entity", function(ply, cmd, args)
-    if not args[1] or not args[2] then
-        print("Usage: fr_add_special_entity <class> <size> [description]")
-        return
-    end
-    
-    local class = args[1]
-    local size = tonumber(args[2])
-    local description = args[3] or "Custom entity bounds"
-    
-    if not size then
-        print("Size must be a number!")
-        return
-    end
-    
-    AddSpecialEntityBounds(class, size, description)
-    print(string.format("Added special entity bounds for %s: %d units", class, size))
-end)
-
-local function CountEntitiesByPVSStatus()
-    local inPVS = 0
-    local outsidePVS = 0
-    local specialEntities = 0
-    local rtxUpdaters = 0
-    
-    for _, ent in ipairs(ents.GetAll()) do
-        if not IsValid(ent) then continue end
-        
-        local entPos = ent:GetPos()
-        if not entPos then continue end
-        
-        if IsRTXUpdater(ent) then
-            rtxUpdaters = rtxUpdaters + 1
-        elseif GetSpecialBoundsForClass(ent:GetClass()) then
-            specialEntities = specialEntities + 1
-        elseif currentPVS and currentPVS:TestPosition(entPos) then
-            inPVS = inPVS + 1
-        else
-            outsidePVS = outsidePVS + 1
-        end
-    end
-    
-    return inPVS, outsidePVS, specialEntities, rtxUpdaters
-end
-
-concommand.Add("fr_debug_pvs", function()
-    if not cv_enabled:GetBool() then
-        print("[RTX Fixes] PVS optimization system not enabled")
-        return
-    end
-
-    if not cv_use_pvs:GetBool() then
-        print("[RTX Fixes] PVS optimization feature not enabled")
-        return
-    end
-    
-    -- Update PVS if needed
-    if not currentPVS then
-        UpdatePlayerPVS()
-        if not currentPVS then
-            print("[RTX Fixes] Failed to generate PVS data - NikNaks may not be working")
-            return
-        end
-    end
-    
-    local inPVS, outsidePVS, specialEntities, rtxUpdaters = CountEntitiesByPVSStatus()
-    local total = inPVS + outsidePVS + specialEntities + rtxUpdaters
-    
-    print("\n--- RTX View Frustum PVS Debug ---")
-    print("PVS Optimization: ACTIVE")
-    print("Last PVS Update: " .. math.Round(CurTime() - lastPVSUpdateTime, 1) .. " seconds ago")
-    print("Total Entities: " .. total)
-    print("  • Entities in PVS (large bounds): " .. inPVS .. " (" .. math.Round(inPVS/total*100) .. "%)")
-    print("  • Entities outside PVS (original bounds): " .. outsidePVS .. " (" .. math.Round(outsidePVS/total*100) .. "%)")
-    print("  • Special entities (always large bounds): " .. specialEntities .. " (" .. math.Round(specialEntities/total*100) .. "%)")
-    print("  • RTX updaters (custom bounds): " .. rtxUpdaters .. " (" .. math.Round(rtxUpdaters/total*100) .. "%)")
-    
-    if outsidePVS > 0 then
-        print("\nPerformance Impact:")
-        print("  • " .. outsidePVS .. " entities are using original render bounds")
-        print("  • This should improve performance while maintaining RTX quality")
-    end
-    
-    print("----------------------------------")
-end)
-
 concommand.Add("fr_reset_bounds", function()
     print("[RTX Fixes] Performing complete bounds reset...")
     
@@ -1611,334 +1840,3 @@ concommand.Add("fr_reset_bounds", function()
     
     print("[RTX Fixes] Bounds reset complete")
 end)
-
-function CompleteRTXSystemShutdown()
-    print("[RTX Fixes] Performing COMPLETE SYSTEM SHUTDOWN...")
-    
-    -- 1. Remove all hooks first to prevent any further processing
-    local hooksToRemove = {
-        "OnEntityCreated.SetLargeRenderBounds",
-        "Think.RTX_PVS_BatchProcessor",
-        "Think.UpdateRTXPVSState",
-        "Think.RTXPVSFrameTimeTracker",
-        "HUDPaint.RTXPVSDebugHUD"
-    }
-    
-    for _, hookName in ipairs(hooksToRemove) do
-        local event, identifier = string.match(hookName, "([^.]+)%.(.+)")
-        if event and identifier then
-            hook.Remove(event, identifier)
-            print("  • Removed hook: " .. event .. "." .. identifier)
-        end
-    end
-    
-    -- 2. Clear all timers
-    local timersToRemove = {
-        "FR_BoundsUpdate", 
-        "FR_RTXUpdate", 
-        "FR_EntityCleanup",
-        "RTX_PVS_EntityProcessing", 
-        "RTX_PVS_StaticPropProcessing"
-    }
-    
-    for _, timerName in ipairs(timersToRemove) do
-        if timer.Exists(timerName) then
-            timer.Remove(timerName)
-            print("  • Removed timer: " .. timerName)
-        end
-    end
-    
-    -- 3. Reset all entity bounds
-    local resetCount = 0
-    for ent, bounds in pairs(originalBounds) do
-        if IsValid(ent) then
-            ent:SetRenderBounds(bounds.mins, bounds.maxs)
-            -- Also ensure no matrices or rendering states are left
-            ent:DisableMatrix("RenderMultiply")
-            ent:SetNoDraw(false)
-            resetCount = resetCount + 1
-        end
-    end
-    
-    -- 4. Apply conservative bounds to all other entities
-    local fallbackCount = 0
-    for _, ent in ipairs(ents.GetAll()) do
-        if IsValid(ent) and not originalBounds[ent] then
-            -- Skip special entities
-            if not SPECIAL_ENTITIES[ent:GetClass()] then
-                -- Use smaller bounds for better culling
-                local defaultBounds = Vector(16, 16, 16)
-                ent:SetRenderBounds(-defaultBounds, defaultBounds)
-                fallbackCount = fallbackCount + 1
-            end
-        end
-    end
-    
-    -- 5. Remove all static props
-    local propsRemoved = 0
-    for prop, _ in pairs(staticProps) do
-        if IsValid(prop) then
-            prop:Remove()
-            propsRemoved = propsRemoved + 1
-        end
-    end
-    staticProps = {}
-    
-    -- 6. Clear all caches and state
-    entitiesInPVS = setmetatable({}, weakEntityTable)
-    rtxUpdaterCache = setmetatable({}, weakEntityTable)
-    rtxUpdaterCount = 0
-    currentPVS = nil
-    lastPVSUpdateTime = 0
-    originalBounds = setmetatable({}, weakEntityTable)
-    patternCache = {}
-    pvs_update_in_progress = false
-    boundsInitialized = false
-    
-    -- 7. Reset engine static props setting
-    if RTX_FRUSTUM_ORIGINAL_PROP_SETTING then
-        RunConsoleCommand("r_drawstaticprops", tostring(RTX_FRUSTUM_ORIGINAL_PROP_SETTING))
-    else
-        RunConsoleCommand("r_drawstaticprops", "1")
-    end
-    
-    -- 8. Reset NikNaks integration if possible
-    if NikNaks and NikNaks.ResetPVSCache then
-        NikNaks.ResetPVSCache()
-    end
-    
-    -- 9. Reset EntityManager if it exists
-    if EntityManager then
-        if EntityManager.Reset then
-            EntityManager.Reset()
-        end
-        
-        -- Force-clear any other EntityManager state that might exist
-        if EntityManager.ClearAllPVSData then EntityManager.ClearAllPVSData() end
-        if EntityManager.StopAllProcessing then EntityManager.StopAllProcessing() end
-    end
-    
-    print(string.format("[RTX Fixes] System shutdown complete: %d entities reset to original bounds, %d given fallback bounds, %d static props removed", 
-        resetCount, fallbackCount, propsRemoved))
-    
-    -- 10. Re-add necessary hooks with safety checks
-    -- This ensures the hooks will only run when the system is enabled
-    ReinstallSafeHooks()
-end
-
--- Function to reinstall hooks after shutdown
-function ReinstallSafeHooks()
-    -- OnEntityCreated hook with safety check
-    hook.Add("OnEntityCreated", "SetLargeRenderBounds", function(ent)
-        if not cv_enabled:GetBool() then return end
-        if not IsValid(ent) then return end
-        
-        timer.Simple(0, function()
-            if not cv_enabled:GetBool() then return end
-            if IsValid(ent) then
-                AddToRTXCache(ent)
-                SetEntityBounds(ent, not cv_enabled:GetBool())
-            end
-        end)
-    end)
-    
-    -- Reinstall the HUD hook
-    hook.Add("HUDPaint", "RTXPVSDebugHUD", function()
-        if not cv_pvs_hud:GetBool() then return end
-        if not cv_enabled:GetBool() then return end
-        
-        local player = LocalPlayer()
-        if not IsValid(player) then return end
-        
-        local textColor = Color(255, 255, 255, 220)
-        local bgColor = Color(0, 0, 0, 150)
-        local headerColor = Color(100, 200, 255, 220)
-        local goodColor = Color(100, 255, 100, 220)
-        local badColor = Color(255, 100, 100, 220)
-        
-        -- Get current leaf if available
-        local currentLeaf = "Unknown"
-        if NikNaks and NikNaks.CurrentMap then
-            local leaf = NikNaks.CurrentMap:PointInLeaf(0, player:GetPos())
-            if leaf then
-                currentLeaf = leaf:GetIndex()
-            end
-        end
-        
-        -- Create info text
-        local infoLines = {
-            {text = "RTX View Frustum PVS Statistics", color = headerColor},
-            {text = "PVS Optimization: " .. (cv_use_pvs:GetBool() and "Enabled" or "Disabled"), 
-             color = cv_use_pvs:GetBool() and goodColor or badColor},
-            {text = string.format("Entities in PVS: %d / %d (%.1f%%)", 
-                stats.entitiesInPVS, stats.totalEntities, 
-                stats.totalEntities > 0 and (stats.entitiesInPVS / stats.totalEntities * 100) or 0)},
-            {text = string.format("Leafs in PVS: %d / %d (%.1f%%)", 
-                stats.pvsLeafCount, stats.totalLeafCount,
-                stats.totalLeafCount > 0 and (stats.pvsLeafCount / stats.totalLeafCount * 100) or 0)},
-            {text = string.format("Current leaf: %s", currentLeaf)},
-            {text = string.format("Frame time: %.2f ms (avg: %.2f ms)", stats.frameTime, stats.frameTimeAvg),
-             color = stats.frameTimeAvg < 16.67 and goodColor or badColor}, -- 60fps threshold
-            {text = string.format("PVS update time: %.2f ms", stats.updateTime * 1000)},
-            {text = string.format("Last update: %.1f sec ago", CurTime() - lastPVSUpdateTime)},
-            {text = string.format("Static Props in PVS: %d / %d (%.1f%%)", 
-                stats.staticPropsInPVS, stats.staticPropsTotal, 
-                stats.staticPropsTotal > 0 and (stats.staticPropsInPVS / stats.staticPropsTotal * 100) or 0),
-             color = cv_static_props_pvs:GetBool() and textColor or Color(150, 150, 150, 220)},
-            {text = string.format("Position: %.1f, %.1f, %.1f", 
-                player:GetPos().x, player:GetPos().y, player:GetPos().z)}
-        }
-        
-        if pvs_stats.inProgress then
-            local progress = EntityManager.GetPVSProgress() * 100
-            table.insert(infoLines, {text = string.format("PVS Update: %.1f%% complete", progress),
-                                    color = Color(255, 200, 100, 220)})
-        end
-        
-        -- Calculate panel size
-        local margin = 10
-        local lineHeight = 20
-        local panelWidth = 350
-        local panelHeight = (#infoLines * lineHeight) + (margin * 2)
-        
-        -- Draw background
-        draw.RoundedBox(4, 10, 10, panelWidth, panelHeight, bgColor)
-        
-        -- Draw text
-        for i, line in ipairs(infoLines) do
-            draw.SimpleText(
-                line.text, 
-                "DermaDefault", 
-                20, 
-                10 + margin + ((i-1) * lineHeight), 
-                line.color or textColor, 
-                TEXT_ALIGN_LEFT, 
-                TEXT_ALIGN_CENTER
-            )
-        end
-    end)
-    
-    -- Reinstall the frame time tracker hook
-    hook.Add("Think", "RTXPVSFrameTimeTracker", function()
-        if not cv_enabled:GetBool() then return end
-        if not cv_pvs_hud:GetBool() then return end
-        
-        local frameTime = FrameTime() * 1000 -- Convert to ms
-        
-        -- Track in history for moving average
-        table.insert(stats.frameTimeHistory, frameTime)
-        if #stats.frameTimeHistory > 60 then -- Keep last 60 frames
-            table.remove(stats.frameTimeHistory, 1)
-        end
-        
-        -- Calculate average
-        local sum = 0
-        for _, time in ipairs(stats.frameTimeHistory) do
-            sum = sum + time
-        end
-        stats.frameTimeAvg = sum / #stats.frameTimeHistory
-        
-        stats.frameTime = frameTime
-    end)
-    
-    -- Reinstall PVS batch processor hook
-    hook.Add("Think", "RTX_PVS_BatchProcessor", function()
-        if not cv_enabled:GetBool() or not cv_use_pvs:GetBool() then return end
-        
-        -- Batch processing code
-        if EntityManager.IsPVSUpdateInProgress() then
-            -- Process just one batch per frame to avoid hitches
-            local results, complete = EntityManager.ProcessNextEntityBatch()
-            
-            -- Apply results to entities
-            -- (rest of the batch processing code)
-        end
-    end)
-    
-    -- Reinstall PVS updater hook
-    hook.Add("Think", "UpdateRTXPVSState", function()
-        if not cv_enabled:GetBool() or not cv_use_pvs:GetBool() then return end
-        
-        if CurTime() - lastPVSUpdateTime > cv_pvs_update_interval:GetFloat() then
-            UpdatePlayerPVS()
-        end
-    end)
-    
-    print("[RTX Fixes] Reinstalled hooks with safety checks")
-end
-
-function RestoreRTXLightUpdaterBounds()
-    if not cv_enabled:GetBool() then return end
-    
-    -- Reset updater cache
-    rtxUpdaterCache = setmetatable({}, weakEntityTable)
-    rtxUpdaterCount = 0
-    
-    local updatedCount = 0
-    
-    -- Find and process all potential RTX updaters
-    for className, _ in pairs(SPECIAL_ENTITIES) do
-        for _, ent in ipairs(ents.FindByClass(className)) do
-            if IsValid(ent) then
-                rtxUpdaterCache[ent] = true
-                rtxUpdaterCount = rtxUpdaterCount + 1
-                updatedCount = updatedCount + 1
-                
-                -- Special handling for HDRI cube editors
-                if className == "hdri_cube_editor" then
-                    local hdriSize = 32768
-                    local hdriBounds = Vector(hdriSize, hdriSize, hdriSize)
-                    ent:SetRenderBounds(-hdriBounds, hdriBounds)
-                    ent:DisableMatrix("RenderMultiply")
-                    ent:SetNoDraw(false)
-                    continue
-                end
-                
-                -- Handle different light types
-                if ent.lightType == LIGHT_TYPES.ENVIRONMENT then
-                    local envSize = cv_environment_light_distance:GetFloat()
-                    local envBounds = Vector(envSize, envSize, envSize)
-                    ent:SetRenderBounds(-envBounds, envBounds)
-                elseif REGULAR_LIGHT_TYPES[ent.lightType] then
-                    local rtxDistance = cv_rtx_updater_distance:GetFloat()
-                    local rtxBounds = Vector(rtxDistance, rtxDistance, rtxDistance)
-                    ent:SetRenderBounds(-rtxBounds, rtxBounds)
-                end
-                
-                -- Apply render settings
-                ent:DisableMatrix("RenderMultiply")
-                if GetConVar("rtx_lightupdater_show"):GetBool() then
-                    ent:SetRenderMode(0)
-                    ent:SetColor(Color(255, 255, 255, 255))
-                else
-                    ent:SetRenderMode(2)
-                    ent:SetColor(Color(255, 255, 255, 1))
-                end
-            end
-        end
-    end
-    
-    -- Find and process entities with RTX updater models
-    for model, _ in pairs(RTX_UPDATER_MODELS) do
-        for _, ent in ipairs(ents.FindByModel(model)) do
-            if IsValid(ent) and not rtxUpdaterCache[ent] then
-                rtxUpdaterCache[ent] = true
-                rtxUpdaterCount = rtxUpdaterCount + 1
-                updatedCount = updatedCount + 1
-                
-                -- Set standard RTX updater bounds
-                local rtxDistance = cv_rtx_updater_distance:GetFloat()
-                local rtxBounds = Vector(rtxDistance, rtxDistance, rtxDistance)
-                ent:SetRenderBounds(-rtxBounds, rtxBounds)
-                ent:DisableMatrix("RenderMultiply")
-                ent:SetNoDraw(false)
-            end
-        end
-    end
-    
-    if cv_debug:GetBool() then
-        print(string.format("[RTX Fixes] Restored bounds for %d RTX light updaters", updatedCount))
-    end
-end
-
-concommand.Add("fr_force_reset", CompleteRTXSystemShutdown)
