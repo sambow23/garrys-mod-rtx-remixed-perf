@@ -225,29 +225,3 @@ concommand.Add("rtx_fixmaterials_fixnow", MaterialFixups)
 concommand.Add("rtx_force_no_fullbright", function()
     render.SetLightingMode(0)
 end)
-
--- Settings UI
-hook.Add("PopulateToolMenu", "RTXOptionsClient", function()
-    spawnmenu.AddToolMenuOption("Utilities", "User", "RTX_Client", "#RTX", "", "", function(panel)
-        panel:ClearControls()
-
-        panel:CheckBox("Fix Materials on Load.", "rtx_fixmaterials")
-        panel:ControlHelp("Fixup broken and unsupported materials, this fixes things from UI to particles.")
-
-        panel:CheckBox("Pseudoplayer Enabled", "rtx_pseudoplayer")
-        panel:ControlHelp("Pseudoplayer allows you to see your own playermodel, this when marked as a 'Playermodel Texture' in remix allows you to see your own shadow and reflection.")
-
-        panel:CheckBox("Pseudoweapon Enabled", "rtx_pseudoweapon")
-        panel:ControlHelp("Similar to above, but for the weapon you're holding.")
-
-        panel:CheckBox("Disable Vertex Lighting.", "rtx_disablevertexlighting")
-        panel:ControlHelp("Disables vertex lighting on models and props, these look incorrect with rtx and aren't needed when lightupdaters are enabled.")
-
-        panel:CheckBox("Light Updaters", "rtx_lightupdater")
-        panel:ControlHelp("Prevent lights from disappearing in remix, works well when high and 'Supress Light Keeping' in remix settings is on.")
-
-        local qualityslider = panel:NumSlider("Light Updater Count", "rtx_lightupdater_count", 0, 2048, 0)
-        panel:ControlHelp("The amount of light updaters to use, this can be as low as 8 when 'Supress Light Keeping' is off.")
-        panel:ControlHelp("Requires map reload to take affect!")
-    end)
-end)
