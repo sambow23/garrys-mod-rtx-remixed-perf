@@ -48,6 +48,7 @@ local managedTimers = managedTimers or {}
 local currentPVSProgress = 0
 local lastTrackedPosition = Vector(0,0,0)
 local positionUpdateThreshold = 128  -- Units player must move to trigger update
+local bDrawingSkybox = false
 
 -- RTX Light Updater model list
 local RTX_UPDATER_MODELS = {
@@ -1324,6 +1325,44 @@ AddManagedHook("InitPostEntity", "InitialBoundsSetup", function()
             CreateStaticProps()
         end
     end)
+end)
+
+hook.Add("PreDrawSkyBox", "RTXFrustum_SkyboxDetection", function()
+    bDrawingSkybox = true
+end)
+
+hook.Add("PostDrawSkyBox", "RTXFrustum_SkyboxDetection", function()
+    bDrawingSkybox = false
+end)
+
+hook.Add("InitPostEntity", "RTXFrustum_SkyboxProtection", function()
+    if not SetEntityBounds then
+        print("[RTX Fixes] Skybox protection could not find main addon functions")
+        return
+    end
+    
+    local originalSetEntityBounds = SetEntityBounds
+    
+    -- I'm lazy so we're just gonna hook right into SEB
+    function SetEntityBounds(ent, useOriginal)
+        -- Skip modifying bounds during skybox rendering
+        if bDrawingSkybox then return end
+        
+        -- Call original function
+        return originalSetEntityBounds(ent, useOriginal)
+    end
+    
+    -- Override PVS update function to prevent running during skybox rendering
+    if UpdatePlayerPVS then
+        local originalUpdatePVS = UpdatePlayerPVS
+        
+        function UpdatePlayerPVS()
+            if bDrawingSkybox then return end
+            return originalUpdatePVS()
+        end
+    end
+    
+    print("[RTX Fixes] Skybox protection installed successfully")
 end)
 
 -- Catch all map lights
