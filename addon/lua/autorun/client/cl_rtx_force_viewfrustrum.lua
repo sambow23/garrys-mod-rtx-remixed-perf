@@ -253,7 +253,7 @@ local function ApplyPreset(presetName)
     if not preset then return end
     
     RunConsoleCommand("fr_bounds_size", tostring(preset.entity))
-    RunConsoleCommand("fr_standard_light_bounds", tostring(preset.light))
+    RunConsoleCommand("fr_rtx_distance", tostring(preset.light))
     RunConsoleCommand("fr_environment_light_distance", tostring(preset.environment))
 end
 
@@ -465,8 +465,8 @@ function StartEntityProcessingTimer()
             if IsValid(ent) then
                 local className = ent:GetClass()
                 if not GetSpecialBoundsForClass(className) and 
-                   not SPECIAL_ENTITIES[className] and 
-                   not rtxUpdaterCache[ent] then
+                    not SPECIAL_ENTITIES[className] and 
+                    not rtxUpdaterCache[ent] then
                     
                     -- Use the optimized single-entity check
                     local isInPVS = EntityManager.ProcessEntityPVS_Optimized(ent)
@@ -815,51 +815,44 @@ function SetEntityBounds(ent, useOriginal)
         end
         
     -- RTX updaters - always handle separately
-    elseif rtxUpdaterCache[ent] then
-        -- Completely separate handling for environment lights
-        if ent.lightType == LIGHT_TYPES.ENVIRONMENT then
-            local envSize = cv_environment_light_distance:GetFloat()
-            local envBounds = RTXMath_CreateVector(envSize, envSize, envSize)
-            local negEnvBounds = RTXMath_NegateVector(envBounds)
-            
-            -- Use native bounds and distance check
-            if RTXMath_IsWithinBounds(entPos, negEnvBounds, envBounds) then
-                ent:SetRenderBounds(negEnvBounds, envBounds)
-                
-                -- Only print if debug is enabled
-                if cv_enabled:GetBool() and cv_debug:GetBool() then
-                    local distSqr = RTXMath_DistToSqr(entPos, vector_origin)
-                    print(string.format("[RTX Fixes] Environment light bounds: %d (Distance: %.2f)", 
-                        envSize, math.sqrt(distSqr)))
-                end
-            end
-            
-        elseif REGULAR_LIGHT_TYPES[ent.lightType] then
-            local rtxDistance = cv_rtx_updater_distance:GetFloat()
-            local rtxBounds = RTXMath_CreateVector(rtxDistance, rtxDistance, rtxDistance)
-            local negRtxBounds = RTXMath_NegateVector(rtxBounds)
-            
-            -- Use native bounds and distance check
-            if RTXMath_IsWithinBounds(entPos, negRtxBounds, rtxBounds) then
-                ent:SetRenderBounds(negRtxBounds, rtxBounds)
-                
-                -- Only print if debug is enabled
-                if cv_enabled:GetBool() and cv_debug:GetBool() then
-                    local distSqr = RTXMath_DistToSqr(entPos, vector_origin)
-                    print(string.format("[RTX Fixes] Regular light bounds (%s): %d (Distance: %.2f)", 
-                        ent.lightType, rtxDistance, math.sqrt(distSqr)))
-                end
-            end
+elseif rtxUpdaterCache[ent] then
+    -- Completely separate handling for environment lights
+    if ent.lightType == LIGHT_TYPES.ENVIRONMENT then
+        local envSize = cv_environment_light_distance:GetFloat()
+        local envBounds = RTXMath_CreateVector(envSize, envSize, envSize)
+        local negEnvBounds = RTXMath_NegateVector(envBounds)
+        
+        -- Always use full bounds regardless of distance
+        ent:SetRenderBounds(negEnvBounds, envBounds)
+        
+        -- Only print if debug is enabled
+        if cv_enabled:GetBool() and cv_debug:GetBool() then
+            print(string.format("[RTX Fixes] Environment light bounds: %d", envSize))
         end
         
-        ent:DisableMatrix("RenderMultiply")
-        if GetConVar("rtx_lightupdater_show"):GetBool() then
-            ent:SetRenderMode(0)
-            ent:SetColor(Color(255, 255, 255, 255))
-        else
-            ent:SetRenderMode(2)
-            ent:SetColor(Color(255, 255, 255, 1))
+    elseif REGULAR_LIGHT_TYPES[ent.lightType] then
+        local rtxDistance = cv_rtx_updater_distance:GetFloat()
+        local rtxBounds = RTXMath_CreateVector(rtxDistance, rtxDistance, rtxDistance)
+        local negRtxBounds = RTXMath_NegateVector(rtxBounds)
+        
+        -- Always use full bounds regardless of distance
+        ent:SetRenderBounds(negRtxBounds, rtxBounds)
+        
+        -- Only print if debug is enabled
+        if cv_enabled:GetBool() and cv_debug:GetBool() then
+            print(string.format("[RTX Fixes] Regular light bounds (%s): %d", 
+                ent.lightType, rtxDistance))
         end
+    end
+    
+    ent:DisableMatrix("RenderMultiply")
+    if GetConVar("rtx_lightupdater_show"):GetBool() then
+        ent:SetRenderMode(0)
+        ent:SetColor(Color(255, 255, 255, 255))
+    else
+        ent:SetRenderMode(2)
+        ent:SetColor(Color(255, 255, 255, 1))
+    end
     
     -- Regular entities - Check PVS if enabled
     else
@@ -1488,6 +1481,8 @@ function UpdateRTXLightUpdaters()
     rtxUpdaterCount = 0
     
     local updatedCount = 0
+    local environmentLightCount = 0
+    local regularLightCount = 0
     
     -- Find and process all potential RTX updaters
     for className, _ in pairs(SPECIAL_ENTITIES) do
@@ -1497,30 +1492,38 @@ function UpdateRTXLightUpdaters()
                 rtxUpdaterCount = rtxUpdaterCount + 1
                 updatedCount = updatedCount + 1
                 
-                -- Set appropriate bounds based on entity type
+                -- Set bounds with absolutely no distance checking
                 if className == "hdri_cube_editor" then
+                    -- Maximum size for HDRI
                     local hdriSize = 32768
                     local hdriBounds = Vector(hdriSize, hdriSize, hdriSize)
                     ent:SetRenderBounds(-hdriBounds, hdriBounds)
                 elseif ent.lightType == LIGHT_TYPES.ENVIRONMENT then
+                    -- Use environment light size
                     local envSize = cv_environment_light_distance:GetFloat()
                     local envBounds = Vector(envSize, envSize, envSize)
                     ent:SetRenderBounds(-envBounds, envBounds)
-                elseif REGULAR_LIGHT_TYPES[ent.lightType] then
+                    environmentLightCount = environmentLightCount + 1
+                else
+                    -- Default to regular light size for all other lights
                     local rtxDistance = cv_rtx_updater_distance:GetFloat()
                     local rtxBounds = Vector(rtxDistance, rtxDistance, rtxDistance)
                     ent:SetRenderBounds(-rtxBounds, rtxBounds)
+                    regularLightCount = regularLightCount + 1
                 end
                 
                 -- Apply render settings
                 ent:DisableMatrix("RenderMultiply")
+                
+                -- Force visibility
+                ent:SetNoDraw(false)
                 ent:SetRenderMode(GetConVar("rtx_lightupdater_show"):GetBool() and 0 or 2)
                 ent:SetColor(Color(255, 255, 255, GetConVar("rtx_lightupdater_show"):GetBool() and 255 or 1))
             end
         end
     end
     
-    -- Find by model
+    -- Find by model with no distance checking
     for model, _ in pairs(RTX_UPDATER_MODELS) do
         for _, ent in ipairs(ents.FindByModel(model)) do
             if IsValid(ent) and not rtxUpdaterCache[ent] then
@@ -1528,20 +1531,24 @@ function UpdateRTXLightUpdaters()
                 rtxUpdaterCount = rtxUpdaterCount + 1
                 updatedCount = updatedCount + 1
                 
+                -- Always apply maximum bounds
                 local rtxDistance = cv_rtx_updater_distance:GetFloat()
                 local rtxBounds = Vector(rtxDistance, rtxDistance, rtxDistance)
                 ent:SetRenderBounds(-rtxBounds, rtxBounds)
+                
+                -- Force visibility
                 ent:DisableMatrix("RenderMultiply")
                 ent:SetNoDraw(false)
+                regularLightCount = regularLightCount + 1
             end
         end
     end
     
     if cv_debug:GetBool() then
-        print(string.format("[RTX Fixes] Updated bounds for %d RTX light updaters", updatedCount))
+        print(string.format("[RTX Fixes] Updated bounds for %d RTX light updaters (%d environment, %d regular)", 
+            updatedCount, environmentLightCount, regularLightCount))
     end
 end
-
 
 function ResetRTXSystem()
     -- Reset data structures while maintaining weak tables
