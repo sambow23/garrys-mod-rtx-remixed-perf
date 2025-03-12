@@ -81,7 +81,7 @@ local REGULAR_LIGHT_TYPES = {
 }
 
 local PRESETS = {
-    ["Very Low"] = { entity = 64, light = 256, environment = 16384 },
+    ["Very Low"] = { entity = 64, light = 256, environment = 32768 },
     ["Low"] = { entity = 256, light = 256, environment = 32768 },
     ["Medium"] = { entity = 512, light = 256, environment = 32768 },
     ["High"] = { entity = 2048, light = 1024, environment = 32768 },
@@ -105,6 +105,11 @@ local SPECIAL_ENTITY_BOUNDS = {
     },
 
     ["func_breakable"] = {
+        size = 512, -- Default size for doors
+        description = "func_ entities", -- For debug/documentation
+    },
+
+    ["func_brush"] = {
         size = 512, -- Default size for doors
         description = "func_ entities", -- For debug/documentation
     },
@@ -762,6 +767,44 @@ end
 function SetEntityBounds(ent, useOriginal)
     if not IsValid(ent) then return end
     
+    -- First check if this is a light entity we haven't identified yet
+    if not rtxUpdaterCache[ent] and not useOriginal then
+        local className = ent:GetClass()
+        local model = ent:GetModel()
+        
+        -- Check for light entities that were previously missed
+        if SPECIAL_ENTITIES[className] or 
+           (model and RTX_UPDATER_MODELS[model]) or
+           string.find(className or "", "light") or
+           ent.lightType then
+            
+            -- Add to cache and apply bounds right away
+            rtxUpdaterCache[ent] = true
+            rtxUpdaterCount = rtxUpdaterCount + 1
+            
+            -- Skip further processing - UpdateRTXLightUpdaters handles this now
+            if cv_debug:GetBool() then
+                print("[RTX Fixes] Late-detected light entity: " .. className)
+            end
+            
+            -- Force an immediate update
+            local envSize = cv_environment_light_distance:GetFloat()
+            local rtxDistance = cv_rtx_updater_distance:GetFloat()
+            
+            if ent.lightType == LIGHT_TYPES.ENVIRONMENT then
+                local envBounds = Vector(envSize, envSize, envSize)
+                ent:SetRenderBounds(-envBounds, envBounds)
+            else
+                local rtxBounds = Vector(rtxDistance, rtxDistance, rtxDistance)
+                ent:SetRenderBounds(-rtxBounds, rtxBounds)
+            end
+            
+            ent:DisableMatrix("RenderMultiply")
+            ent:SetNoDraw(false)
+            return
+        end
+    end
+    
     -- Original bounds restoration code
     if useOriginal then
         if originalBounds[ent] then
@@ -1177,6 +1220,68 @@ function ResetAndUpdateBounds(preserveOriginals)
     end
 end
 
+function ScanEntireMapForLights()
+    if not RTX_SYSTEM.active then return end
+    
+    local startTime = SysTime()
+    local newLightsFound = 0
+    local totalEntities = 0
+    
+    -- Check ALL entities on the map
+    for _, ent in ipairs(ents.GetAll()) do
+        totalEntities = totalEntities + 1
+        
+        if IsValid(ent) and not rtxUpdaterCache[ent] then
+            local className = ent:GetClass()
+            local model = ent:GetModel()
+            
+            -- Check if it's a light entity we missed
+            if SPECIAL_ENTITIES[className] or 
+               (model and RTX_UPDATER_MODELS[model]) or
+               string.find(className or "", "light") or
+               ent.lightType then
+                
+                -- Add to our cache and apply bounds immediately
+                rtxUpdaterCache[ent] = true
+                rtxUpdaterCount = rtxUpdaterCount + 1
+                newLightsFound = newLightsFound + 1
+                
+                -- Apply appropriate bounds based on light type
+                if ent.lightType == LIGHT_TYPES.ENVIRONMENT then
+                    local envSize = cv_environment_light_distance:GetFloat()
+                    local envBounds = Vector(envSize, envSize, envSize)
+                    ent:SetRenderBounds(-envBounds, envBounds)
+                else
+                    local rtxDistance = cv_rtx_updater_distance:GetFloat()
+                    local rtxBounds = Vector(rtxDistance, rtxDistance, rtxDistance)
+                    ent:SetRenderBounds(-rtxBounds, rtxBounds)
+                end
+                
+                -- Force visibility settings
+                ent:DisableMatrix("RenderMultiply")
+                ent:SetNoDraw(false)
+                
+                if GetConVar("rtx_lightupdater_show"):GetBool() then
+                    ent:SetRenderMode(0)
+                    ent:SetColor(Color(255, 255, 255, 255))
+                else
+                    ent:SetRenderMode(2)
+                    ent:SetColor(Color(255, 255, 255, 1))
+                end
+            end
+        end
+    end
+    
+    local endTime = SysTime()
+    
+    if cv_debug:GetBool() or newLightsFound > 0 then
+        print(string.format("[RTX Fixes] Full map light scan: Found %d new lights out of %d entities (%.2f ms)",
+            newLightsFound, totalEntities, (endTime - startTime) * 1000))
+    end
+    
+    return newLightsFound
+end
+
 -- Hooks
 AddManagedHook("Initialize", "LoadRTXFrustumMapPresets", LoadMapPresets)
 
@@ -1217,6 +1322,30 @@ AddManagedHook("InitPostEntity", "InitialBoundsSetup", function()
             
             UpdateAllEntitiesBatched(false)
             CreateStaticProps()
+        end
+    end)
+end)
+
+-- Catch all map lights
+hook.Add("InitPostEntity", "RTXLightsMultiPhaseInitialization", function()
+    -- Initial scan - soon after map loads
+    timer.Simple(1, function()
+        if RTX_SYSTEM.active then
+            UpdateRTXLightUpdaters()
+        end
+    end)
+    
+    -- Secondary scan to catch entities that initialize later
+    timer.Simple(3, function()
+        if RTX_SYSTEM.active then
+            ScanEntireMapForLights()
+        end
+    end)
+    
+    -- Tertiary scan for really late-initializing entities
+    timer.Simple(7, function()
+        if RTX_SYSTEM.active then
+            ScanEntireMapForLights()
         end
     end)
 end)
