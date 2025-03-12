@@ -69,7 +69,7 @@ local function FixupMaterial(filepath)
     local mat = Material(matname)
 
     if mat:IsError() then
-        print("[RTX Fixes] - This texture loaded as an error? Trying to fix anyways but this shouldn't happen.")
+        print("[RTX Remix Fixes 2 - Material Fixup] - This texture loaded as an error? Trying to fix anyways but this shouldn't happen.")
     end
 
     if mat:GetString("$addself") ~= nil then
@@ -83,7 +83,7 @@ local function FixupMaterial(filepath)
 end
 
 local function MaterialFixupInDir(dir)
-    print("[RTX Fixes] - Starting root material fixup in " .. dir)
+    print("[RTX Remix Fixes 2 - Material Fixup] - Starting root material fixup in " .. dir)
     local _, allfolders = file.Find(dir .. "*", "GAME")
     
     -- Fix materials in root directory
@@ -163,12 +163,7 @@ end
 
 -- RTX initialization
 local function RTXLoad()
-    print("[RTX Fixes] - Initializing Client")
-
-    if render.SupportsVertexShaders_2_0() and cv_disable_when_unsupported:GetBool() then
-        print("[RTX Fixes] - No RTX Remix Detected! Disabling! (You can force enable by changing rtx_disable_when_unsupported to 0 and reloading)")
-        return
-    end
+    print("[RTX Remix Fixes 2] - Initializing Client")
 
     -- Set up console commands
     RunConsoleCommand("r_radiosity", "0")
@@ -235,9 +230,6 @@ end)
 hook.Add("PopulateToolMenu", "RTXOptionsClient", function()
     spawnmenu.AddToolMenuOption("Utilities", "User", "RTX_Client", "#RTX", "", "", function(panel)
         panel:ClearControls()
-
-        panel:ControlHelp("Thanks for using RTX Remix Fixes! In order to allow me to continue to fix and support this addon while keeping it free, it would be nice if you could PLEASE consider donating to my patreon!")
-        panel:ControlHelp("https://www.patreon.com/xenthio")
 
         panel:CheckBox("Fix Materials on Load.", "rtx_fixmaterials")
         panel:ControlHelp("Fixup broken and unsupported materials, this fixes things from UI to particles.")

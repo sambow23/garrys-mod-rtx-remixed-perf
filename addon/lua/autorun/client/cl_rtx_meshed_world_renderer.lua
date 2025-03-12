@@ -76,7 +76,7 @@ local function InitializeMapBounds()
             mapBounds.min = mapBounds.min - Vector(128, 128, 128)
             mapBounds.max = mapBounds.max + Vector(128, 128, 128)
             
-            print("[RTX Fixes] Map boundaries loaded:")
+            print("[RTX Remix Fixes 2 - Meshed World Renderer] Map boundaries loaded:")
             print("  Min: " .. tostring(mapBounds.min))
             print("  Max: " .. tostring(mapBounds.max))
             return true
@@ -271,7 +271,7 @@ local function BuildMapMeshes()
     
     if not NikNaks or not NikNaks.CurrentMap then return end
 
-    print("[RTX Fixes] Building chunked meshes...")
+    print("[RTX Remix Fixes 2 - Meshed World Renderer] Building chunked meshes...")
     local startTime = SysTime()
     
     -- Count total faces for chunk size optimization
@@ -430,7 +430,7 @@ local function BuildMapMeshes()
         end
     end
 
-    print(string.format("[RTX Fixes] Built chunked meshes in %.2f seconds", SysTime() - startTime))
+    print(string.format("[RTX Remix Fixes 2 - Meshed World Renderer] Built chunked meshes in %.2f seconds", SysTime() - startTime))
 end
 
 -- Rendering Functions
@@ -460,7 +460,7 @@ local function RenderCustomWorld(translucent)
     
     -- Make sure groups exists before trying to iterate
     if not groups then
-        print("[RTX Fixes] Warning: No " .. groupType .. " mesh groups found")
+        print("[RTX Remix Fixes 2 - Meshed World Renderer] Warning: No " .. groupType .. " mesh groups found")
         return
     end
     
@@ -569,7 +569,7 @@ local function Initialize()
     InitializeMapBounds()
     local success, err = pcall(BuildMapMeshes)
     if not success then
-        ErrorNoHalt("[RTX Fixes] Failed to build meshes: " .. tostring(err) .. "\n")
+        ErrorNoHalt("[RTX Remix Fixes 2 - Meshed World Renderer] Failed to build meshes: " .. tostring(err) .. "\n")
         DisableCustomRendering()
         return
     end
@@ -578,7 +578,7 @@ local function Initialize()
         if CONVARS.ENABLED:GetBool() then
             local success, err = pcall(EnableCustomRendering)
             if not success then
-                ErrorNoHalt("[RTX Fixes] Failed to enable custom rendering: " .. tostring(err) .. "\n")
+                ErrorNoHalt("[RTX Remix Fixes 2 - Meshed World Renderer] Failed to enable custom rendering: " .. tostring(err) .. "\n")
                 DisableCustomRendering()
             end
         end
@@ -634,7 +634,7 @@ end)
 
 -- Menu
 hook.Add("PopulateToolMenu", "RTXCustomWorldMenu", function()
-    spawnmenu.AddToolMenuOption("Utilities", "User", "RTX_ForceRender", "#RTX Custom World", "", "", function(panel)
+    spawnmenu.AddToolMenuOption("Utilities", "User", "RTX_MWR", "#RTX - Meshed World Renderer", "", "", function(panel)
         panel:ClearControls()
         
         panel:CheckBox("Enable Custom World Rendering", "rtx_force_render")

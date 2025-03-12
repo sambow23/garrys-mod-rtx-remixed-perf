@@ -24,7 +24,7 @@ local TIMER_NAME = "DetailTextureRemoverContinuous"
 -- Debug print function
 local function DebugPrint(...)
     if debug_mode:GetBool() then
-        print("[Detail Texture Remover]", ...)
+        print("", ...)
     end
 end
 
@@ -52,7 +52,6 @@ local function ProcessMaterial(matName)
     local detailTexture = mat:GetString("$detail")
     if detailTexture and detailTexture ~= "" then
         if runningFromCommand or debug_mode:GetBool() then
-            DebugPrint("Found material with detail texture:", matName, "Detail:", detailTexture)
         end
         
         -- Replace the detail texture with our error texture
@@ -171,10 +170,8 @@ local function RemoveDetailTextures(showOutput)
     -- Only report when new textures are found or when explicitly requested
     if newRemoved > 0 then
         if showOutput or debug_mode:GetBool() then
-            print("[Detail Texture Remover] Found and replaced " .. newRemoved .. " new detail textures (took " .. processingTime .. "ms)")
         end
     elseif showOutput then
-        print("[Detail Texture Remover] No new detail textures found (processed " .. newProcessed .. " new materials)")
     end
     
     return newRemoved
@@ -188,7 +185,6 @@ local function StartContinuousChecking()
     
     -- Create a timer that runs every 2 seconds
     timer.Create(TIMER_NAME, 2, 0, function() RemoveDetailTextures(false) end)
-    DebugPrint("Continuous detail texture checking enabled (every 2 seconds)")
 end
 
 -- Stop the continuous checking
@@ -215,10 +211,10 @@ hook.Add("InitPostEntity", "RemoveDetailTexturesOnMapLoad", function()
         timer.Simple(apply_delay:GetFloat(), function()
             -- Ensure NikNaks and Map are ready
             if not NikNaks or not NikNaks.CurrentMap then
-                print("[Detail Texture Remover] Waiting for NikNaks to fully load...")
+                print("[G] Waiting for NikNaks to fully load...")
                 timer.Simple(2, function()
                     if not NikNaks or not NikNaks.CurrentMap then
-                        error("[Detail Texture Remover] NikNaks or CurrentMap not available after waiting")
+                        error("[RTX Remix Fixes 2 - RDT] NikNaks or CurrentMap not available after waiting")
                         return
                     end
                     local found = RemoveDetailTextures(true)
@@ -231,10 +227,6 @@ hook.Add("InitPostEntity", "RemoveDetailTexturesOnMapLoad", function()
             
             -- Start continuous checking after initial scan
             StartContinuousChecking()
-            
-            -- Notification
-            notification.AddLegacy("Replaced " .. detailTexturesRemoved .. " detail textures", NOTIFY_GENERIC, 5)
-            surface.PlaySound("buttons/button14.wav")
         end)
     end
 end)
@@ -257,21 +249,4 @@ concommand.Add("remove_detail_textures", function()
     notification.AddLegacy("Replaced " .. newCount .. " new detail textures", NOTIFY_GENERIC, 3)
 end)
 
--- Add a simple menu option
-hook.Add("PopulateToolMenu", "DetailTextureRemoverMenu", function()
-    spawnmenu.AddToolMenuOption("Options", "Graphics", "DetailTextureRemover", "Detail Texture Remover", "", "", function(panel)
-        panel:AddControl("Header", {Description = "Detail Texture Remover"})
-        panel:AddControl("CheckBox", {Label = "Enable addon", Command = "dtexture_remover_enabled"})
-        panel:AddControl("Slider", {Label = "Initial delay (seconds)", Command = "dtexture_remover_delay", Min = 0, Max = 10, Type = "Float"})
-        panel:AddControl("CheckBox", {Label = "Debug mode", Command = "dtexture_remover_debug"})
-        panel:AddControl("Button", {Label = "Scan for detail textures now", Command = "remove_detail_textures"})
-        
-        -- Add a description
-        panel:Help("This addon replaces detail textures with " .. replacementTexture)
-        panel:Help("Materials processed: " .. materialsProcessed)
-        panel:Help("Detail textures replaced: " .. detailTexturesRemoved)
-        panel:Help("Continuously scans every 2 seconds for new materials")
-    end)
-end)
-
-print("[Detail Texture Remover] Addon loaded. Will replace detail textures with " .. replacementTexture)
+print("[RTX Remix Fixes 2 - RDT] Addon loaded. Will replace detail textures with " .. replacementTexture)

@@ -40,23 +40,23 @@ using namespace GarrysMod::Lua;
 void* FindD3D9Device() {
     auto shaderapidx = GetModuleHandle("shaderapidx9.dll");
     if (!shaderapidx) {
-        Error("[RTX] Failed to get shaderapidx9.dll module\n");
+        Error("[RTX Remix Fixes 2 - Binary Module] Failed to get shaderapidx9.dll module\n");
         return nullptr;
     }
 
-    Msg("[RTX] shaderapidx9.dll module: %p\n", shaderapidx);
+    Msg("[RTX Remix Fixes 2 - Binary Module] shaderapidx9.dll module: %p\n", shaderapidx);
 
     static const char sign[] = "BA E1 0D 74 5E 48 89 1D ?? ?? ?? ??";
     auto ptr = ScanSign(shaderapidx, sign, sizeof(sign) - 1);
     if (!ptr) { 
-        Error("[RTX] Failed to find D3D9Device signature\n");
+        Error("[RTX Remix Fixes 2 - Binary Module] Failed to find D3D9Device signature\n");
         return nullptr;
     }
 
     auto offset = ((uint32_t*)ptr)[2];
     auto device = *(IDirect3DDevice9Ex**)((char*)ptr + offset + 12);
     if (!device) {
-        Error("[RTX] D3D9Device pointer is null\n");
+        Error("[RTX Remix Fixes 2 - Binary Module] D3D9Device pointer is null\n");
         return nullptr;
     }
 
@@ -78,7 +78,7 @@ void ClearRemixResources() {
 
 LUA_FUNCTION(ClearRTXResources_Native) {
     try {
-        Msg("[RTX] Clearing RTX resources...\n");
+        Msg("[RTX Remix Fixes 2 - Binary Module] Clearing RTX resources...\n");
 
         if (g_remix) {
             // Force cleanup through config
@@ -99,7 +99,7 @@ LUA_FUNCTION(ClearRTXResources_Native) {
         LUA->PushBool(true);
         return 1;
     } catch (...) {
-        Error("[RTX] Exception in ClearRTXResources\n");
+        Error("[RTX Remix Fixes 2 - Binary Module] Exception in ClearRTXResources\n");
         LUA->PushBool(false);
         return 1;
     }
@@ -124,7 +124,7 @@ LUA_FUNCTION(GetRemixUIState) {
         return 1;
     }
     catch (...) {
-        Error("[RTX] Exception in GetRemixUIState\n");
+        Error("[RTX Remix Fixes 2 - Binary Module] Exception in GetRemixUIState\n");
         LUA->PushNumber(0);
         return 1;
     }
@@ -150,7 +150,7 @@ LUA_FUNCTION(SetRemixUIState) {
         return 1;
     }
     catch (...) {
-        Error("[RTX] Exception in SetRemixUIState\n");
+        Error("[RTX Remix Fixes 2 - Binary Module] Exception in SetRemixUIState\n");
         LUA->PushBool(false);
         return 1;
     }
@@ -158,33 +158,33 @@ LUA_FUNCTION(SetRemixUIState) {
 
 LUA_FUNCTION(PrintRemixUIState) {
     try {
-        Msg("[RTX] Checking Remix UI state...\n");
+        Msg("[RTX Remix Fixes 2 - Binary Module] Checking Remix UI state...\n");
         
         if (!g_remix) {
-            Msg("[RTX] Error: g_remix is NULL (Remix API not initialized)\n");
+            Msg("[RTX Remix Fixes 2 - Binary Module] Error: g_remix is NULL (Remix API not initialized)\n");
             return 0;
         }
         
-        Msg("[RTX] g_remix is valid, checking GetUIState function...\n");
+        Msg("[RTX Remix Fixes 2 - Binary Module] g_remix is valid, checking GetUIState function...\n");
         
         // Check if the function exists in the interface
         if (!g_remix->m_CInterface.GetUIState) {
-            Msg("[RTX] Error: GetUIState function is not available in the Remix API\n");
-            Msg("[RTX] This may indicate you're using an older version of Remix that doesn't support this feature\n");
+            Msg("[RTX Remix Fixes 2 - Binary Module] Error: GetUIState function is not available in the Remix API\n");
+            Msg("[RTX Remix Fixes 2 - Binary Module] This may indicate you're using an older version of Remix that doesn't support this feature\n");
             return 0;
         }
         
-        Msg("[RTX] GetUIState function exists, calling it...\n");
+        Msg("[RTX Remix Fixes 2 - Binary Module] GetUIState function exists, calling it...\n");
         
         // Try to call the function directly
         remixapi_UIState rawState = g_remix->m_CInterface.GetUIState();
-        Msg("[RTX] Raw UI state value: %d\n", rawState);
+        Msg("[RTX Remix Fixes 2 - Binary Module] Raw UI state value: %d\n", rawState);
         
         // Now try to get it through the wrapper
         auto result = g_remix->GetUIState();
         if (!result) {
-            Msg("[RTX] Error: GetUIState wrapper returned failure\n");
-            Msg("[RTX] Error code: %d\n", result.status());
+            Msg("[RTX Remix Fixes 2 - Binary Module] Error: GetUIState wrapper returned failure\n");
+            Msg("[RTX Remix Fixes 2 - Binary Module] Error code: %d\n", result.status());
             return 0;
         }
 
@@ -203,39 +203,39 @@ LUA_FUNCTION(PrintRemixUIState) {
                 break;
         }
         
-        Msg("[RTX] Current UI state: %d (%s)\n", state, stateStr);
+        Msg("[RTX Remix Fixes 2 - Binary Module] Current UI state: %d (%s)\n", state, stateStr);
         return 0;
     }
     catch (...) {
-        Error("[RTX] Exception in PrintRemixUIState\n");
+        Error("[RTX Remix Fixes 2 - Binary Module] Exception in PrintRemixUIState\n");
         return 0;
     }
 }
 
 GMOD_MODULE_OPEN() { 
     try {
-        Msg("[RTX Remix Fixes 2] - Module loaded!\n"); 
+        Msg("[RTX Remix Fixes 2 - Binary Module] - Module loaded!\n"); 
 
         // Initialize shader protection
         // ShaderAPIHooks::Instance().Initialize();                      // Need to properly update signatures to catch new shaderapidx9/materialsystem crashes
         
         // if (Interfaces::Initialize()) {                              // Disabled for now until i dump the vtables for materialsystem
-        //     Msg("[RTX] Interfaces initialized successfully\n");
+        //     Msg("[RTX Remix Fixes 2 - Binary Module] Interfaces initialized successfully\n");
             
         //     // Replace SpriteCard materials
         //     if (Interfaces::ReplaceSpriteCardWithUnlitGeneric()) {
-        //         Msg("[RTX] Successfully replaced SpriteCard materials with UnlitGeneric\n");
+        //         Msg("[RTX Remix Fixes 2 - Binary Module] Successfully replaced SpriteCard materials with UnlitGeneric\n");
         //     } else {
-        //         Msg("[RTX] No SpriteCard materials found or replacement failed\n");
+        //         Msg("[RTX Remix Fixes 2 - Binary Module] No SpriteCard materials found or replacement failed\n");
         //     }
         // } else {
-        //     Error("[RTX] Failed to initialize interfaces\n");
+        //     Error("[RTX Remix Fixes 2 - Binary Module] Failed to initialize interfaces\n");
         // }
 
         // Find Source's D3D9 device
         auto sourceDevice = static_cast<IDirect3DDevice9Ex*>(FindD3D9Device());
         if (!sourceDevice) {
-            LUA->ThrowError("[RTX] Failed to find D3D9 device");
+            LUA->ThrowError("[RTX Remix Fixes 2 - Binary Module] Failed to find D3D9 device");
             return 0;
         }
 
@@ -244,7 +244,7 @@ GMOD_MODULE_OPEN() {
             g_remix = new remix::Interface{ *interf };
         }
         else {
-            LUA->ThrowError("[RTX Remix Fixes 2] - remix::loadRemixDllAndInitialize() failed"); 
+            LUA->ThrowError("[RTX Remix Fixes 2 - Binary Module] - remix::loadRemixDllAndInitialize() failed"); 
         }
 
         g_remix->dxvk_RegisterD3D9Device(sourceDevice);
@@ -274,7 +274,7 @@ GMOD_MODULE_OPEN() {
         if (g_remix) {
             g_remix->SetConfigVariable("rtx.enableAdvancedMode", "1");
             g_remix->SetConfigVariable("rtx.fallbackLightMode", "2");
-            Msg("[RTX Remix Fixes] RTX configuration set\n");
+            Msg("[RTX Remix Fixes 2 - Binary Module] Remix configuration set\n");
         }
 
         // Register Lua functions
@@ -301,14 +301,14 @@ GMOD_MODULE_OPEN() {
         return 0;
     }
     catch (...) {
-        Error("[RTX] Exception in module initialization\n");
+        Error("[RTX Remix Fixes 2 - Binary Module] Exception in module initialization\n");
         return 0;
     }
 }
 
 GMOD_MODULE_CLOSE() {
     try {
-        Msg("[RTX] Shutting down module...\n");
+        Msg("[RTX Remix Fixes 2 - Binary Module] Shutting down module...\n");
 
         // Shutdown shader protection
         // ShaderAPIHooks::Instance().Shutdown();      // Need to properly update signatures to catch new shaderapidx9/materialsystem crashes
@@ -334,11 +334,11 @@ GMOD_MODULE_CLOSE() {
 
         g_d3dDevice = nullptr;
 
-        Msg("[RTX] Module shutdown complete\n");
+        Msg("[RTX Remix Fixes 2 - Binary Module] Module shutdown complete\n");
         return 0;
     }
     catch (...) {
-        Error("[RTX] Exception in module shutdown\n");
+        Error("[RTX Remix Fixes 2 - Binary Module] Exception in module shutdown\n");
         return 0;
     }
 }

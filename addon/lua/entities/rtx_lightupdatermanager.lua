@@ -78,14 +78,13 @@ function ENT:CreateUpdaters()
     end
     
     -- Print debug info
-    print(string.format("[RTX Fixes] Created %d regular light updaters and %d environment light updaters",
+    print(string.format("[RTX Remix Fixes 2 - Lights] Created %d regular light updaters and %d environment light updaters",
         #self.regularUpdaters,
         #self.environmentUpdaters))
 end
 
 function ENT:Initialize() 
     if (GetConVar("mat_fullbright"):GetBool()) then return end
-    print("[RTX Fixes] - Lightupdater Initialised.") 
     self:SetModel("models/hunter/blocks/cube025x025x025.mdl") 
     
     self:SetRenderMode(2)
@@ -131,7 +130,7 @@ function ENT:Initialize()
     self:CreateUpdaters()
 
     if GetConVar("rtx_lightupdater_debug"):GetBool() then
-        print("[RTX Fixes] Light counts by type:")
+        print("[RTX Remix Fixes 2 - Lights] Light counts by type:")
         local counts = {}
         for _, light in ipairs(self.regularLights) do
             counts[light.lightType] = (counts[light.lightType] or 0) + 1

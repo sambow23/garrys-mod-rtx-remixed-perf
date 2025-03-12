@@ -189,7 +189,7 @@ local RTX_SYSTEM = {
 function SafeCall(funcName, func, ...)
     if not func then
         if cv_debug:GetBool() then
-            print("[RTX Fixes] Error: Function '" .. funcName .. "' not available")
+            print("[RTX Remix Fixes 2 - Force View Frustrum] Error: Function '" .. funcName .. "' not available")
         end
         return nil
     end
@@ -197,7 +197,7 @@ function SafeCall(funcName, func, ...)
     local success, result = pcall(func, ...)
     if not success then
         if cv_debug:GetBool() then
-            print("[RTX Fixes] Error in '" .. funcName .. "': " .. tostring(result))
+            print("[RTX Remix Fixes 2 - Force View Frustrum] Error in '" .. funcName .. "': " .. tostring(result))
         end
         return nil
     end
@@ -308,7 +308,7 @@ local function CleanupInvalidEntities()
     end
     
     if cv_debug:GetBool() and removed > 0 then
-        print("[RTX Fixes] Cleaned up " .. removed .. " invalid entity references")
+        print("[RTX Remix Fixes 2 - Force View Frustrum] Cleaned up " .. removed .. " invalid entity references")
     end
 end
 
@@ -441,7 +441,7 @@ function StartStaticPropProcessingTimer()
             end
             
             if cv_debug:GetBool() then
-                print(string.format("[RTX Fixes] Static prop PVS update complete: %.2f ms, %d props, %d in PVS",
+                print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Static prop PVS update complete: %.2f ms, %d props, %d in PVS",
                     (SysTime() - propStats.startTime) * 1000,
                     stats.staticPropsTotal,
                     stats.staticPropsInPVS))
@@ -530,7 +530,7 @@ local function UpdatePVSWithNative()
     
     -- Debug output with player position
     if cv_debug:GetBool() then
-        print(string.format("[RTX Fixes] PVS update initiated from position: %.1f, %.1f, %.1f", 
+        print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] PVS update initiated from position: %.1f, %.1f, %.1f", 
             playerPos.x, playerPos.y, playerPos.z))
     end
     
@@ -545,7 +545,7 @@ local function UpdatePVSWithNative()
     if not pvs then
         pvs_update_in_progress = false
         if cv_debug:GetBool() then
-            print("[RTX Fixes] Failed to generate PVS - NikNaks returned nil")
+            print("[RTX Remix Fixes 2 - Force View Frustrum] Failed to generate PVS - NikNaks returned nil")
         end
         return
     end
@@ -610,7 +610,7 @@ function UpdateStaticPropsPVS()
         stats.staticPropsInPVS = 0
         stats.staticPropsTotal = 0
         if cv_debug:GetBool() then
-            print("[RTX Fixes] No static props to process")
+            print("[RTX Remix Fixes 2 - Force View Frustrum] No static props to process")
         end
         return 
     end
@@ -627,7 +627,7 @@ function UpdateStaticPropsPVS()
     end
     
     if cv_debug:GetBool() then
-        print(string.format("[RTX Fixes] Processing %d static props for PVS", #propEntities))
+        print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Processing %d static props for PVS", #propEntities))
     end
     
     -- Do direct PVS testing if EntityManager isn't available or working
@@ -663,7 +663,7 @@ function UpdateStaticPropsPVS()
         stats.staticPropsTotal = #propEntities
         
         if cv_debug:GetBool() then
-            print(string.format("[RTX Fixes] Static prop PVS update complete (direct): %d props, %d in PVS, %d changed",
+            print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Static prop PVS update complete (direct): %d props, %d in PVS, %d changed",
                 stats.staticPropsTotal,
                 stats.staticPropsInPVS,
                 updateCount))
@@ -711,7 +711,7 @@ function UpdateStaticPropsPVS()
     end
     
     if cv_debug:GetBool() then
-        print(string.format("[RTX Fixes] Static prop PVS update complete: %d props, %d in PVS, %d changed",
+        print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Static prop PVS update complete: %d props, %d in PVS, %d changed",
             stats.staticPropsTotal,
             stats.staticPropsInPVS,
             changedCount))
@@ -785,7 +785,7 @@ function SetEntityBounds(ent, useOriginal)
             
             -- Skip further processing - UpdateRTXLightUpdaters handles this now
             if cv_debug:GetBool() then
-                print("[RTX Fixes] Late-detected light entity: " .. className)
+                print("[RTX Remix Fixes 2 - Force View Frustrum] Late-detected light entity: " .. className)
             end
             
             -- Force an immediate update
@@ -840,7 +840,7 @@ function SetEntityBounds(ent, useOriginal)
         -- Debug output if enabled
         if cv_debug:GetBool() then
             local patternText = specialBounds.isPattern and " (via pattern)" or ""
-            print(string.format("[RTX Fixes] Special entity bounds applied (%s): %d%s", 
+            print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Special entity bounds applied (%s): %d%s", 
                 className, size, patternText))
         end
         return
@@ -871,7 +871,7 @@ elseif rtxUpdaterCache[ent] then
         
         -- Only print if debug is enabled
         if cv_enabled:GetBool() and cv_debug:GetBool() then
-            print(string.format("[RTX Fixes] Environment light bounds: %d", envSize))
+            print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Environment light bounds: %d", envSize))
         end
         
     elseif REGULAR_LIGHT_TYPES[ent.lightType] then
@@ -884,7 +884,7 @@ elseif rtxUpdaterCache[ent] then
         
         -- Only print if debug is enabled
         if cv_enabled:GetBool() and cv_debug:GetBool() then
-            print(string.format("[RTX Fixes] Regular light bounds (%s): %d", 
+            print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Regular light bounds (%s): %d", 
                 ent.lightType, rtxDistance))
         end
     end
@@ -1034,7 +1034,7 @@ local function UpdateAllEntitiesBatched(useOriginal)
         if startIdx <= highCount then
             local progress = math.min(endIdx, highCount) / highCount
             if cv_debug:GetBool() then
-                print(string.format("[RTX Fixes] Processing high-priority entities: %.0f%%", progress * 100))
+                print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Processing high-priority entities: %.0f%%", progress * 100))
             end
         end
         
@@ -1052,7 +1052,7 @@ local function UpdateAllEntitiesBatched(useOriginal)
             end
         else
             if cv_debug:GetBool() then
-                print(string.format("[RTX Fixes] Entity processing complete: %d entities in %.1f ms per batch", 
+                print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Entity processing complete: %d entities in %.1f ms per batch", 
                     #sortedEntities, avgTime))
             end
         end
@@ -1149,7 +1149,7 @@ local function CreateStaticProps()
             timer.Simple(0.5, function() ProcessBatch(batchNum + 1) end)
         else
             if cv_debug:GetBool() then
-                print("[RTX Fixes] Created " .. propCount .. " static props")
+                print("[RTX Remix Fixes 2 - Force View Frustrum] Created " .. propCount .. " static props")
             end
         end
     end
@@ -1217,7 +1217,7 @@ function ResetAndUpdateBounds(preserveOriginals)
     RTX_SYSTEM.processingUpdate = false
     
     if cv_debug:GetBool() then
-        print("[RTX Fixes] Reset and updated all entity bounds with new settings")
+        print("[RTX Remix Fixes 2 - Force View Frustrum] Reset and updated all entity bounds with new settings")
     end
 end
 
@@ -1276,7 +1276,7 @@ function ScanEntireMapForLights()
     local endTime = SysTime()
     
     if cv_debug:GetBool() or newLightsFound > 0 then
-        print(string.format("[RTX Fixes] Full map light scan: Found %d new lights out of %d entities (%.2f ms)",
+        print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Full map light scan: Found %d new lights out of %d entities (%.2f ms)",
             newLightsFound, totalEntities, (endTime - startTime) * 1000))
     end
     
@@ -1404,7 +1404,7 @@ AddManagedHook("Think", "RTX_PVS_BatchProcessor", function()
             pvs_stats.processingTime = SysTime() - pvs_stats.startTime
             
             if cv_debug:GetBool() then
-                print(string.format("[RTX Fixes] PVS update complete: %.2f ms, %d entities", 
+                print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] PVS update complete: %.2f ms, %d entities", 
                     pvs_stats.processingTime * 1000, pvs_stats.totalEntities))
             end
             
@@ -1461,7 +1461,7 @@ AddManagedHook("Think", "RTX_PlayerPositionTracking", function()
     -- Force PVS update if player moved enough
     if moveDistance > positionUpdateThreshold then
         if cv_debug:GetBool() then
-            print(string.format("[RTX Fixes] Player moved %.1f units - forcing PVS update", moveDistance))
+            print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Player moved %.1f units - forcing PVS update", moveDistance))
         end
         
         -- Clear cached states to force fresh calculation
@@ -1675,7 +1675,7 @@ function UpdateRTXLightUpdaters()
     end
     
     if cv_debug:GetBool() then
-        print(string.format("[RTX Fixes] Updated bounds for %d RTX light updaters (%d environment, %d regular)", 
+        print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Updated bounds for %d RTX light updaters (%d environment, %d regular)", 
             updatedCount, environmentLightCount, regularLightCount))
     end
 end
@@ -1713,7 +1713,7 @@ function ResetRTXSystem()
 end
 
 function DeactivateRTXSystem()
-    print("[RTX Fixes] Deactivating RTX view frustum system...")
+    print("[RTX Remix Fixes 2 - Force View Frustrum] Deactivating RTX view frustum system...")
     
     -- Update system state immediately
     RTX_SYSTEM.active = false
@@ -1792,7 +1792,7 @@ function DeactivateRTXSystem()
     -- 7. Force garbage collection
     collectgarbage("collect")
     
-    print(string.format("[RTX Fixes] System deactivated: %d entities reset, %d static props removed", 
+    print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] System deactivated: %d entities reset, %d static props removed", 
         entitiesReset, propsRemoved))
     
     -- Return values to help with debugging
@@ -1809,10 +1809,10 @@ cvars.AddChangeCallback("fr_static_props_pvs", function(_, _, new)
     -- If toggling static prop PVS, update all static props
     if cv_enabled:GetBool() then
         if enabled then
-            print("[RTX Fixes] Static prop PVS optimization enabled")
+            print("[RTX Remix Fixes 2 - Force View Frustrum] Static prop PVS optimization enabled")
             -- PVS will be applied on next update
         else
-            print("[RTX Fixes] Static prop PVS optimization disabled, using large bounds for all props")
+            print("[RTX Remix Fixes 2 - Force View Frustrum] Static prop PVS optimization disabled, using large bounds for all props")
             
             -- Set all props to use large bounds
             for prop, data in pairs(staticProps) do
@@ -1830,7 +1830,7 @@ cvars.AddChangeCallback("fr_use_pvs", function(_, _, new)
     
     -- If disabling PVS, reset all entities to large bounds
     if not enabled and cv_enabled:GetBool() then
-        print("[RTX Fixes] PVS optimization disabled, resetting all entities to large bounds")
+        print("[RTX Remix Fixes 2 - Force View Frustrum] PVS optimization disabled, resetting all entities to large bounds")
         
         -- Clear PVS tracking
         entitiesInPVS = setmetatable({}, weakEntityTable)
@@ -1840,7 +1840,7 @@ cvars.AddChangeCallback("fr_use_pvs", function(_, _, new)
         UpdateAllEntitiesBatched(false)
     elseif enabled and cv_enabled:GetBool() then
         -- If enabling PVS, immediately update the PVS
-        print("[RTX Fixes] PVS optimization enabled, updating bounds based on PVS")
+        print("[RTX Remix Fixes 2 - Force View Frustrum] PVS optimization enabled, updating bounds based on PVS")
         UpdatePlayerPVS()
         UpdateAllEntitiesBatched(false)
     end
@@ -1850,7 +1850,7 @@ cvars.AddChangeCallback("fr_enabled", function(_, oldValue, newValue)
     local oldEnabled = tobool(oldValue)
     local newEnabled = tobool(newValue)
     
-    print(string.format("[RTX Fixes] Enabled state changing: %s -> %s", 
+    print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Enabled state changing: %s -> %s", 
         tostring(oldEnabled), tostring(newEnabled)))
     
     if newEnabled then
@@ -1886,11 +1886,11 @@ cvars.AddChangeCallback("fr_enabled", function(_, oldValue, newValue)
         UpdateAllEntitiesBatched(false)
         CreateStaticProps()
         
-        print("[RTX Fixes] System activated")
+        print("[RTX Remix Fixes 2 - Force View Frustrum] System activated")
     else
         -- System being disabled
         local result = DeactivateRTXSystem()
-        print(string.format("[RTX Fixes] Deactivation complete: %d entities reset, %d props removed", 
+        print(string.format("[RTX Remix Fixes 2 - Force View Frustrum] Deactivation complete: %d entities reset, %d props removed", 
             result.entitiesReset, result.propsRemoved))
     end
 end)
@@ -2195,13 +2195,13 @@ end
 
 -- Add to Utilities menu
 hook.Add("PopulateToolMenu", "RTXFrustumOptimizationMenu", function()
-    spawnmenu.AddToolMenuOption("Utilities", "User", "RTX_OVF", "#RTX View Frustum", "", "", function(panel)
+    spawnmenu.AddToolMenuOption("Utilities", "User", "RTX_FVF", "#RTX - Force View Frustum", "", "", function(panel)
         CreateSettingsPanel(panel)
     end)
 end)
 
 concommand.Add("fr_reset_bounds", function()
-    print("[RTX Fixes] Performing complete bounds reset...")
+    print("[RTX Remix Fixes 2 - Force View Frustrum] Performing complete bounds reset...")
     
     -- First restore original bounds for everything
     UpdateAllEntitiesBatched(true)
@@ -2222,5 +2222,5 @@ concommand.Add("fr_reset_bounds", function()
         UpdateAllEntitiesBatched(false)
     end
     
-    print("[RTX Fixes] Bounds reset complete")
+    print("[RTX Remix Fixes 2 - Force View Frustrum] Bounds reset complete")
 end)
