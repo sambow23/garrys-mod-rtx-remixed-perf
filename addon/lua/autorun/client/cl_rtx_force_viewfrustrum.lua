@@ -45,7 +45,9 @@ local entitiesInPVS = setmetatable({}, weakEntityTable)  -- Track which entities
 local pvs_update_in_progress = false
 local MAP_PRESETS = {}
 local managedTimers = managedTimers or {}
-
+local currentPVSProgress = 0
+local lastTrackedPosition = Vector(0,0,0)
+local positionUpdateThreshold = 128  -- Units player must move to trigger update
 
 -- RTX Light Updater model list
 local RTX_UPDATER_MODELS = {
@@ -513,71 +515,78 @@ function StartEntityProcessingTimer()
 end
 
 local function UpdatePVSWithNative()
-    if not cv_enabled:GetBool() or not cv_use_pvs:GetBool() or not NikNaks or not NikNaks.CurrentMap then return end
-    if not beginProcessing("pvs") then return end
+    if not RTX_SYSTEM.active or not cv_use_pvs:GetBool() then return end
     if pvs_update_in_progress then return end
-    
-    -- Only update after sufficient delay
-    local updateInterval = cv_pvs_update_interval:GetFloat()
-    if lastPVSUpdateTime > 0 and (CurTime() - lastPVSUpdateTime < updateInterval) then
-        return
-    end
     
     local player = LocalPlayer()
     if not IsValid(player) then return end
-    
     local playerPos = player:GetPos()
     
-    -- Check if player has moved significantly
-    if currentPVS and lastPlayerPos then
-        local moveDist = playerPos:Distance(lastPlayerPos)
-        if moveDist < 200 then
-            return
+    -- Debug output with player position
+    if cv_debug:GetBool() then
+        print(string.format("[RTX Fixes] PVS update initiated from position: %.1f, %.1f, %.1f", 
+            playerPos.x, playerPos.y, playerPos.z))
+    end
+    
+    -- Set flags to prevent concurrent updates
+    pvs_update_in_progress = true
+    
+    -- Always update tracked position
+    lastPlayerPos = playerPos
+    
+    -- Generate fresh PVS data directly from current position
+    local pvs = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+    if not pvs then
+        pvs_update_in_progress = false
+        if cv_debug:GetBool() then
+            print("[RTX Fixes] Failed to generate PVS - NikNaks returned nil")
+        end
+        return
+    end
+    
+    -- Store the new PVS
+    currentPVS = pvs
+    
+    -- Get leaf data
+    local leafPositions = {}
+    local leafs = pvs:GetLeafs()
+    
+    for _, leaf in pairs(leafs) do
+        if leaf then
+            local mins = leaf.mins or leaf:OBBMins()
+            local maxs = leaf.maxs or leaf:OBBMaxs()
+            
+            if mins and maxs then
+                local center = Vector(
+                    (mins.x + maxs.x) * 0.5,
+                    (mins.y + maxs.y) * 0.5,
+                    (mins.z + maxs.z) * 0.5
+                )
+                table.insert(leafPositions, center)
+            end
         end
     end
     
-    pvs_update_in_progress = true
-    lastPlayerPos = playerPos
+    -- Update statistics
+    stats.pvsLeafCount = #leafPositions
+    stats.totalLeafCount = table.Count(NikNaks.CurrentMap:GetLeafs())
     
-    -- Generate PVS - still done in Lua but only once per interval
-    currentPVS = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+    -- Push leafs to optimized system
+    EntityManager.SetPVSLeafData_Optimized(leafPositions, playerPos)
     
-    if currentPVS then
-        local leafPositions = {}
-        local leafs = currentPVS:GetLeafs()
-        
-        for _, leaf in pairs(leafs) do
-            if leaf then
-                local mins = leaf.mins or leaf:OBBMins()
-                local maxs = leaf.maxs or leaf:OBBMaxs()
-                
-                if mins and maxs then
-                    local center = Vector(
-                        (mins.x + maxs.x) * 0.5,
-                        (mins.y + maxs.y) * 0.5,
-                        (mins.z + maxs.z) * 0.5
-                    )
-                    table.insert(leafPositions, center)
-                end
-            end
-        end
-        
-        -- Store this data in the fast spatial grid
-        EntityManager.SetPVSLeafData_Optimized(leafPositions, playerPos)
-        
-        -- Update leaf statistics for HUD display
-        stats.pvsLeafCount = #leafPositions
-        stats.totalLeafCount = table.Count(NikNaks.CurrentMap:GetLeafs())
-        
-        -- Start a timer to process entities gradually
-        pvs_stats.startTime = SysTime()
-        pvs_stats.processedEntities = 0
-        
-        StartEntityProcessingTimer()
+    -- Process entities
+    pvs_stats.startTime = SysTime()
+    pvs_stats.processedEntities = 0
+    StartEntityProcessingTimer()
+    
+    -- Also force update for static props
+    if cv_static_props_pvs:GetBool() then
+        timer.Simple(0.1, function() 
+            UpdateStaticPropsPVS() 
+        end)
     end
     
     pvs_update_in_progress = false
-    endProcessing("pvs")
     lastPVSUpdateTime = CurTime()
 end
 
@@ -585,9 +594,22 @@ end
 UpdatePlayerPVS = UpdatePVSWithNative
 
 function UpdateStaticPropsPVS()
-    if not cv_enabled:GetBool() or not cv_static_props_pvs:GetBool() then return end
-    if #staticProps == 0 then return end
+    if not RTX_SYSTEM.active or not cv_static_props_pvs:GetBool() then return end
     
+    -- Exit early if no static props
+    local propCount = 0
+    for _ in pairs(staticProps) do propCount = propCount + 1 end
+    
+    if propCount == 0 then 
+        stats.staticPropsInPVS = 0
+        stats.staticPropsTotal = 0
+        if cv_debug:GetBool() then
+            print("[RTX Fixes] No static props to process")
+        end
+        return 
+    end
+    
+    -- Build prop arrays for batch processing
     local propPositions = {}
     local propEntities = {}
     
@@ -598,24 +620,74 @@ function UpdateStaticPropsPVS()
         end
     end
     
-    -- Use batched processing similar to regular entities
-    local batchSize = 250
-    EntityManager.BeginPVSEntityBatchProcessing(propEntities, propPositions, mins, maxs, batchSize)
+    if cv_debug:GetBool() then
+        print(string.format("[RTX Fixes] Processing %d static props for PVS", #propEntities))
+    end
     
-    -- Process all batches at once for static props (they're less important for frame pacing)
-    while EntityManager.IsPVSUpdateInProgress() do
-        local results, complete = EntityManager.ProcessNextEntityBatch()
+    -- Do direct PVS testing if EntityManager isn't available or working
+    if not EntityManager or not EntityManager.BeginPVSEntityBatchProcessing then
+        -- Fallback direct method
+        local playerPos = LocalPlayer():GetPos()
+        local updateCount = 0
+        local inPVSCount = 0
         
-        for i, isInPVS in ipairs(results) do
-            local prop = propEntities[i]
+        for i, prop in ipairs(propEntities) do
+            local pos = propPositions[i]
+            -- First check distance - anything close to player is automatically in PVS
+            local inPVS = pos:DistToSqr(playerPos) < (1024 * 1024) -- Reduced distance threshold
+            
+            -- If not close, try using PVS system
+            if not inPVS and currentPVS then
+                inPVS = currentPVS:TestPosition(pos)
+            end
+            
             if IsValid(prop) and staticProps[prop] then
-                if isInPVS ~= staticProps[prop].inPVS then
-                    UpdateStaticPropBounds(prop, isInPVS)
-                    staticProps[prop].inPVS = isInPVS
+                if inPVS then inPVSCount = inPVSCount + 1 end
+                
+                if inPVS ~= staticProps[prop].inPVS then
+                    UpdateStaticPropBounds(prop, inPVS)
+                    staticProps[prop].inPVS = inPVS
+                    updateCount = updateCount + 1
                 end
             end
         end
         
+        -- Force stats update
+        stats.staticPropsInPVS = inPVSCount
+        stats.staticPropsTotal = #propEntities
+        
+        if cv_debug:GetBool() then
+            print(string.format("[RTX Fixes] Static prop PVS update complete (direct): %d props, %d in PVS, %d changed",
+                stats.staticPropsTotal,
+                stats.staticPropsInPVS,
+                updateCount))
+        end
+        return
+    end
+    
+    -- Use batched processing if EntityManager is available
+    local batchSize = 250
+    EntityManager.BeginPVSEntityBatchProcessing(propEntities, propPositions, mins, maxs, batchSize)
+    
+    -- Process all batches for static props
+    local processedCount = 0
+    local changedCount = 0
+    
+    while EntityManager.IsPVSUpdateInProgress() do
+        local results, complete = EntityManager.ProcessNextEntityBatch()
+        
+        for i, isInPVS in ipairs(results) do
+            local prop = propEntities[processedCount + i]
+            if IsValid(prop) and staticProps[prop] then
+                if isInPVS ~= staticProps[prop].inPVS then
+                    UpdateStaticPropBounds(prop, isInPVS)
+                    staticProps[prop].inPVS = isInPVS
+                    changedCount = changedCount + 1
+                end
+            end
+        end
+        
+        processedCount = processedCount + #results
         if complete then break end
     end
     
@@ -630,6 +702,13 @@ function UpdateStaticPropsPVS()
                 stats.staticPropsInPVS = stats.staticPropsInPVS + 1
             end
         end
+    end
+    
+    if cv_debug:GetBool() then
+        print(string.format("[RTX Fixes] Static prop PVS update complete: %d props, %d in PVS, %d changed",
+            stats.staticPropsTotal,
+            stats.staticPropsInPVS,
+            changedCount))
     end
 end
 
@@ -815,31 +894,135 @@ end
 local function UpdateAllEntitiesBatched(useOriginal)
     local allEntities = ents.GetAll()
     local totalEntities = #allEntities
-    local batchSize = 100
-    local batches = math.ceil(totalEntities / batchSize)
     
-    local function ProcessEntityBatch(batchNum)
-        local startIdx = (batchNum - 1) * batchSize + 1
-        local endIdx = math.min(batchNum * batchSize, totalEntities)
+    -- Prioritize entities by importance
+    local function SortByPriority(entities)
+        -- Get player position for distance calculations
+        local playerPos = IsValid(LocalPlayer()) and LocalPlayer():GetPos() or Vector(0,0,0)
         
-        local batchEntities = {}
+        -- Create prioritized groups
+        local highPriority = {} -- RTX lights, special entities, nearby entities
+        local normalPriority = {} -- Regular entities in potential view
+        local lowPriority = {} -- Far away entities
+        
+        -- Sort entities into priority buckets
+        for _, ent in ipairs(entities) do
+            if not IsValid(ent) then continue end
+            
+            local entPos = ent:GetPos()
+            local className = ent:GetClass()
+            local distance = entPos:Distance(playerPos)
+            
+            -- High priority entities (RTX lights, nearby entities)
+            if rtxUpdaterCache[ent] or 
+               SPECIAL_ENTITIES[className] or 
+               GetSpecialBoundsForClass(className) or
+               distance < 1024 then
+                table.insert(highPriority, ent)
+            
+            -- Normal priority (within reasonable distance)
+            elseif distance < 5000 then
+                table.insert(normalPriority, ent)
+                
+            -- Low priority (far away)
+            else
+                table.insert(lowPriority, ent)
+            end
+        end
+        
+        -- Combine in priority order
+        local result = {}
+        for _, ent in ipairs(highPriority) do table.insert(result, ent) end
+        for _, ent in ipairs(normalPriority) do table.insert(result, ent) end
+        for _, ent in ipairs(lowPriority) do table.insert(result, ent) end
+        
+        return result, #highPriority, #normalPriority
+    end
+    
+    -- Sort entities by priority
+    local sortedEntities, highCount, normalCount = SortByPriority(allEntities)
+    
+    -- Use adaptive batch sizing based on system performance
+    local baseSize = 250 -- Larger base batch size
+    local batchSize = baseSize
+    local frameTimeHistory = {}
+    local maxProcessTime = 8 -- ms per frame max to spend on processing
+    local interBatchDelay = 0.01 -- Reduced delay between batches
+    
+    -- Start with aggressive batch size, then adapt
+    local currentBatch = 1
+    local totalBatches = math.ceil(#sortedEntities / batchSize)
+    
+    local function ProcessNextBatch()
+        local startTime = SysTime()
+        
+        -- Calculate current batch range
+        local startIdx = (currentBatch - 1) * batchSize + 1
+        local endIdx = math.min(startIdx + batchSize - 1, #sortedEntities)
+        
+        -- Process this batch
         for i = startIdx, endIdx do
-            local ent = allEntities[i]
+            local ent = sortedEntities[i]
             if IsValid(ent) then
                 SetEntityBounds(ent, useOriginal)
             end
         end
         
-        -- Process next batch if more remain
-        if batchNum < batches then
-            timer.Simple(0.05, function()
-                ProcessEntityBatch(batchNum + 1)
-            end)
+        -- Measure processing time
+        local processingTime = (SysTime() - startTime) * 1000 -- ms
+        table.insert(frameTimeHistory, processingTime)
+        if #frameTimeHistory > 5 then table.remove(frameTimeHistory, 1) end
+        
+        -- Calculate average processing time
+        local avgTime = 0
+        for _, time in ipairs(frameTimeHistory) do
+            avgTime = avgTime + time
+        end
+        avgTime = avgTime / #frameTimeHistory
+        
+        -- Adapt batch size based on performance
+        if avgTime < maxProcessTime * 0.5 then
+            -- Processing is very fast, increase batch size
+            batchSize = math.min(batchSize * 1.5, 1000)
+            -- Reduce delay for fast systems
+            interBatchDelay = 0
+        elseif avgTime > maxProcessTime then
+            -- Too slow, reduce batch size
+            batchSize = math.max(batchSize * 0.75, 50)
+            -- Add small delay to prevent stuttering
+            interBatchDelay = 0.02
+        end
+        
+        -- Update progress for high-priority entities
+        if startIdx <= highCount then
+            local progress = math.min(endIdx, highCount) / highCount
+            if cv_debug:GetBool() then
+                print(string.format("[RTX Fixes] Processing high-priority entities: %.0f%%", progress * 100))
+            end
+        end
+        
+        -- Advance to next batch
+        currentBatch = currentBatch + 1
+        
+        -- Continue processing if more batches remain
+        if currentBatch <= totalBatches then
+            -- Use adaptive delay
+            if interBatchDelay > 0 then
+                timer.Simple(interBatchDelay, ProcessNextBatch)
+            else
+                -- For high-end systems, process immediately
+                ProcessNextBatch()
+            end
+        else
+            if cv_debug:GetBool() then
+                print(string.format("[RTX Fixes] Entity processing complete: %d entities in %.1f ms per batch", 
+                    #sortedEntities, avgTime))
+            end
         end
     end
     
-    -- Start batch processing
-    ProcessEntityBatch(1)
+    -- Start processing
+    ProcessNextBatch()
 end
 
 -- Create clientside static props
@@ -1111,10 +1294,63 @@ AddManagedHook("Think", "RTX_PVS_BatchProcessor", function()
 end)
 
 AddManagedHook("Think", "UpdateRTXPVSState", function()
-    if not cv_enabled:GetBool() or not cv_use_pvs:GetBool() then return end
+    if not RTX_SYSTEM.active or not cv_use_pvs:GetBool() then return end
     
-    if CurTime() - lastPVSUpdateTime > cv_pvs_update_interval:GetFloat() then
+    local currentTime = CurTime()
+    local updateInterval = cv_pvs_update_interval:GetFloat()
+    
+    -- Check if it's time for a PVS update
+    if currentTime - lastPVSUpdateTime > updateInterval then
+        -- Save time before update for accurate displays
+        local updateStartTime = SysTime()
+        
+        -- Run the update
         UpdatePlayerPVS()
+        
+        -- If we have the HUD enabled, update stats
+        if cv_pvs_hud:GetBool() then
+            stats.updateTime = SysTime() - updateStartTime
+        end
+        
+        -- Force static prop update after a regular PVS update
+        if cv_static_props_pvs:GetBool() and not pvs_update_in_progress then
+            UpdateStaticPropsPVS()
+        end
+    end
+    
+    -- Update the progress display for HUD if entities are being processed
+    if cv_pvs_hud:GetBool() and pvs_stats.inProgress then
+        -- We need to manually calculate progress
+        local progress = pvs_stats.processedEntities / math.max(1, pvs_stats.totalEntities)
+        currentPVSProgress = progress
+    end
+end)
+
+AddManagedHook("Think", "RTX_PlayerPositionTracking", function()
+    if not RTX_SYSTEM.active or not cv_use_pvs:GetBool() then return end
+    
+    local player = LocalPlayer()
+    if not IsValid(player) then return end
+    
+    local currentPos = player:GetPos()
+    local moveDistance = currentPos:Distance(lastTrackedPosition)
+    
+    -- Force PVS update if player moved enough
+    if moveDistance > positionUpdateThreshold then
+        if cv_debug:GetBool() then
+            print(string.format("[RTX Fixes] Player moved %.1f units - forcing PVS update", moveDistance))
+        end
+        
+        -- Clear cached states to force fresh calculation
+        currentPVS = nil
+        lastPlayerPos = nil
+        lastPVSUpdateTime = 0
+        
+        -- Force immediate update
+        UpdatePlayerPVS()
+        
+        -- Update tracked position
+        lastTrackedPosition = currentPos
     end
 end)
 
@@ -1213,7 +1449,8 @@ AddManagedHook("HUDPaint", "RTXPVSDebugHUD", function()
             player:GetPos().x, player:GetPos().y, player:GetPos().z)}
     }
     if pvs_stats.inProgress then
-        local progress = EntityManager.GetPVSProgress() * 100
+        local progress = EntityManager.GetPVSProgress and EntityManager.GetPVSProgress() or currentPVSProgress
+        progress = progress * 100
         table.insert(infoLines, {text = string.format("PVS Update: %.1f%% complete", progress),
                                 color = Color(255, 200, 100, 220)})
     end
@@ -1485,6 +1722,16 @@ cvars.AddChangeCallback("fr_enabled", function(_, oldValue, newValue)
         
         -- Reset PVS tracking
         for k in pairs(entitiesInPVS) do entitiesInPVS[k] = nil end
+        
+        -- Force immediate PVS update
+        lastPVSUpdateTime = 0
+        if cv_use_pvs:GetBool() and NikNaks and NikNaks.CurrentMap then
+            UpdatePlayerPVS()
+            -- Force static prop update immediately
+            if cv_static_props_pvs:GetBool() then
+                UpdateStaticPropsPVS()
+            end
+        end
         
         -- Initial PVS update if optimization is enabled
         if cv_use_pvs:GetBool() and NikNaks and NikNaks.CurrentMap then
