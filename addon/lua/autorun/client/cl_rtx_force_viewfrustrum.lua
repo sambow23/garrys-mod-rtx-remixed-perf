@@ -114,6 +114,11 @@ local SPECIAL_ENTITY_BOUNDS = {
         description = "func_ entities", -- For debug/documentation
     },
 
+    ["func_lod"] = {
+        size = 8196, -- this is so cursed, but it prevents rendering issues
+        description = "func_ entities",
+    },
+
     ["^npc_%w+"] = {
         size = 512,
         description = "All npc_ entities",
