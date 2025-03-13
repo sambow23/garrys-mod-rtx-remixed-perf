@@ -86,4 +86,4 @@ local function GetMaterialInfo()
 end
 
 -- Register the console command
-concommand.Add("inspect_material", GetMaterialInfo, nil, "Shows material and texture information of world geometry or entities you're looking at")
+concommand.Add("rtx_inspect_material", GetMaterialInfo, nil, "Shows material and texture information of world geometry or entities you're looking at")

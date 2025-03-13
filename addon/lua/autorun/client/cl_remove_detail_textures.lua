@@ -191,7 +191,6 @@ end
 local function StopContinuousChecking()
     if timer.Exists(TIMER_NAME) then
         timer.Remove(TIMER_NAME)
-        DebugPrint("Continuous detail texture checking disabled")
     end
 end
 

@@ -112,7 +112,7 @@ end)
 
 -- Optional: Add cleanup on significant memory usage
 local lastCleanupTime = 0
-local CLEANUP_INTERVAL = 300 -- 5 minutes minimum between auto-cleanups
+local CLEANUP_INTERVAL = 3600 -- 1 hour minimum between auto-cleanups
 
 hook.Add("Think", "RTXMemoryMonitor", function()
     -- Don't check too often

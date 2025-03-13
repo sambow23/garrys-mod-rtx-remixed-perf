@@ -229,7 +229,7 @@ hook.Add("OnEntityCreated", "WaterTextureReplacer_EntCreated", function(ent)
 end)
 
 -- Add console command to manually trigger replacement
-concommand.Add("water_replace_textures", function(ply, cmd, args)
+concommand.Add("rtx_water_replace_textures", function(ply, cmd, args)
     local texture = args[1] or config.replacementTexture
     ReplaceWaterTextures(texture)
 end)

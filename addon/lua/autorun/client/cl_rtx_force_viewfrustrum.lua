@@ -1,15 +1,15 @@
 if not CLIENT then return end
 
 -- ConVars
-local cv_enabled = CreateClientConVar("fr_enabled", "1", true, false, "Enable large render bounds for all entities")
-local cv_bounds_size = CreateClientConVar("fr_bounds_size", "256", true, false, "Size of render bounds")
-local cv_rtx_updater_distance = CreateClientConVar("fr_rtx_distance", "256", true, false, "Maximum render distance for regular RTX light updaters")
-local cv_environment_light_distance = CreateClientConVar("fr_environment_light_distance", "32768", true, false, "Maximum render distance for environment light updaters")
-local cv_debug = CreateClientConVar("fr_debug_messages", "0", true, false, "Enable debug messages for RTX view frustum optimization")
-local cv_use_pvs = CreateClientConVar("fr_use_pvs", "1", true, false, "Use Potentially Visible Set for render bounds optimization")
-local cv_pvs_update_interval = CreateClientConVar("fr_pvs_update_interval", "0.5", true, false, "How often to update the PVS data (seconds)")
-local cv_pvs_hud = CreateClientConVar("fr_pvs_hud", "0", true, false, "Show HUD information about PVS optimization")
-local cv_static_props_pvs = CreateClientConVar("fr_static_props_pvs", "1", true, false, "Use PVS for static prop optimization")
+local cv_enabled = CreateClientConVar("rtx_fr_enabled", "1", true, false, "Enable large render bounds for all entities")
+local cv_bounds_size = CreateClientConVar("rtx_fr_bounds_size", "256", true, false, "Size of render bounds")
+local cv_rtx_updater_distance = CreateClientConVar("rtx_fr_rtx_distance", "256", true, false, "Maximum render distance for regular RTX light updaters")
+local cv_environment_light_distance = CreateClientConVar("rtx_fr_environment_light_distance", "32768", true, false, "Maximum render distance for environment light updaters")
+local cv_debug = CreateClientConVar("rtx_fr_debug_messages", "0", true, false, "Enable debug messages for RTX view frustum optimization")
+local cv_use_pvs = CreateClientConVar("rtx_fr_use_pvs", "1", true, false, "Use Potentially Visible Set for render bounds optimization")
+local cv_pvs_update_interval = CreateClientConVar("rtx_fr_pvs_update_interval", "5", true, false, "How often to update the PVS data when the player isnt moving (seconds)")
+local cv_pvs_hud = CreateClientConVar("rtx_fr_pvs_hud", "0", true, false, "Show HUD information about PVS optimization")
+local cv_static_props_pvs = CreateClientConVar("rtx_fr_static_props_pvs", "1", true, false, "Use PVS for static prop optimization")
 
 -- Cache the bounds vectors
 local boundsSize = cv_bounds_size:GetFloat()
@@ -258,9 +258,9 @@ local function ApplyPreset(presetName)
     local preset = PRESETS[presetName]
     if not preset then return end
     
-    RunConsoleCommand("fr_bounds_size", tostring(preset.entity))
-    RunConsoleCommand("fr_rtx_distance", tostring(preset.light))
-    RunConsoleCommand("fr_environment_light_distance", tostring(preset.environment))
+    RunConsoleCommand("rtx_fr_bounds_size", tostring(preset.entity))
+    RunConsoleCommand("rtx_fr_rtx_distance", tostring(preset.light))
+    RunConsoleCommand("rtx_fr_environment_light_distance", tostring(preset.environment))
 end
 
 local function UpdateStaticPropBounds(prop, inPVS)
@@ -1550,8 +1550,8 @@ AddManagedHook("HUDPaint", "RTXPVSDebugHUD", function()
     
     -- Create info text
     local infoLines = {
-        {text = "RTX View Frustum PVS Statistics", color = headerColor},
-        {text = "PVS Optimization: " .. (cv_use_pvs:GetBool() and "Enabled" or "Disabled"), 
+        {text = "PVS Statistics", color = headerColor},
+        {text = "PVS: " .. (cv_use_pvs:GetBool() and "Enabled" or "Disabled"), 
          color = cv_use_pvs:GetBool() and goodColor or badColor},
         {text = string.format("Entities in PVS: %d / %d (%.1f%%)", 
             stats.entitiesInPVS, stats.totalEntities, 
@@ -1803,7 +1803,7 @@ function DeactivateRTXSystem()
 end
 
 -- Handle ConVar changes
-cvars.AddChangeCallback("fr_static_props_pvs", function(_, _, new)
+cvars.AddChangeCallback("rtx_fr_static_props_pvs", function(_, _, new)
     local enabled = tobool(new)
     
     -- If toggling static prop PVS, update all static props
@@ -1825,7 +1825,7 @@ cvars.AddChangeCallback("fr_static_props_pvs", function(_, _, new)
     end
 end)
 
-cvars.AddChangeCallback("fr_use_pvs", function(_, _, new)
+cvars.AddChangeCallback("rtx_fr_use_pvs", function(_, _, new)
     local enabled = tobool(new)
     
     -- If disabling PVS, reset all entities to large bounds
@@ -1846,7 +1846,7 @@ cvars.AddChangeCallback("fr_use_pvs", function(_, _, new)
     end
 end)
 
-cvars.AddChangeCallback("fr_enabled", function(_, oldValue, newValue)
+cvars.AddChangeCallback("rtx_fr_enabled", function(_, oldValue, newValue)
     local oldEnabled = tobool(oldValue)
     local newEnabled = tobool(newValue)
     
@@ -1895,14 +1895,14 @@ cvars.AddChangeCallback("fr_enabled", function(_, oldValue, newValue)
     end
 end)
 
-cvars.AddChangeCallback("fr_bounds_size", function(_, _, new)
+cvars.AddChangeCallback("rtx_fr_bounds_size", function(_, _, new)
     -- Use debounce timer to avoid multiple rapid updates
     CreateManagedTimer(boundsUpdateTimer, DEBOUNCE_TIME, 1, function()
         ResetAndUpdateBounds(false)
     end)
 end)
 
-cvars.AddChangeCallback("fr_rtx_distance", function(_, _, new)
+cvars.AddChangeCallback("rtx_fr_rtx_distance", function(_, _, new)
     if not RTX_SYSTEM.active then return end
     
     CreateManagedTimer(boundsUpdateTimer, DEBOUNCE_TIME, 1, function()
@@ -1923,7 +1923,7 @@ cvars.AddChangeCallback("fr_rtx_distance", function(_, _, new)
     end)
 end)
 
-cvars.AddChangeCallback("fr_environment_light_distance", function(_, _, new)
+cvars.AddChangeCallback("rtx_fr_environment_light_distance", function(_, _, new)
     if not RTX_SYSTEM.active then return end
     
     CreateManagedTimer(boundsUpdateTimer, DEBOUNCE_TIME, 1, function()
@@ -1945,7 +1945,7 @@ cvars.AddChangeCallback("fr_environment_light_distance", function(_, _, new)
 end)
 
 -- ConCommand to refresh all entities' bounds
-concommand.Add("fr_refresh", function()
+concommand.Add("rtx_fr_refresh", function()
     ResetAndUpdateBounds(false)
     print("Refreshed render bounds for all entities" .. (RTX_SYSTEM.active and " with large bounds" or " with original bounds"))
 end)
@@ -1957,10 +1957,10 @@ AddManagedHook("EntityRemoved", "CleanupRTXCache", function(ent)
 end)
 
 -- Cleanup Timer
-timer.Create("FR_EntityCleanup", 60, 0, CleanupInvalidEntities)
+timer.Create("fr_EntityCleanup", 60, 0, CleanupInvalidEntities)
 
 -- Debug command
-concommand.Add("fr_debug", function()
+concommand.Add("rtx_fr_debug", function()
     print("\nRTX Frustum Optimization Debug:")
     print("Enabled:", cv_enabled:GetBool())
     print("Bounds Size:", cv_bounds_size:GetFloat())
@@ -1984,17 +1984,17 @@ function CreateSettingsPanel(panel)
     panel:ClearControls()
     
     -- Main header and toggle
-    panel:CheckBox("Enable Forced View Frustrum", "fr_enabled")
-    panel:ControlHelp("Enables forced render bounds for all entities")
+    panel:CheckBox("Enable Forced View Frustrum", "rtx_fr_enabled")
+    panel:ControlHelp("Enables forced render bounds for entities")
 
-    panel:CheckBox("Enable PVS", "fr_static_props_pvs")
+    panel:CheckBox("Enable PVS", "rtx_fr_static_props_pvs")
     panel:ControlHelp("Uses the engine's PVS system to cull objects that are not visible to the player, helps performance in large/dense maps.")
     panel:ControlHelp("")
     panel:ControlHelp("(Reload the map when changing this setting)")
     
     -- Static Bounds Settings section
     local boundsCategory = vgui.Create("DCollapsibleCategory", panel)
-    boundsCategory:SetLabel("Static Bounds Settings")
+    boundsCategory:SetLabel("Forced Bounds Settings")
     boundsCategory:SetExpanded(true)
     boundsCategory:Dock(TOP)
     boundsCategory:DockMargin(0, 5, 0, 0)
@@ -2035,10 +2035,10 @@ function CreateSettingsPanel(panel)
     
     -- Description text (combined to save space)
     local descText = vgui.Create("DLabel", boundsPanel)
-    descText:SetText("The static render bounds dictate how far entities should be culled around the player.\nThe higher the values, the further they cull, at the cost of performance depending on the map.")
+    descText:SetText("The forced render bounds dictate how far entities should be culled around the player.\n \nThe higher the values, the further they cull, at the cost of performance depending on the map.")
     descText:SetTextColor(Color(0, 0, 0))
     descText:SetWrap(true)
-    descText:SetTall(50) -- Combined height for both texts
+    descText:SetTall(100) -- Combined height for both texts
     descText:Dock(TOP)
     descText:DockMargin(0, 0, 0, 5)
     
@@ -2051,18 +2051,18 @@ function CreateSettingsPanel(panel)
     slidersForm:SetPadding(2) -- Reduce padding
     
     -- More compact sliders
-    local entitySlider = slidersForm:NumSlider("Regular Entity Bounds", "fr_bounds_size", 256, 16384, 0)
+    local entitySlider = slidersForm:NumSlider("Regular Entity Bounds", "rtx_fr_bounds_size", 256, 16384, 0)
     entitySlider:DockMargin(0, 0, 0, 2)
     
-    local lightSlider = slidersForm:NumSlider("Standard Light Bounds", "fr_rtx_distance", 256, 4096, 0)
+    local lightSlider = slidersForm:NumSlider("Standard Light Bounds", "rtx_fr_rtx_distance", 256, 4096, 0)
     lightSlider:DockMargin(0, 0, 0, 2)
     
-    local envLightSlider = slidersForm:NumSlider("Environment Light Bounds", "fr_environment_light_distance", 4096, 65536, 0)
+    local envLightSlider = slidersForm:NumSlider("Environment Light Bounds", "rtx_fr_environment_light_distance", 4096, 65536, 0)
     envLightSlider:DockMargin(0, 0, 0, 2)
     
     -- Map Preset Management
     local presetMgmtLabel = vgui.Create("DLabel", boundsPanel)
-    presetMgmtLabel:SetText("Map Preset Management")
+    presetMgmtLabel:SetText("Map Presets")
     presetMgmtLabel:SetTextColor(Color(0, 0, 0))
     presetMgmtLabel:Dock(TOP)
     presetMgmtLabel:DockMargin(0, 10, 0, 3)
@@ -2172,10 +2172,10 @@ function CreateSettingsPanel(panel)
     debugForm:SetSpacing(2) -- Reduced spacing
     debugForm:SetPadding(2) -- Reduced padding
     
-    debugForm:CheckBox("Show PVS Debug HUD", "fr_pvs_hud")
+    debugForm:CheckBox("Show PVS Debug HUD", "rtx_fr_pvs_hud")
     debugForm:ControlHelp("Shows performance statistics in HUD")
     
-    debugForm:CheckBox("Show Debug Messages", "fr_debug_messages")
+    debugForm:CheckBox("Show Debug Messages", "rtx_fr_debug_messages")
     debugForm:ControlHelp("Shows detailed debug information in console")
     
     -- Init - load saved map presets
@@ -2200,7 +2200,7 @@ hook.Add("PopulateToolMenu", "RTXFrustumOptimizationMenu", function()
     end)
 end)
 
-concommand.Add("fr_reset_bounds", function()
+concommand.Add("rtx_fr_reset_bounds", function()
     print("[RTX Remix Fixes 2 - Force View Frustrum] Performing complete bounds reset...")
     
     -- First restore original bounds for everything
