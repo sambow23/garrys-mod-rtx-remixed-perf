@@ -61,7 +61,6 @@ local staticProps = {}
 local originalBounds = {} -- Store original render bounds
 
 local SPECIAL_ENTITIES = {
-    ["hdri_cube_editor"] = true,
     ["rtx_lightupdater"] = true,
     ["rtx_lightupdatermanager"] = true
 }
@@ -120,6 +119,12 @@ local SPECIAL_ENTITY_BOUNDS = {
         description = "All npc_ entities",
         isPattern = true
     },
+
+    ["hdri_cube_editor"] = {
+        size = 32768,
+        description = "HDRI Editor",
+        isPattern = false
+    }
     -- Add more entities here as needed:
     -- ["entity_class"] = { size = number, description = "description" }
 }
@@ -746,14 +751,6 @@ local function AddToRTXCache(ent)
         ent:SetRenderBounds(-rtxBoundsSize, rtxBoundsSize)
         ent:DisableMatrix("RenderMultiply")
         ent:SetNoDraw(false)
-        
-        -- Special handling for hdri_cube_editor to ensure it's never culled
-        if ent:GetClass() == "hdri_cube_editor" then
-            -- Using a very large value for HDRI cube editor
-            local hdriSize = 32768 -- Maximum recommended size
-            local hdriBounds = Vector(hdriSize, hdriSize, hdriSize)
-            ent:SetRenderBounds(-hdriBounds, hdriBounds)
-        end
     end
 end
 
@@ -845,21 +842,8 @@ function SetEntityBounds(ent, useOriginal)
         end
         return
         
-    -- HDRI cube editor - always visible
-    elseif ent:GetClass() == "hdri_cube_editor" then
-        local hdriSize = 32768
-        local hdriBounds = RTXMath_CreateVector(hdriSize, hdriSize, hdriSize)
-        local negHdriBounds = RTXMath_NegateVector(hdriBounds)
-            
-        -- Use native bounds check
-        if RTXMath_IsWithinBounds(entPos, negHdriBounds, hdriBounds) then
-            ent:SetRenderBounds(negHdriBounds, hdriBounds)
-            ent:DisableMatrix("RenderMultiply")
-            ent:SetNoDraw(false)
-        end
-        
     -- RTX updaters - always handle separately
-elseif rtxUpdaterCache[ent] then
+    elseif rtxUpdaterCache[ent] then
     -- Completely separate handling for environment lights
     if ent.lightType == LIGHT_TYPES.ENVIRONMENT then
         local envSize = cv_environment_light_distance:GetFloat()
@@ -1622,13 +1606,7 @@ function UpdateRTXLightUpdaters()
                 rtxUpdaterCount = rtxUpdaterCount + 1
                 updatedCount = updatedCount + 1
                 
-                -- Set bounds with absolutely no distance checking
-                if className == "hdri_cube_editor" then
-                    -- Maximum size for HDRI
-                    local hdriSize = 32768
-                    local hdriBounds = Vector(hdriSize, hdriSize, hdriSize)
-                    ent:SetRenderBounds(-hdriBounds, hdriBounds)
-                elseif ent.lightType == LIGHT_TYPES.ENVIRONMENT then
+                if ent.lightType == LIGHT_TYPES.ENVIRONMENT then
                     -- Use environment light size
                     local envSize = cv_environment_light_distance:GetFloat()
                     local envBounds = Vector(envSize, envSize, envSize)
