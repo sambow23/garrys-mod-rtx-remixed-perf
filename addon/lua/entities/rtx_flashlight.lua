@@ -14,7 +14,7 @@ ENT.AdminSpawnable	= false
 local updater 
 local lightent 
 function ENT:Initialize() 
-    print("[RTX Fixes] - Flashlight Initialised.")
+    print("[RTX Remix Fixes 2] - Flashlight Initialised.")
     if (SERVER) then
 
         self.updater = ents.Create("prop_dynamic")

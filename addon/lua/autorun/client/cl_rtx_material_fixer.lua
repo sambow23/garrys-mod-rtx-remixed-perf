@@ -27,21 +27,21 @@ local function FixupMaterial(filepath)
 	
 	for k, v in pairs(bannedmaterials) do
 		if (v == filepath) then 
-			--print("[RTX Fixes] - Skipping material " .. filepath)
+			--print("[RTX Remix Fixes 2 - Material Fixup] - Skipping material " .. filepath)
 			return 
 		end
 	end
 
-	--print("[RTX Fixes] - Fixing material " .. filepath)
+	--print("[RTX Remix Fixes 2 - Material Fixup] - Fixing material " .. filepath)
 	local mattrim = (filepath:sub(0, #"materials/") == "materials/") and filepath:sub(#"materials/"+1) or filepath
 	local matname = mattrim:gsub(".vmt".."$", "");
 	local mat = Material(matname)
-	--print("[RTX Fixes] - (Shader: " .. mat:GetShader() .. ")")
-	--print("[RTX Fixes] - (Texture: " .. mat:GetString("$basetexture") .. ")")
+	--print("[RTX Remix Fixes 2 - Material Fixup] - (Shader: " .. mat:GetShader() .. ")")
+	--print("[RTX Remix Fixes 2 - Material Fixup] - (Texture: " .. mat:GetString("$basetexture") .. ")")
 
 	--coroutine.wait( 0.01 )
 	if (mat:IsError()) then
-		print("[RTX Fixes] - This texture loaded as an error? Trying to fix anyways but this shouldn't happen.")
+		print("[RTX Remix Fixes 2 - Material Fixup] - This texture loaded as an error? Trying to fix anyways but this shouldn't happen.")
 	end
 
 	-- TODO: How to fetch water in a level?
@@ -57,7 +57,7 @@ local function FixupMaterial(filepath)
 end
 
 local function MaterialFixupInSubDir(dir)
-	--print("[RTX Fixes] - Fixing materials in " .. dir)
+	--print("[RTX Remix Fixes 2 - Material Fixup] - Fixing materials in " .. dir)
 
 	local allfiles, _ = file.Find( dir .. "*.vmt", "GAME" )
 	for k, v in pairs(allfiles) do
@@ -67,7 +67,7 @@ end
 
 local function MaterialFixupInDir(dir) 
 	
-	print("[RTX Fixes] - Starting root material fixup in " .. dir)
+	print("[RTX Remix Fixes 2 - Material Fixup] - Starting root material fixup in " .. dir)
 	local _, allfolders = file.Find( dir .. "*" , "GAME" )
 	MaterialFixupInSubDir(dir)
 	for k, v in pairs(allfolders) do
@@ -78,10 +78,6 @@ end
 local function MaterialFixups()
 	MaterialFixupInDir("materials/particle/")
 	MaterialFixupInDir("materials/effects/")
-
-	FixupWater()
-	--WantsMaterialFixup = false
-end
 
 local function GUIFixups()
 	-- giving things a real texture makes remix less confused

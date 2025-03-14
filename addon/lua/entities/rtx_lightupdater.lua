@@ -27,7 +27,6 @@ function TableConcat(t1,t2)
 end
 
 function ENT:Initialize() 
-    print("[RTX Fixes] - Lightupdater Initialised.")
     self:SetModel("models/hunter/plates/plate.mdl")
     --self:SetPos("LocalPlayer():GetPos()")
     self:SetRenderMode(2) 
