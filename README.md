@@ -50,6 +50,9 @@
 - Some meshes will not render (limitation of FF rendering)
 - Model replacement for skinned meshes like ragdolls, view modelds, some props, etc.
 - CEF Causes some maps to be rasterized and have vertex explosions.
+- Some map lights will cull even with Lightupdaters active (investigating)
+- Some func_ entities will cull in strange eays (investigating)
+- Maps that don't extensively use PVS will have poor performance
 
 ### Addons
 - High vram usage with a lot of addons (most likely from ARC9 or TFA precaching textures on map load)
