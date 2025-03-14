@@ -1,17 +1,20 @@
 
 # Garry's Mod RTX Fixes 2 (x64)
 ## Binary Module Features
-- Shader fixes for known shaders that cause compatibility issues with Remix
+- Shader fixes for known shaders that cause compatibility issues with Remix (temporarily disabled)
 - Remix API Lights (WIP)
 ## Lua Features
 - Custom World Renderer
   * Renders map geometry with meshed chunks to prevent PVS/Frustrum culling of brush faces
-- View Frustrum "Optimizer"
-  * Modifies render bounds of static/physics props and light updaters to prevent them getting culled by the view frustrum
+- View Frustrum Forcing
+  * Modifies render bounds of static props and light updaters to prevent them getting culled by the view frustrum
 - Water replacer
   * Replaces all map water materials with a single one so it can be replaced in Remix
     * Some non-water materials in maps might get replaced with water. If so, please make a github issue with the map name and screenshot on where its happening.
-
+- Light Updaters
+    * Forces Source to render all map lights
+- Material Fixer
+    * Fixes some broken UI/game materials
 ## Installation:
 > [!WARNING]  
 > Ensure you have a clean 64-bit version of Garry's Mod installed with no 32-bit leftovers. 
@@ -28,14 +31,20 @@
 6. Profit.
 
 ## Incompatible Addons
-(Map) [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) (Breaks other shader-skybox maps)
+* (Map) [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) (Breaks other shader-skybox maps)
 
-(Map) [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364) (remix cant find a camera)
+* (Map) [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364) (remix cant find a camera)
+
+* (Map) [gm_hinamizawa](https://steamcommunity.com/sharedfiles/filedetails/?id=3298456705) (vertex explosions and untextured draw calls)
+
+* (Addon) [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860)
+   - Absolutely destroys vram, what the hell does this addon do
 
 ## Known issues and stuff that doesn't work:
 ### Vanilla
 - Shader skyboxes (gm_flatgrass, gm_construct, etc) (use the [hdri skybox](https://github.com/sambow23/hdri_cube/blob/main/README.md) addon below as an alternative)
 - Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them)
+  - Looking into a potential fix
 - NPC Eyes (limitation of FF rendering)
 - Some particles will not appear (limitation of FF rendering)
 - Race conditions with Remix API Lights
@@ -51,7 +60,6 @@
 ### Addons
 - High vram usage with a lot of addons (most likely from ARC9 or TFA precaching textures on map load)
 - Tactical RP scopes become invisible when using ADS
-- Hands become rasterized when using ADS with ARC9
 
 ## Main Settings
 ### Custom World Renderer
@@ -61,18 +69,24 @@ Replaces engine world rendering with a chunked mesh renderer to get around brush
 - `Remix Capture Mode` disables engine world rendering under the custom world renderer to get clean captures.
 
 ### RTX View Frustrum
-![image](https://github.com/user-attachments/assets/30bf0ca3-a1be-49b1-92e1-d993ecfcdbe9)
+![image](https://github.com/user-attachments/assets/d854a811-ea5c-49c7-bd4a-2c1c1ae927da)
 
-
-Modifies render bounds to prevent culling around the player camera. 
-- `Show Advanced Settings` - Shows advanced render bounds settings
-   - `Regular Entity Bounds` controls the distance when static/physics props get culled around the player, higher values means less culling but also less performance. Recommended to leave it at `256`
-   - `Regular Light Distance` controls the distance when light updaters get culled. Recommended to leave it at `256`
+Modifies render bounds to prevent light and static prop culling around the player camera. 
+   - `Regular Entity Bounds` controls the distance when static props get culled around the player, higher values means less culling but also less performance. Recommended to leave it at `256`
+   - `Standard Light Distance` controls the distance when light updaters get culled. Recommended to leave it at `256`
    - `Enviornment Light Distance` controls the distance when sun light updaters get culled. Recommended to leave it at `32768` unless you're on a extremely large map
+
+- `Add Current Map`
+  - Adds the current map with an assigned Render Bounds preset. Sets the preset on map load.
 
 ## Recommended Resources and Addons
 [HDRI Editor](https://github.com/sambow23/hdri_cube/blob/main/README.md)
 
-[SourceRTXTweaks](https://github.com/BlueAmulet/SourceRTXTweaks) (We use this for game binary patching; Major thank you to BlueAmulet for their hard work)
-
 [Garry's Mod RTX 32-bit installer by Skurtyyskirts](https://github.com/skurtyyskirts/GmodRTX)
+
+## Credits
+* [@vlazed](https://github.com/vlazed/) for [toggle-cursor](https://github.com/vlazed/toggle-cursor)
+* Yosuke Nathan on the RTX Remix Showcase server for the gmod rtx logo
+* Everyone on the RTX Remix Showcase server
+* NVIDIA for RTX Remix
+* [@BlueAmulet](https://github.com/BlueAmulet) for [SourceRTXTweaks](https://github.com/BlueAmulet/SourceRTXTweaks)  (We use this for game binary patching; Major thank you to BlueAmulet for their hard work)
