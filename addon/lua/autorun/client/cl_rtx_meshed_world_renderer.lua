@@ -8,7 +8,8 @@ local CONVARS = {
     ENABLED = CreateClientConVar("rtx_mwr_enable", "1", true, false, "Forces custom mesh rendering of map"),
     DEBUG = CreateClientConVar("rtx_mwr_enable_debug", "0", true, false, "Shows debug info for mesh rendering"),
     CHUNK_SIZE = CreateClientConVar("rtx_mwr_chunk_size", "65536", true, false, "Size of chunks for mesh combining"),
-    CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode")
+    CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode"),
+    SHOW_3DSKY_WARNING = CreateClientConVar("rtx_mwr_show_3dsky_warning", "1", true, false, "Show warning when enabling r_3dsky")
 }
 
 -- Local Variables and Caches
@@ -49,6 +50,46 @@ local vertexBuffer = {
     uvs = {}
 }
 
+-- Helper Functions
+local function Show3DSkyWarning()
+    -- Don't show if user has disabled warnings
+    if not CONVARS.SHOW_3DSKY_WARNING:GetBool() then return end
+    
+    -- Create the warning panel
+    local frame = vgui.Create("DFrame")
+    frame:SetTitle("RTX Meshed World Renderer Warning")
+    frame:SetSize(400, 200)
+    frame:Center()
+    frame:MakePopup()
+    
+    local warningText = vgui.Create("DLabel", frame)
+    warningText:SetPos(20, 40)
+    warningText:SetSize(360, 80)
+    warningText:SetText("You have enabled r_3dsky which may cause rendering issues with RTX Remix due how the engine culls the skybox. It's recommended to keep r_3dsky disabled for best results.")
+    warningText:SetWrap(true)
+    
+    local dontShowAgain = vgui.Create("DCheckBoxLabel", frame)
+    dontShowAgain:SetPos(20, 130)
+    dontShowAgain:SetText("Don't show this warning again")
+    dontShowAgain:SetValue(false)
+    dontShowAgain.OnChange = function(self, val)
+        if val then
+            RunConsoleCommand("rtx_mwr_show_3dsky_warning", "0")
+        else
+            RunConsoleCommand("rtx_mwr_show_3dsky_warning", "1")
+        end
+    end
+    
+    local okButton = vgui.Create("DButton", frame)
+    okButton:SetText("OK")
+    okButton:SetPos(150, 160)
+    okButton:SetSize(100, 25)
+    okButton.DoClick = function()
+        frame:Close()
+    end
+end
+
+-- Main Stuff
 local function InitializeMapBounds()
     if mapBounds.initialized then return true end
     
@@ -629,6 +670,20 @@ end)
 cvars.AddChangeCallback("rtx_mwr_capture_mode", function(_, _, new)
     -- Invert the value: if capture_mode is 1, r_drawworld should be 0 and vice versa
     RunConsoleCommand("r_drawworld", new == "1" and "0" or "1")
+end)
+
+cvars.AddChangeCallback("r_3dsky", function(_, _, newValue)
+    if newValue == "1" then
+        Show3DSkyWarning()
+    end
+end)
+
+hook.Add("InitPostEntity", "RTXCheck3DSky", function()
+    timer.Simple(2, function()
+        if GetConVar("r_3dsky"):GetBool() then
+            Show3DSkyWarning()
+        end
+    end)
 end)
 
 -- Menu
