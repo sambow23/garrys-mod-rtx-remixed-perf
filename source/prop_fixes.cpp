@@ -22,7 +22,7 @@ static StudioRenderConfig_t s_StudioRenderConfig;
  
 void ModelRenderHooks::Initialize() {
 	try { 
-		Msg("[RTX Remix Fixes 2] - Loading studiorender\n");
+		Msg("[RTX Remix Fixes 2 - Binary Module] - Loading studiorender\n");
 		if (!Sys_LoadInterface("studiorender", STUDIO_RENDER_INTERFACE_VERSION, NULL, (void**)&g_pStudioRender))
 			Warning("[RTX Remix Fixes 2] - Could not load studiorender interface");
 

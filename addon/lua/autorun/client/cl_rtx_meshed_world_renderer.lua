@@ -5,10 +5,11 @@ require("niknaks")
 
 -- ConVars
 local CONVARS = {
-    ENABLED = CreateClientConVar("rtx_force_render", "1", true, false, "Forces custom mesh rendering of map"),
-    DEBUG = CreateClientConVar("rtx_force_render_debug", "0", true, false, "Shows debug info for mesh rendering"),
-    CHUNK_SIZE = CreateClientConVar("rtx_chunk_size", "65536", true, false, "Size of chunks for mesh combining"),
-    CAPTURE_MODE = CreateClientConVar("rtx_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode")
+    ENABLED = CreateClientConVar("rtx_mwr_enable", "1", true, false, "Forces custom mesh rendering of map"),
+    DEBUG = CreateClientConVar("rtx_mwr_enable_debug", "0", true, false, "Shows debug info for mesh rendering"),
+    CHUNK_SIZE = CreateClientConVar("rtx_mwr_chunk_size", "65536", true, false, "Size of chunks for mesh combining"),
+    CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode"),
+    SHOW_3DSKY_WARNING = CreateClientConVar("rtx_mwr_show_3dsky_warning", "1", true, false, "Show warning when enabling r_3dsky")
 }
 
 -- Local Variables and Caches
@@ -27,6 +28,20 @@ local math_floor = math.floor
 local table_insert = table.insert
 local MAX_VERTICES = 10000
 local MAX_CHUNK_VERTS = 32768
+local bDrawingSkybox = false
+local mapBounds = {
+    min = Vector(0, 0, 0),
+    max = Vector(0, 0, 0),
+    initialized = false
+}
+
+-- Get native functions
+local MeshRenderer = MeshRenderer or {}
+local CreateOptimizedMeshBatch = MeshRenderer.CreateOptimizedMeshBatch or function() error("MeshRenderer module not loaded") end
+local ProcessRegionBatch = MeshRenderer.ProcessRegionBatch or function() error("MeshRenderer module not loaded") end
+local GenerateChunkKey = MeshRenderer.GenerateChunkKey or function(x, y, z) return x .. "," .. y .. "," .. z end
+local CalculateEntityBounds = MeshRenderer.CalculateEntityBounds or function() error("MeshRenderer module not loaded") end
+local FilterEntitiesByDistance = MeshRenderer.FilterEntitiesByDistance or function() error("MeshRenderer module not loaded") end
 
 -- Pre-allocate common vectors and tables for reuse
 local vertexBuffer = {
@@ -35,17 +50,122 @@ local vertexBuffer = {
     uvs = {}
 }
 
+-- Helper Functions
+local function Show3DSkyWarning()
+    -- Don't show if user has disabled warnings
+    if not CONVARS.SHOW_3DSKY_WARNING:GetBool() then return end
+    
+    -- Create the warning panel
+    local frame = vgui.Create("DFrame")
+    frame:SetTitle("RTX Meshed World Renderer Warning")
+    frame:SetSize(400, 200)
+    frame:Center()
+    frame:MakePopup()
+    
+    local warningText = vgui.Create("DLabel", frame)
+    warningText:SetPos(20, 40)
+    warningText:SetSize(360, 80)
+    warningText:SetText("You have enabled r_3dsky which may cause rendering issues with RTX Remix due how the engine culls the skybox. It's recommended to keep r_3dsky disabled for best results.")
+    warningText:SetWrap(true)
+    
+    local dontShowAgain = vgui.Create("DCheckBoxLabel", frame)
+    dontShowAgain:SetPos(20, 130)
+    dontShowAgain:SetText("Don't show this warning again")
+    dontShowAgain:SetValue(false)
+    dontShowAgain.OnChange = function(self, val)
+        if val then
+            RunConsoleCommand("rtx_mwr_show_3dsky_warning", "0")
+        else
+            RunConsoleCommand("rtx_mwr_show_3dsky_warning", "1")
+        end
+    end
+    
+    local okButton = vgui.Create("DButton", frame)
+    okButton:SetText("OK")
+    okButton:SetPos(150, 160)
+    okButton:SetSize(100, 25)
+    okButton.DoClick = function()
+        frame:Close()
+    end
+end
+
+-- Main Stuff
+local function InitializeMapBounds()
+    if mapBounds.initialized then return true end
+    
+    if NikNaks and NikNaks.CurrentMap then
+        local min, max
+        
+        -- Try WorldMin/Max first
+        if NikNaks.CurrentMap.WorldMin and NikNaks.CurrentMap.WorldMax then
+            min = NikNaks.CurrentMap:WorldMin()
+            max = NikNaks.CurrentMap:WorldMax()
+        end
+        
+        -- If that failed, try GetBrushBounds
+        if (not min or not max) and NikNaks.CurrentMap.GetBrushBounds then
+            min, max = NikNaks.CurrentMap:GetBrushBounds()
+        end
+        
+        if min and max then
+            mapBounds.min = min
+            mapBounds.max = max
+            mapBounds.initialized = true
+            
+            -- Add some padding to avoid edge clipping
+            mapBounds.min = mapBounds.min - Vector(128, 128, 128)
+            mapBounds.max = mapBounds.max + Vector(128, 128, 128)
+            
+            print("[RTX Remix Fixes 2 - Meshed World Renderer] Map boundaries loaded:")
+            print("  Min: " .. tostring(mapBounds.min))
+            print("  Max: " .. tostring(mapBounds.max))
+            return true
+        end
+    end
+    
+    -- Try next frame
+    timer.Simple(0, InitializeMapBounds)
+    return false
+end
+
+local function IsPositionInMapBounds(pos)
+    if not mapBounds.initialized then return true end
+    
+    return pos.x >= mapBounds.min.x and pos.x <= mapBounds.max.x and
+           pos.y >= mapBounds.min.y and pos.y <= mapBounds.max.y and
+           pos.z >= mapBounds.min.z and pos.z <= mapBounds.max.z
+end
+
+local function IsFaceInMapBounds(face)
+    if not mapBounds.initialized then return true end
+    
+    local vertices = face:GetVertexs()
+    if not vertices or #vertices == 0 then return false end
+    
+    -- Check if any vertex is inside the bounds
+    for _, vert in ipairs(vertices) do
+        if IsPositionInMapBounds(vert) then
+            return true
+        end
+    end
+    
+    return false
+end
+
 local function ValidateVertex(pos)
-    -- Check for NaN or extreme values
-    if not pos or 
-       not pos.x or not pos.y or not pos.z or
-       pos.x ~= pos.x or pos.y ~= pos.y or pos.z ~= pos.z or -- NaN check
-       math.abs(pos.x) > 16384 or 
-       math.abs(pos.y) > 16384 or 
-       math.abs(pos.z) > 16384 then
+    -- First check if pos exists
+    if not pos then return false end
+    
+    -- Check vertex bounds (16384 is the Source engine map limit)
+    local mapLimits = Vector(16384, 16384, 16384)
+    local negLimits = Vector(-16384, -16384, -16384)
+    
+    -- Check if pos has valid numbers before IsWithinBounds
+    if pos.x ~= pos.x or pos.y ~= pos.y or pos.z ~= pos.z then -- NaN check
         return false
     end
-    return true
+    
+    return RTXMath.IsWithinBounds(pos, negLimits, mapLimits)
 end
 
 local function IsBrushEntity(face)
@@ -162,7 +282,8 @@ local function CreateMeshBatch(vertices, material, maxVertsPerMesh)
 end
 
 local function GetChunkKey(x, y, z)
-    return x .. "," .. y .. "," .. z
+    -- Use native RTXMath implementation for better performance
+    return tostring(RTXMath.GenerateChunkKey(x, y, z))
 end
 
 -- Main Mesh Building Function
@@ -190,7 +311,7 @@ local function BuildMapMeshes()
     
     if not NikNaks or not NikNaks.CurrentMap then return end
 
-    print("[RTX Fixes] Building chunked meshes...")
+    print("[RTX Remix Fixes 2 - Meshed World Renderer] Building chunked meshes...")
     local startTime = SysTime()
     
     -- Count total faces for chunk size optimization
@@ -220,10 +341,11 @@ local function BuildMapMeshes()
     
         for _, face in pairs(leafFaces) do
             if not face or 
-               face:IsDisplacement() or -- Skip displacements early
+               face:IsDisplacement() or
                IsBrushEntity(face) or
                not face:ShouldRender() or 
-               IsSkyboxFace(face) then 
+               IsSkyboxFace(face) or
+               not IsFaceInMapBounds(face) then -- Add this new check
                 continue 
             end
             
@@ -348,12 +470,17 @@ local function BuildMapMeshes()
         end
     end
 
-    print(string.format("[RTX Fixes] Built chunked meshes in %.2f seconds", SysTime() - startTime))
+    print(string.format("[RTX Remix Fixes 2 - Meshed World Renderer] Built chunked meshes in %.2f seconds", SysTime() - startTime))
 end
 
 -- Rendering Functions
 local function RenderCustomWorld(translucent)
     if not isEnabled then return end
+    
+    -- Initialize map bounds if not already done
+    if not mapBounds.initialized then
+        InitializeMapBounds()
+    end
 
     local draws = 0
     local currentMaterial = nil
@@ -364,18 +491,58 @@ local function RenderCustomWorld(translucent)
         render.OverrideDepthEnable(true, true)
     end
     
-    -- Regular faces
-    local groups = translucent and mapMeshes.translucent or mapMeshes.opaque
-    for _, chunkMaterials in pairs(groups) do
-        for _, group in pairs(chunkMaterials) do
-            if currentMaterial ~= group.material then
-                render.SetMaterial(group.material)
-                currentMaterial = group.material
+    -- Get player position for culling
+    local playerPos = LocalPlayer():GetPos()
+    
+    -- Regular faces - add safety check for nil
+    local groupType = translucent and "translucent" or "opaque"
+    local groups = mapMeshes[groupType]
+    
+    -- Make sure groups exists before trying to iterate
+    if not groups then
+        print("[RTX Remix Fixes 2 - Meshed World Renderer] Warning: No " .. groupType .. " mesh groups found")
+        return
+    end
+    
+    for chunkKey, chunkMaterials in pairs(groups) do
+        -- Check if this chunk should be rendered
+        local shouldRender = false
+        
+        -- Split the chunkKey back into coordinates
+        local x, y, z = string.match(chunkKey, "([^,]+),([^,]+),([^,]+)")
+        if x and y and z then
+            x, y, z = tonumber(x), tonumber(y), tonumber(z)
+            local chunkSize = CONVARS.CHUNK_SIZE:GetInt()
+            
+            -- Calculate chunk center position
+            local chunkCenter = Vector(
+                x * chunkSize + chunkSize/2,
+                y * chunkSize + chunkSize/2,
+                z * chunkSize + chunkSize/2
+            )
+            
+            -- Check if chunk is inside map bounds
+            if IsPositionInMapBounds(chunkCenter) then
+                shouldRender = true
             end
-            local meshes = group.meshes
-            for i = 1, #meshes do
-                meshes[i]:Draw()
-                draws = draws + 1
+        else
+            shouldRender = true  -- If we can't parse the key, render anyway
+        end
+        
+        if shouldRender then
+            for _, group in pairs(chunkMaterials) do
+                if not group.meshes then continue end
+                
+                if currentMaterial ~= group.material then
+                    render.SetMaterial(group.material)
+                    currentMaterial = group.material
+                end
+                
+                local meshes = group.meshes
+                for i = 1, #meshes do
+                    meshes[i]:Draw()
+                    draws = draws + 1
+                end
             end
         end
     end
@@ -387,26 +554,42 @@ local function RenderCustomWorld(translucent)
     renderStats.draws = draws
 end
 
+-- Skybox Hooks
+hook.Add("PreDrawSkyBox", "RTXSkyboxDetection", function()
+    bDrawingSkybox = true
+end)
+
+hook.Add("PostDrawSkyBox", "RTXSkyboxDetection", function()
+    bDrawingSkybox = false
+end)
+
 -- Enable/Disable Functions
 local function EnableCustomRendering()
     if isEnabled then return end
     isEnabled = true
 
-    -- Disable world rendering using render.OverrideDepthEnable
     hook.Add("PreDrawWorld", "RTXHideWorld", function()
+        if render.GetRenderTarget() then return end
+        if bDrawingSkybox then return end
         render.OverrideDepthEnable(true, false)
         return true
     end)
     
     hook.Add("PostDrawWorld", "RTXHideWorld", function()
+        if render.GetRenderTarget() then return end
+        if bDrawingSkybox then return end
         render.OverrideDepthEnable(false)
     end)
     
     hook.Add("PreDrawOpaqueRenderables", "RTXCustomWorld", function()
+        if bDrawingSkybox then return end
+        if render.GetRenderTarget() then return end
         RenderCustomWorld(false)
     end)
     
     hook.Add("PreDrawTranslucentRenderables", "RTXCustomWorld", function()
+        if bDrawingSkybox then return end
+        if render.GetRenderTarget() then return end
         RenderCustomWorld(true)
     end)
 end
@@ -423,9 +606,10 @@ end
 
 -- Initialization and Cleanup
 local function Initialize()
+    InitializeMapBounds()
     local success, err = pcall(BuildMapMeshes)
     if not success then
-        ErrorNoHalt("[RTX Fixes] Failed to build meshes: " .. tostring(err) .. "\n")
+        ErrorNoHalt("[RTX Remix Fixes 2 - Meshed World Renderer] Failed to build meshes: " .. tostring(err) .. "\n")
         DisableCustomRendering()
         return
     end
@@ -434,7 +618,7 @@ local function Initialize()
         if CONVARS.ENABLED:GetBool() then
             local success, err = pcall(EnableCustomRendering)
             if not success then
-                ErrorNoHalt("[RTX Fixes] Failed to enable custom rendering: " .. tostring(err) .. "\n")
+                ErrorNoHalt("[RTX Remix Fixes 2 - Meshed World Renderer] Failed to enable custom rendering: " .. tostring(err) .. "\n")
                 DisableCustomRendering()
             end
         end
@@ -475,7 +659,7 @@ hook.Add("ShutDown", "RTXCustomWorld", function()
 end)
 
 -- ConVar Changes
-cvars.AddChangeCallback("rtx_force_render", function(_, _, new)
+cvars.AddChangeCallback("rtx_mwr_enable", function(_, _, new)
     if tobool(new) then
         EnableCustomRendering()
     else
@@ -483,25 +667,43 @@ cvars.AddChangeCallback("rtx_force_render", function(_, _, new)
     end
 end)
 
-cvars.AddChangeCallback("rtx_capture_mode", function(_, _, new)
+cvars.AddChangeCallback("rtx_mwr_capture_mode", function(_, _, new)
     -- Invert the value: if capture_mode is 1, r_drawworld should be 0 and vice versa
     RunConsoleCommand("r_drawworld", new == "1" and "0" or "1")
 end)
 
+cvars.AddChangeCallback("r_3dsky", function(_, _, newValue)
+    if newValue == "1" then
+        Show3DSkyWarning()
+    end
+end)
+
+hook.Add("InitPostEntity", "RTXCheck3DSky", function()
+    timer.Simple(2, function()
+        if GetConVar("r_3dsky"):GetBool() then
+            Show3DSkyWarning()
+        end
+    end)
+end)
+
 -- Menu
 hook.Add("PopulateToolMenu", "RTXCustomWorldMenu", function()
-    spawnmenu.AddToolMenuOption("Utilities", "User", "RTX_ForceRender", "#RTX Custom World", "", "", function(panel)
+    spawnmenu.AddToolMenuOption("Utilities", "User", "rtx_mwr_MWR", "#RTX - Meshed World Renderer", "", "", function(panel)
         panel:ClearControls()
         
-        panel:CheckBox("Enable Custom World Rendering", "rtx_force_render")
-        panel:ControlHelp("Renders the world using chunked meshes")
+        panel:CheckBox("Enable Custom World Rendering", "rtx_mwr_enable")
+        panel:ControlHelp("Renders world faces using chunked meshes")
 
-        panel:CheckBox("Remix Capture Mode", "rtx_capture_mode")
+        panel:CheckBox("Enable Custom Displacement Rendering", "rtx_cdr_enable")
+        panel:ControlHelp("Renders world displacements using chunked meshes")
+        panel:ControlHelp("(EXTREMELY BUGGY, USE AT YOUR OWN RISK)")
+
+        panel:CheckBox("Remix Capture Mode", "rtx_mwr_capture_mode")
         panel:ControlHelp("Enable this if you're taking a capture with RTX Remix")
         
-        panel:CheckBox("Show Debug Info", "rtx_force_render_debug")
+        panel:CheckBox("Show Debug Info", "rtx_mwr_enable_debug")
     end)
 end)
 
 -- Console Commands
-concommand.Add("rtx_rebuild_meshes", BuildMapMeshes)
+concommand.Add("rtx_mwr_rebuild_meshes", BuildMapMeshes)
