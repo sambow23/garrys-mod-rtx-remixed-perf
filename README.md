@@ -1,9 +1,6 @@
 
 # Garry's Mod RTX Fixes 2 (x64)
-## Binary Module Features
-- Shader fixes for known shaders that cause compatibility issues with Remix (temporarily disabled)
-- Remix API Lights (WIP)
-## Lua Features
+## Features
 - Custom World Renderer
   * Renders map geometry with meshed chunks to prevent PVS/Frustrum culling of brush faces
 - View Frustrum Forcing
@@ -14,7 +11,7 @@
 - Light Updaters
     * Forces Source to render all map lights
 - Material Fixer
-    * Fixes some broken UI/game materials
+    * Fixes some broken UI/game materials and removes detail textures
 ## Installation:
 > [!WARNING]  
 > Ensure you have a clean 64-bit version of Garry's Mod installed with no 32-bit leftovers. 
@@ -33,12 +30,14 @@
 ## Incompatible Addons
 * (Map) [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) (Breaks other shader-skybox maps)
 
-* (Map) [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364) (remix cant find a camera)
+* (Map) [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364) (rasterized)
 
 * (Map) [gm_hinamizawa](https://steamcommunity.com/sharedfiles/filedetails/?id=3298456705) (vertex explosions and untextured draw calls)
 
+* (Map) [gm_bigcity_improved](https://steamcommunity.com/workshop/filedetails/?id=815782148) (rasterized)
+
 * (Addon) [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860)
-   - Absolutely destroys vram, what the hell does this addon do
+   - Consumes a lot of vram, most likely precaching
 
 ## Known issues and stuff that doesn't work:
 ### Vanilla
@@ -46,38 +45,15 @@
 - Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them)
   - Looking into a potential fix
 - NPC Eyes (limitation of FF rendering)
-- Some particles will not appear (limitation of FF rendering)
-- Race conditions with Remix API Lights
-  - API Lights will sometimes fail to spawn or spawn infinitely, keep restarting the game until they spawn correctly
-  - They can also introduce stability issues and crash the game randomly, at least reported by one user.
-
-- HDR maps (limitation of FF rendering)
-- Some materials don't appear (limitation of FF rendering)
+- Some particles will not render (need to change each material from $SpriteCard to $UnlitGeneric to fix)
+- HDR maps crash the game or have no lighting (limitation of FF rendering)
+- Some meshes will not render (limitation of FF rendering)
 - Model replacement for skinned meshes like ragdolls, view modelds, some props, etc.
-- 3D Skybox is visible within the main map
-- CEF Causes some maps to be rasterized and have vertex explosions. Use the noCEF version if you dont want to deal with these issues.
+- CEF Causes some maps to be rasterized and have vertex explosions.
 
 ### Addons
 - High vram usage with a lot of addons (most likely from ARC9 or TFA precaching textures on map load)
 - Tactical RP scopes become invisible when using ADS
-
-## Main Settings
-### Custom World Renderer
-![image](https://github.com/user-attachments/assets/b21681a6-31ba-4a1f-aab4-e78a6bb6241d)
-
-Replaces engine world rendering with a chunked mesh renderer to get around brush culling.
-- `Remix Capture Mode` disables engine world rendering under the custom world renderer to get clean captures.
-
-### RTX View Frustrum
-![image](https://github.com/user-attachments/assets/d854a811-ea5c-49c7-bd4a-2c1c1ae927da)
-
-Modifies render bounds to prevent light and static prop culling around the player camera. 
-   - `Regular Entity Bounds` controls the distance when static props get culled around the player, higher values means less culling but also less performance. Recommended to leave it at `256`
-   - `Standard Light Distance` controls the distance when light updaters get culled. Recommended to leave it at `256`
-   - `Enviornment Light Distance` controls the distance when sun light updaters get culled. Recommended to leave it at `32768` unless you're on a extremely large map
-
-- `Add Current Map`
-  - Adds the current map with an assigned Render Bounds preset. Sets the preset on map load.
 
 ## Recommended Resources and Addons
 [HDRI Editor](https://github.com/sambow23/hdri_cube/blob/main/README.md)
