@@ -39,17 +39,16 @@
 * (Addon) [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860)
    - Consumes a lot of vram, most likely precaching
 
-## Known issues and stuff that doesn't work:
+## Known issues:
 ### Vanilla
-- Shader skyboxes (gm_flatgrass, gm_construct, etc) (use the [hdri skybox](https://github.com/sambow23/hdri_cube/blob/main/README.md) addon below as an alternative)
-- Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them)
-  - Looking into a potential fix
-- NPC Eyes (limitation of FF rendering)
+- Shader skyboxes (gm_flatgrass, gm_construct, etc) cannot be interacted with and may have rendering issues
+- Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them) do not appear or behave strangely (investigating)
+- NPC Eyes do not render as the fixed function rendering fallback no longer exists (investigating)
 - Some particles will not render (need to change each material from $SpriteCard to $UnlitGeneric to fix)
 - HDR maps crash the game or have no lighting (limitation of FF rendering)
 - Some meshes will not render (limitation of FF rendering)
-- Model replacement for skinned meshes like ragdolls, view modelds, some props, etc.
-- CEF Causes some maps to be rasterized and have vertex explosions.
+- Skinned meshes like ragdolls, view models, some props, etc, have unstable hashes in RTX Remix and cannot be replaced with the Remix toolkit. (texture can be changed though)
+- Some maps will be rasterized and have vertex explosions.
 - Some map lights will cull even with Lightupdaters active (investigating)
 - Some func_ entities will cull in strange ways (investigating)
 - Maps that don't extensively use PVS will have poor performance
