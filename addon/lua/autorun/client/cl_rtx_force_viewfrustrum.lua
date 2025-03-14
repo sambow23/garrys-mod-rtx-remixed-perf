@@ -50,6 +50,12 @@ local lastTrackedPosition = Vector(0,0,0)
 local positionUpdateThreshold = 128  -- Units player must move to trigger update
 local bDrawingSkybox = false
 
+local PHYSICS_PROPS_ALWAYS_VISIBLE = {  -- We need this because the hdri_cube_editor stops rendering when it gets its bounds modified by the PVS 
+    ["prop_physics"] = true,
+    ["prop_physics_multiplayer"] = true, 
+    ["prop_physics_respawnable"] = true,
+}
+
 -- RTX Light Updater model list
 local RTX_UPDATER_MODELS = {
     ["models/hunter/plates/plate.mdl"] = true,
@@ -130,6 +136,7 @@ local SPECIAL_ENTITY_BOUNDS = {
         description = "HDRI Editor",
         isPattern = false
     }
+
     -- Add more entities here as needed:
     -- ["entity_class"] = { size = number, description = "description" }
 }
@@ -481,7 +488,7 @@ function StartEntityProcessingTimer()
             if IsValid(ent) then
                 local className = ent:GetClass()
 
-                if className:find("prop_physics") then
+                if PHYSICS_PROPS_ALWAYS_VISIBLE[className] then
                     -- Force it to be considered in PVS
                     entitiesInPVS[ent] = true
                     -- Apply large bounds
@@ -1378,7 +1385,8 @@ AddManagedHook("Think", "RTX_PVS_BatchProcessor", function()
                 local ent = entities[entityIdx]
                 
                 if IsValid(ent) then
-                    if ent:GetClass():find("prop_physics") then
+                    -- More specific check using the table
+                    if PHYSICS_PROPS_ALWAYS_VISIBLE[ent:GetClass()] then
                         entitiesInPVS[ent] = true
                         SetEntityBounds(ent, false)
                         continue
