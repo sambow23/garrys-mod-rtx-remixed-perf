@@ -51,7 +51,7 @@
 - Model replacement for skinned meshes like ragdolls, view modelds, some props, etc.
 - CEF Causes some maps to be rasterized and have vertex explosions.
 - Some map lights will cull even with Lightupdaters active (investigating)
-- Some func_ entities will cull in strange eays (investigating)
+- Some func_ entities will cull in strange ways (investigating)
 - Maps that don't extensively use PVS will have poor performance
 
 ### Addons
