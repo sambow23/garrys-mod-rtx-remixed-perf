@@ -5,8 +5,8 @@ require("niknaks")
 
 -- ConVars
 local CONVARS = {
-    ENABLED = CreateClientConVar("rtx_mwr_force_render", "1", true, false, "Forces custom mesh rendering of map"),
-    DEBUG = CreateClientConVar("rtx_mwr_force_render_debug", "0", true, false, "Shows debug info for mesh rendering"),
+    ENABLED = CreateClientConVar("rtx_mwr_enable", "1", true, false, "Forces custom mesh rendering of map"),
+    DEBUG = CreateClientConVar("rtx_mwr_enable_debug", "0", true, false, "Shows debug info for mesh rendering"),
     CHUNK_SIZE = CreateClientConVar("rtx_mwr_chunk_size", "65536", true, false, "Size of chunks for mesh combining"),
     CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode")
 }
@@ -618,7 +618,7 @@ hook.Add("ShutDown", "RTXCustomWorld", function()
 end)
 
 -- ConVar Changes
-cvars.AddChangeCallback("rtx_mwr_force_render", function(_, _, new)
+cvars.AddChangeCallback("rtx_mwr_enable", function(_, _, new)
     if tobool(new) then
         EnableCustomRendering()
     else
@@ -636,13 +636,17 @@ hook.Add("PopulateToolMenu", "RTXCustomWorldMenu", function()
     spawnmenu.AddToolMenuOption("Utilities", "User", "rtx_mwr_MWR", "#RTX - Meshed World Renderer", "", "", function(panel)
         panel:ClearControls()
         
-        panel:CheckBox("Enable Custom World Rendering", "rtx_mwr_force_render")
-        panel:ControlHelp("Renders the world using chunked meshes")
+        panel:CheckBox("Enable Custom World Rendering", "rtx_mwr_enable")
+        panel:ControlHelp("Renders world faces using chunked meshes")
+
+        panel:CheckBox("Enable Custom Displacement Rendering", "rtx_cdr_enable")
+        panel:ControlHelp("Renders world displacements using chunked meshes")
+        panel:ControlHelp("(EXTREMELY BUGGY, USE AT YOUR OWN RISK)")
 
         panel:CheckBox("Remix Capture Mode", "rtx_mwr_capture_mode")
         panel:ControlHelp("Enable this if you're taking a capture with RTX Remix")
         
-        panel:CheckBox("Show Debug Info", "rtx_mwr_force_render_debug")
+        panel:CheckBox("Show Debug Info", "rtx_mwr_enable_debug")
     end)
 end)
 
