@@ -765,13 +765,6 @@ local function AddToRTXCache(ent)
         local rtxBoundsSize = Vector(rtxDistance, rtxDistance, rtxDistance)
         ent:SetRenderBounds(-rtxBoundsSize, rtxBoundsSize)
         ent:DisableMatrix("RenderMultiply")
-        if GetConVar("rtx_lightupdater_show"):GetBool() then
-            ent:SetRenderMode(0)
-            ent:SetColor(Color(255, 255, 255, 255))
-        else
-            ent:SetRenderMode(2)
-            ent:SetColor(Color(255, 255, 255, 1))
-        end
         ent:SetNoDraw(false)
     end
 end
@@ -818,11 +811,10 @@ function SetEntityBounds(ent, useOriginal)
                 local rtxBounds = Vector(rtxDistance, rtxDistance, rtxDistance)
                 ent:SetRenderBounds(-rtxBounds, rtxBounds)
             end
-            
-            ent:DisableMatrix("RenderMultiply")
-            ent:SetNoDraw(false)
             ent:SetRenderMode(GetConVar("rtx_lightupdater_show"):GetBool() and 0 or 2)
             ent:SetColor(Color(255, 255, 255, GetConVar("rtx_lightupdater_show"):GetBool() and 255 or 1))
+            ent:DisableMatrix("RenderMultiply")
+            ent:SetNoDraw(false)
             return
         end
     end
@@ -900,7 +892,7 @@ function SetEntityBounds(ent, useOriginal)
     ent:DisableMatrix("RenderMultiply")
     if GetConVar("rtx_lightupdater_show"):GetBool() then
         ent:SetRenderMode(0)
-        ent:SetColor(Color(255, 255, 255, 1))
+        ent:SetColor(Color(255, 255, 255, 255))
     else
         ent:SetRenderMode(2)
         ent:SetColor(Color(255, 255, 255, 1))
