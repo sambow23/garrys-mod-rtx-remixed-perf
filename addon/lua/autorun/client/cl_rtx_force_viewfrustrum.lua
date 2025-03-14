@@ -82,40 +82,40 @@ local REGULAR_LIGHT_TYPES = {
 
 local PRESETS = {
     ["Very Low"] = { entity = 64, light = 256, environment = 32768 },
-    ["Low"] = { entity = 256, light = 256, environment = 32768 },
-    ["Medium"] = { entity = 512, light = 256, environment = 32768 },
+    ["Low"] = { entity = 256, light = 512, environment = 32768 },
+    ["Medium"] = { entity = 512, light = 767, environment = 32768 },
     ["High"] = { entity = 2048, light = 1024, environment = 32768 },
     ["Very High"] = { entity = 4096, light = 2048, environment = 65536 }
 }
 
 local SPECIAL_ENTITY_BOUNDS = {
     ["prop_door_rotating"] = {
-        size = 512, -- Default size for doors
-        description = "Door entities", -- For debug/documentation
+        size = 512,
+        description = "Door entities",
     },
 
     ["func_door_rotating"] = {
-        size = 512, -- Default size for doors
-        description = "func_ entities", -- For debug/documentation
+        size = 512,
+        description = "func_ entities",
     },
 
     ["func_physbox"] = {
-        size = 512, -- Default size for doors
-        description = "func_ entities", -- For debug/documentation
+        size = 512,
+        description = "func_ entities",
     },
 
     ["func_breakable"] = {
-        size = 512, -- Default size for doors
-        description = "func_ entities", -- For debug/documentation
+        size = 512,
+        description = "func_ entities",
     },
 
     ["func_brush"] = {
-        size = 512, -- Default size for doors
-        description = "func_ entities", -- For debug/documentation
+        size = 32768, -- this is so cursed, but it prevents rendering issues
+        description = "func_ entities",
     },
 
     ["func_lod"] = {
-        size = 8196, -- this is so cursed, but it prevents rendering issues
+        size = 32768, -- this is so cursed, but it prevents rendering issues
         description = "func_ entities",
     },
 
