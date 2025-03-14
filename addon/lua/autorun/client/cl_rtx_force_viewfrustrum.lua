@@ -755,6 +755,13 @@ local function AddToRTXCache(ent)
         local rtxBoundsSize = Vector(rtxDistance, rtxDistance, rtxDistance)
         ent:SetRenderBounds(-rtxBoundsSize, rtxBoundsSize)
         ent:DisableMatrix("RenderMultiply")
+        if GetConVar("rtx_lightupdater_show"):GetBool() then
+            ent:SetRenderMode(0)
+            ent:SetColor(Color(255, 255, 255, 255))
+        else
+            ent:SetRenderMode(2)
+            ent:SetColor(Color(255, 255, 255, 1))
+        end
         ent:SetNoDraw(false)
     end
 end
@@ -804,6 +811,8 @@ function SetEntityBounds(ent, useOriginal)
             
             ent:DisableMatrix("RenderMultiply")
             ent:SetNoDraw(false)
+            ent:SetRenderMode(GetConVar("rtx_lightupdater_show"):GetBool() and 0 or 2)
+            ent:SetColor(Color(255, 255, 255, GetConVar("rtx_lightupdater_show"):GetBool() and 255 or 1))
             return
         end
     end
@@ -881,7 +890,7 @@ function SetEntityBounds(ent, useOriginal)
     ent:DisableMatrix("RenderMultiply")
     if GetConVar("rtx_lightupdater_show"):GetBool() then
         ent:SetRenderMode(0)
-        ent:SetColor(Color(255, 255, 255, 255))
+        ent:SetColor(Color(255, 255, 255, 1))
     else
         ent:SetRenderMode(2)
         ent:SetColor(Color(255, 255, 255, 1))
@@ -1969,11 +1978,6 @@ function CreateSettingsPanel(panel)
     -- Main header and toggle
     panel:CheckBox("Enable Forced View Frustrum", "rtx_fr_enabled")
     panel:ControlHelp("Enables forced render bounds for entities")
-
-    panel:CheckBox("Enable PVS", "rtx_fr_static_props_pvs")
-    panel:ControlHelp("Uses the engine's PVS system to cull objects that are not visible to the player, helps performance in large/dense maps.")
-    panel:ControlHelp("")
-    panel:ControlHelp("(Reload the map when changing this setting)")
     
     -- Static Bounds Settings section
     local boundsCategory = vgui.Create("DCollapsibleCategory", panel)
