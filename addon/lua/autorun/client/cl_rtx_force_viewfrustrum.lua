@@ -1,3 +1,7 @@
+-- Disables source engine world rendering and replaces it with chunked mesh rendering instead, fixes engine culling issues. 
+-- MAJOR THANK YOU to the creator of NikNaks, a lot of this would not be possible without it.
+-- This addon is pretty heavy but it's the best compromise between performance and visual quality we have until better solutions arrive.
+
 if not CLIENT then return end
 
 -- ConVars
