@@ -2083,44 +2083,36 @@ function CreateSettingsPanel(panel)
     
     addMapBtn.DoClick = function()
         local currentMap = game.GetMap()
-        local frame = vgui.Create("DFrame")
-        frame:SetSize(300, 120)
-        frame:SetTitle("Select Preset for " .. currentMap)
-        frame:Center()
-        frame:MakePopup()
         
-        local presetSelect = vgui.Create("DComboBox", frame)
-        presetSelect:Dock(TOP)
-        presetSelect:DockMargin(10, 10, 10, 0)
-        presetSelect:SetValue("Select preset...")
+        -- Get current values from ConVars
+        local entityBounds = cv_bounds_size:GetFloat()
+        local lightDistance = cv_rtx_updater_distance:GetFloat()
+        local envLightDistance = cv_environment_light_distance:GetFloat()
         
-        for preset, _ in pairs(PRESETS) do
-            presetSelect:AddChoice(preset)
-        end
-        
-        local saveBtn = vgui.Create("DButton", frame)
-        saveBtn:Dock(BOTTOM)
-        saveBtn:DockMargin(10, 10, 10, 10)
-        saveBtn:SetText("Save")
-        saveBtn:SetDisabled(true)
-        
-        presetSelect.OnSelect = function(_, _, value)
-            saveBtn:SetDisabled(false)
-        end
-        
-        saveBtn.DoClick = function()
-            local preset = presetSelect:GetValue()
-            if preset ~= "Select preset..." then
-                MAP_PRESETS[currentMap] = preset
-                SaveMapPresets()
-                RefreshMapList()
-                
-                frame:Close()
-                
-                -- Apply the preset for current map
-                ApplyPreset(preset)
+        -- Try to find matching preset
+        local matchingPreset = nil
+        for name, preset in pairs(PRESETS) do
+            if preset.entity == entityBounds and 
+               preset.light == lightDistance and 
+               preset.environment == envLightDistance then
+                matchingPreset = name
+                break
             end
         end
+        
+        -- If no exact match, use current settings as "Custom" preset
+        if not matchingPreset then
+            -- This will save the actual values but display as "Custom" in the list
+            matchingPreset = "Custom"
+        end
+        
+        -- Save to map presets
+        MAP_PRESETS[currentMap] = matchingPreset
+        SaveMapPresets()
+        RefreshMapList()
+        
+        -- Show a notification
+        notification.AddLegacy("Saved current settings for " .. currentMap, NOTIFY_GENERIC, 3)
     end
     
     -- Remove Selected button
