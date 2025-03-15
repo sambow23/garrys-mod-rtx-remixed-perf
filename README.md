@@ -47,7 +47,6 @@
 - Some particles will not render (need to change each material from $SpriteCard to $UnlitGeneric to fix)
 - HDR maps crash the game or have no lighting (limitation of FF rendering)
 - Some meshes will not render (limitation of FF rendering)
-- Skinned meshes like ragdolls, view models, some props, etc, have unstable hashes in RTX Remix and cannot be replaced with the Remix toolkit. (texture can be changed though)
 - Some maps will be rasterized and have vertex explosions.
 - Some map lights will cull even with Lightupdaters active (investigating)
 - Some func_ entities will cull in strange ways (investigating)
