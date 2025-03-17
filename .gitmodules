@@ -3,3 +3,6 @@
 	path = garrysmod_common
 	url = https://github.com/danielga/garrysmod_common
 	branch = x86-64-support-sourcesdk
+[submodule "public/toggle-cursor-remix"]
+	path = public/toggle-cursor-remix
+	url = https://github.com/sambow23/toggle-cursor-remix.git
