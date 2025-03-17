@@ -1,12 +1,11 @@
 #include "GarrysMod/Lua/Interface.h"
-
 #include <remix/remix.h>
 #include <remix/remix_c.h>
-
 #include "cdll_client_int.h"
 #include "materialsystem/imaterialsystem.h"
 #include <shaderapi/ishaderapi.h>
 #include "e_utils.h"
+#include <Windows.h>
 #include <d3d9.h>
 #include "interfaces/gm_interfaces.h"
 #include "mwr/mwr.hpp"
@@ -213,12 +212,7 @@ LUA_FUNCTION(PrintRemixUIState) {
     }
 }
 
-extern IVEngineClient* engine = NULL;
-#include "mathlib/mathlib.h"
-
-#include "globalconvars.h"
-GMOD_MODULE_OPEN() {
-    GlobalConvars::InitialiseConVars();
+GMOD_MODULE_OPEN() { 
     try {
         Msg("[RTX Remix Fixes 2 - Binary Module] - Module loaded!\n"); 
 
@@ -310,9 +304,7 @@ GMOD_MODULE_OPEN() {
         Error("[RTX Remix Fixes 2 - Binary Module] Exception in module initialization\n");
         return 0;
     }
-    return 0;
 }
-
 
 GMOD_MODULE_CLOSE() {
     try {
