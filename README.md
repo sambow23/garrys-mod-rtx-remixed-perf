@@ -15,7 +15,7 @@
 ## Installation:
 > [!WARNING]
 > ### This is a total conversion, do not install this on a Garry's Mod install you care about
-> ### Ensure you are using the x64-86 branch of Garry's Mod
+> ### Ensure you are using the x86-64 branch of Garry's Mod
 > <img width="632" alt="image" src="https://github.com/user-attachments/assets/4f26ce9f-ac2a-4469-93f0-4fcdf0dffee4" />
 
 
