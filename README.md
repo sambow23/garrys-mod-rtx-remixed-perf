@@ -13,9 +13,12 @@
 - Material Fixer
     * Fixes some broken UI/game materials and removes detail textures
 ## Installation:
-> [!WARNING]  
-> ### Ensure you have a clean 64-bit version of Garry's Mod installed 
+> [!WARNING]
 > ### This is a total conversion, do not install this on a Garry's Mod install you care about
+> ### Ensure you are using the x64-86 branch of Garry's Mod
+> <img width="632" alt="image" src="https://github.com/user-attachments/assets/4f26ce9f-ac2a-4469-93f0-4fcdf0dffee4" />
+
+
 1. Subscribe to this [addon collection](https://steamcommunity.com/sharedfiles/filedetails/?id=3417054376) (click `Subscribe to all` > `Add Only`)
 2. Download the latest [release](https://github.com/Xenthio/gmod-rtx-fixes-2/releases/latest)
 3. Make a copy of your Garry's Mod installation and call it something like `GarrysModRTX`. The path should look like this:    
