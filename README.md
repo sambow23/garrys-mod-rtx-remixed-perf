@@ -14,7 +14,7 @@
     * Fixes some broken UI/game materials and removes detail textures
 ## Installation:
 > [!WARNING]  
-> Ensure you have a clean 64-bit version of Garry's Mod installed with no 32-bit leftovers. 
+> ### Ensure you have a clean 64-bit version of Garry's Mod installed 
 > ### This is a total conversion, do not install this on a Garry's Mod install you care about
 1. Subscribe to this [addon collection](https://steamcommunity.com/sharedfiles/filedetails/?id=3417054376) (click `Subscribe to all` > `Add Only`)
 2. Download the latest [release](https://github.com/Xenthio/gmod-rtx-fixes-2/releases/latest)
