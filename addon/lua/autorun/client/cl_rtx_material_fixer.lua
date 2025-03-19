@@ -78,6 +78,7 @@ end
 local function MaterialFixups()
 	MaterialFixupInDir("materials/particle/")
 	MaterialFixupInDir("materials/effects/")
+end
 
 local function GUIFixups()
 	-- giving things a real texture makes remix less confused
