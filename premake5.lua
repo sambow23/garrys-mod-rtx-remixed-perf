@@ -27,6 +27,7 @@ CreateWorkspace({name = "RTXFixesBinary", abi_compatible = false, path = ""})
 		IncludeSDKTier0()
 		IncludeSDKTier1()
 		IncludeSDKMathlib()
+		IncludeHelpersExtended()
 
 		includedirs {
 			"public/include",

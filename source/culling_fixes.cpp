@@ -322,6 +322,53 @@ void ApplyPatches(const char* dllName, const std::vector<BytePatch>& patches) {
         }
     }
 }
+// Command to check and reapply patches
+void CheckAndReapplyPatches_f() {
+    Msg("[Culling Fixes] Checking patch status...\n");
+
+    // Check if patches are still applied
+    bool anyMissing = false;
+    for (auto& patch : g_AppliedPatches) {
+        if (!patch.applied) continue; // Skip already-unapplied patches
+
+        // Check if bytes match our patch
+        std::vector<uint8_t> replacementBytes = HexToBytes(patch.replacement);
+        bool intact = true;
+
+        for (size_t i = 0; i < replacementBytes.size(); i++) {
+            if (((uint8_t*)patch.address)[i] != replacementBytes[i]) {
+                intact = false;
+                break;
+            }
+        }
+
+        if (!intact) {
+            anyMissing = true;
+            Msg("[Culling Fixes] Patch at %p has been overwritten, reapplying...\n", patch.address);
+
+            // Reapply the patch
+            DWORD oldProtect;
+            if (VirtualProtect(patch.address, replacementBytes.size(), PAGE_EXECUTE_READWRITE, &oldProtect)) {
+                memcpy(patch.address, replacementBytes.data(), replacementBytes.size());
+                VirtualProtect(patch.address, replacementBytes.size(), oldProtect, &oldProtect);
+                Msg("[Culling Fixes] Successfully reapplied patch\n");
+            }
+            else {
+                Msg("[Culling Fixes] Failed to reapply patch\n");
+            }
+        }
+    }
+
+    if (!anyMissing) {
+        Msg("[Culling Fixes] All patches are intact\n");
+    }
+}
+
+
+// At global scope (outside of any function or class)
+static ConCommand rtx_check_patches("rtx_check_patches", CheckAndReapplyPatches_f, "Check and reapply memory patches if needed", 0);
+
+#include "GarrysMod/InterfacePointers.hpp"
 
 static StudioRenderConfig_t s_StudioRenderConfig;
  
@@ -375,6 +422,13 @@ void CullingHooks::Initialize() {
 		if (!ENGINE_R_CullBox) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullBox == NULL\n"); }
 		else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_ENGINE, ENGINE_R_CullBox) }
 
+
+        // Get the ICvar interface
+        g_pCVar = (ICvar*)InterfacePointers::Cvar();
+        if (g_pCVar) {
+			g_pCVar->RegisterConCommand(&rtx_check_patches);
+        }
+
 		//if (!ENGINE_CM_BoxVisible) { Msg("[Culling Fixes] MathLib (ENGINE) CM_BoxVisible == NULL\n"); }
 		//else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) CM_BoxVisible\n"); Setup_Hook(CM_BoxVisible_ENGINE, ENGINE_CM_BoxVisible) }
 
@@ -399,7 +453,9 @@ void CullingHooks::Initialize() {
 			{"753cf30f10", 0, "eb", false, nullptr}, // brush entity backfaces
 			{"7e5244", 0, "eb", false, nullptr},     // world backfaces
 			{"753c498b4204", 0, "eb", false, nullptr} // world backfaces
-		};
+		}; 
+        //75 3c 49 8b 42 04
+        //75 3C 49 8B 42 04 F3 0F 10 15 D9  81 55 00
 
 		std::vector<BytePatch> clientPatches = {
 			{"4883ec480f1022", 0, "31c0c3", false, nullptr}, // c_frustumcull
