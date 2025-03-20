@@ -96,6 +96,7 @@
 #include "modelload_fixes.h"
 #include "cdll_client_int.h"
 #include "filesystem.h"  // Include for IFileSystem definitions
+#include "datacache/imdlcache.h"
 
 using namespace GarrysMod::Lua;
 
@@ -103,58 +104,164 @@ using namespace GarrysMod::Lua;
 IFileSystem* g_pFileSystem = nullptr;
 
 // Standard method hook for the filesystem open function
-Define_method_Hook(FileHandle_t, IFileSystem_Open, void*, const char* pFileName, const char* pOptions, const char* pathID, int64* pSize)
+Define_method_Hook(FileHandle_t, IFileSystem_OpenEx, void*, const char* pFileName,
+    const char* pOptions, unsigned flags, const char* pathID, char** ppszResolvedFilename)
 {
-    // Check if looking for a .dx90.vtx file
-    const char* vtx_ext = ".dx90.vtx";
-    size_t filename_len = strlen(pFileName);
-    size_t ext_len = strlen(vtx_ext);
+    // Safety check for null pointers
+    if (!pFileName || !pOptions) {
+        return IFileSystem_OpenEx_trampoline()(_this, pFileName, pOptions, flags, pathID, ppszResolvedFilename);
+    }
 
-    if (filename_len > ext_len &&
-        _stricmp(pFileName + filename_len - ext_len, vtx_ext) == 0) {
+    // Define the VTX extensions we want to check for
+    const char* vtx_exts[] = { ".dx90.vtx", ".dx80.vtx", ".dx70.vtx" };
+    const int ext_count = sizeof(vtx_exts) / sizeof(vtx_exts[0]);
 
-        // Create .sw.vtx filename
-        char sw_path[MAX_PATH];
-        strncpy(sw_path, pFileName, sizeof(sw_path) - 1);
-        sw_path[sizeof(sw_path) - 1] = '\0';  // Ensure null termination
+    // Check if it's a model file (handle both forward and backslashes)
+    const char* model_indicators[] = { "models/", "models\\" };
+    bool is_model = false;
+    for (int i = 0; i < 2; i++) {
+        if (strstr(pFileName, model_indicators[i])) {
+            is_model = true;
+            break;
+        }
+    }
 
-        char* ext = strstr(sw_path, ".dx90.vtx");
-        if (ext) {
-            strcpy(ext, ".sw.vtx");
+    if (is_model) {
+        size_t filename_len = strlen(pFileName);
 
-            // Check if .sw.vtx exists by trying to open it
-            FileHandle_t handle = IFileSystem_Open_trampoline()(_this, sw_path, pOptions, pathID, pSize);
-            if (handle) {
-                Msg("[Model Load Fixes] Redirected %s to %s\n", pFileName, sw_path);
-                return handle;
+        // Check for each possible extension
+        for (int i = 0; i < ext_count; i++) {
+            const char* vtx_ext = vtx_exts[i];
+            size_t ext_len = strlen(vtx_ext);
+
+            // If filename ends with this extension (case insensitive)
+            if (filename_len > ext_len &&
+                _stricmp(pFileName + filename_len - ext_len, vtx_ext) == 0) {
+
+                // Create buffer for the .sw.vtx filename
+                char* sw_path = (char*)malloc(filename_len + 1);
+                if (sw_path) {
+                    // Copy the original file path
+                    strcpy(sw_path, pFileName);
+
+                    // Find the extension in our copied string and replace it
+                    // We use the exact position rather than strstr to handle 
+                    // cases where the extension might appear elsewhere in the path
+                    char* ext = sw_path + (filename_len - ext_len);
+                    strcpy(ext, ".sw.vtx");
+
+                    // Check if the .sw.vtx file exists first
+                    bool exists = false;
+                    __try {
+                        // Try a non-opening existence check first (if available)
+                        if ((void*)_this && ((IFileSystem*)_this)->FileExists(sw_path, pathID)) {
+                            exists = true;
+                            Msg("[Model Load Fixes] .sw.vtx file exists: %s\n", sw_path);
+                        }
+                    }
+                    __except (EXCEPTION_EXECUTE_HANDLER) {
+                        // Couldn't check existence, will try direct open
+                    }
+
+                    // Try to open the .sw.vtx file
+                    FileHandle_t handle = NULL;
+                    __try {
+                        handle = IFileSystem_OpenEx_trampoline()(_this, sw_path, pOptions, flags, pathID, ppszResolvedFilename);
+                    }
+                    __except (EXCEPTION_EXECUTE_HANDLER) {
+                        Msg("[Model Load Fixes] Exception trying to open %s\n", sw_path);
+                        handle = NULL;
+                    }
+
+                    if (handle) {
+                        Msg("[Model Load Fixes] Successfully redirected %s to %s\n", pFileName, sw_path);
+                        free(sw_path);
+                        return handle;
+                    }
+                    else {
+                        // Only log when we specifically tried but failed to redirect
+                        Msg("[Model Load Fixes] Failed to redirect %s to %s (file may not exist)\n",
+                            pFileName, sw_path);
+                    }
+
+                    free(sw_path);
+                }
+
+                // We matched an extension but couldn't redirect
+                break;
             }
         }
     }
 
-    Msg("[Model Load Fixes] couldn't redirect %s\n", pFileName);
-    // Fall back to original behavior
-    return IFileSystem_Open_trampoline()(_this, pFileName, pOptions, pathID, pSize);
+    // Fall back to original behavior without logging
+    return IFileSystem_OpenEx_trampoline()(_this, pFileName, pOptions, flags, pathID, ppszResolvedFilename);
+}
+
+static IMDLCache* g_pMDLCache;
+static IVEngineClient* engineClient;
+
+void ForceModelReload() { 
+
+    Msg("[Model Load Fixes] Forcing model reload...\n");
+    if (g_pMDLCache) {
+        // Flush the entire cache
+        g_pMDLCache->Flush(MDLCACHE_FLUSH_ALL);
+        Msg("[Model Load Fixes] Successfully flushed model cache\n");
+    }
+    else {
+        Warning("[Model Load Fixes] Couldn't access MDL cache to force reload\n");
+    }
+}
+void ForceModelReloadViaEngine() {
+    // Get the engine client interface
+    if (engineClient) {
+        // Use safer commands that won't crash (r_flushlod crashes)
+        engineClient->ClientCmd_Unrestricted("mat_reloadallmaterials");
+
+        Msg("[Model Load Fixes] Executed engine reload commands\n");
+    }
+    else {
+        Warning("[Model Load Fixes] Couldn't access engine client, early loaded map models will not be reloaded in their RTX Remix friendly .sw.vtx form!\n");
+    }
 }
 
 void ModelLoadHooks::Initialize() {
     try {
+        Msg("[RTX Remix Fixes 2 - Binary Module] - Loading datacache\n");
+        if (!Sys_LoadInterface("datacache", MDLCACHE_INTERFACE_VERSION, NULL, (void**)&g_pMDLCache))
+            Warning("[RTX Remix Fixes 2] - Could not load studiorender interface");
 
-        // Get the filesystem interface using Sys_LoadInterface
-        Msg("[Model Load Fixes] - Loading filesystem interface\n");
-        if (!Sys_LoadInterface("filesystem_stdio", FILESYSTEM_INTERFACE_VERSION, NULL, (void**)&g_pFileSystem)) {
-            Warning("[Model Load Fixes] - Could not load filesystem interface");
+        if (!Sys_LoadInterface("engine", VENGINE_CLIENT_INTERFACE_VERSION, NULL, (void**)&engineClient))
+            Warning("[RTX Remix Fixes 2] - Could not load engine interface");
+
+        // Find the filesystem module
+        HMODULE fsModule = GetModuleHandle("filesystem_stdio.dll");
+        if (!fsModule) {
+            fsModule = GetModuleHandle("filesystem.dll");
+        }
+
+        if (!fsModule) {
+            Warning("[Model Load Fixes] - Could not find filesystem module");
             return;
         }
 
-        Msg("[Model Load Fixes] Successfully loaded filesystem interface\n");
+        // Use the signature to find IFileSystem::OpenEx
+        static const char openSig[] = "4C 8B DC 48 81 EC";
+        void* openFunc = ScanSign(fsModule, openSig, sizeof(openSig) - 1);
 
-        // Get the vtable and the Open function
-        void** vtable = *(void***)g_pFileSystem;
-        void* openFunc = vtable[2];  // Verify this index for your game version
+        if (!openFunc) {
+            Warning("[Model Load Fixes] - Could not find IFileSystem::OpenEx with signature");
+            return;
+        }
 
-        // Set up the hook
-        Setup_Hook(IFileSystem_Open, openFunc);
-        Msg("[Model Load Fixes] Successfully hooked IFileSystem::Open\n");
+        Msg("[Model Load Fixes] Found IFileSystem::OpenEx at %p\n", openFunc);
+
+        // Set up the hook directly on the function
+        Setup_Hook(IFileSystem_OpenEx, openFunc);
+        Msg("[Model Load Fixes] Successfully hooked IFileSystem::OpenEx\n");
+
+        ForceModelReload();
+		ForceModelReloadViaEngine();
     }
     catch (...) {
         Msg("[Model Load Fixes] Exception in ModelLoadHooks::Initialize\n");
@@ -164,7 +271,7 @@ void ModelLoadHooks::Initialize() {
 
 void ModelLoadHooks::Shutdown() {
     // Existing shutdown code  
-    IFileSystem_Open_hook.Disable();
+    IFileSystem_OpenEx_hook.Disable();
 
     // Log shutdown completion
     Msg("[Prop Fixes] Shutdown complete\n");
