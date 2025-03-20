@@ -14,6 +14,7 @@
 #include "entity_manager/entity_manager.hpp"
 #include "shader_fixes/shader_hooks.h"
 #include "prop_fixes.h" 
+#include <culling_fixes.h>
 
 
 #ifdef GMOD_MAIN
@@ -276,6 +277,8 @@ GMOD_MODULE_OPEN() {
             g_remix->SetConfigVariable("rtx.fallbackLightMode", "2");
             Msg("[RTX Remix Fixes 2 - Binary Module] Remix configuration set\n");
         }
+
+        CullingHooks::Instance().Initialize();
 
         // Register Lua functions
         LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB); 
