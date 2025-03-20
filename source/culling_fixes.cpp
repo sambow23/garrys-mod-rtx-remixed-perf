@@ -132,6 +132,7 @@ void CullingHooks::Shutdown() {
 	CViewRenderShouldForceNoVis_hook.Disable();
 	MathLibR_CullBox_ENGINE_hook.Disable();
 	MathLibR_CullBox_CLIENT_hook.Disable();
+	MathLibR_CullBoxSkipNear_ENGINE_hook.Disable();
 	//EngineR_BuildWorldLists_hook.Disable();
 
 	// Log shutdown completion
