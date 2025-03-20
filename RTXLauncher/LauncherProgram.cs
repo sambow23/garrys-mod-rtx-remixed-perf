@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Reflection;
 
 namespace RTXLauncher
 {
@@ -74,7 +73,7 @@ namespace RTXLauncher
 		// FindGameDirectory implementation remains the same
 		static string FindGameExecutable()
 		{
-			var execPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+			var execPath = Path.GetDirectoryName(System.AppContext.BaseDirectory);//Assembly.GetExecutingAssembly().Location);
 			var currentPath = Path.Combine(execPath, "bin", "win64");
 			if (currentPath != null)
 			{
@@ -83,7 +82,7 @@ namespace RTXLauncher
 					var testPath = Path.Combine(currentPath, "gmod.exe");
 					if (File.Exists(testPath))
 					{
-						return currentPath;
+						return testPath;
 					}
 					// try up one directory
 					currentPath = Path.GetDirectoryName(currentPath);

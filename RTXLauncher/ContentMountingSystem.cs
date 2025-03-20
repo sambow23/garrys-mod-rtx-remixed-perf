@@ -1,6 +1,4 @@
-﻿using System.Reflection;
-
-namespace RTXLauncher
+﻿namespace RTXLauncher
 {
 	public static class ContentMountingSystem
 	{
@@ -10,7 +8,8 @@ namespace RTXLauncher
 		/// <returns></returns>
 		private static string GetGmodInstallFolder()
 		{
-			return Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+
+			return Path.GetDirectoryName(System.AppContext.BaseDirectory);//Assembly.GetExecutingAssembly().Location);
 		}
 		/// <summary>
 		/// Checks all steam library paths for the install folder, should be like D:\SteamLibrary\steamapps\common\(installFolder), returns null if not installed/found
