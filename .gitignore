@@ -956,3 +956,6 @@ prop2mesh/models/p2m/cube.vvd
 source/launcher/cmake_install.cmake
 source/launcher/CMakeCache.txt
 /source/launcher/CMakeFiles
+/RTXLauncher/.vs
+/RTXLauncher/bin/Debug
+/RTXLauncher/obj
