@@ -131,8 +131,8 @@ void CullingHooks::Initialize() {
 		if (!ENGINE_R_CullBox) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullBox == NULL\n"); }
 		else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_ENGINE, ENGINE_R_CullBox) }
 
-		if (!ENGINE_CM_BoxVisible) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullBox == NULL\n"); }
-		else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) CM_BoxVisible\n"); Setup_Hook(CM_BoxVisible_ENGINE, ENGINE_CM_BoxVisible) }
+		//if (!ENGINE_CM_BoxVisible) { Msg("[Culling Fixes] MathLib (ENGINE) CM_BoxVisible == NULL\n"); }
+		//else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) CM_BoxVisible\n"); Setup_Hook(CM_BoxVisible_ENGINE, ENGINE_CM_BoxVisible) }
 
 		//if (!SERVER_R_CullBox) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullBox == NULL\n"); }
 		//else { Msg("[Culling Fixes] Hooked MathLib (SERVER) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_SERVER, SERVER_R_CullBox) }
@@ -163,7 +163,7 @@ void CullingHooks::Shutdown() {
 	MathLibR_CullBox_CLIENT_hook.Disable();
 	MathLibR_CullBoxSkipNear_ENGINE_hook.Disable();
 	MathLibR_CullBoxSkipNear_CLIENT_hook.Disable();
-	CM_BoxVisible_ENGINE_hook.Disable();
+	//CM_BoxVisible_ENGINE_hook.Disable();
 	//EngineR_BuildWorldLists_hook.Disable();
 
 	// Log shutdown completion
