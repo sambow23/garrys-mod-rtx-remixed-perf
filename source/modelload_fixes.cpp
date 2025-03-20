@@ -160,3 +160,12 @@ void ModelLoadHooks::Initialize() {
         Msg("[Model Load Fixes] Exception in ModelLoadHooks::Initialize\n");
     }
 }
+
+
+void ModelLoadHooks::Shutdown() {
+    // Existing shutdown code  
+    IFileSystem_Open_hook.Disable();
+
+    // Log shutdown completion
+    Msg("[Prop Fixes] Shutdown complete\n");
+}
