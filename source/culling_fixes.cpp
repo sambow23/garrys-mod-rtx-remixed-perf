@@ -64,12 +64,12 @@ Define_method_Hook(bool, MathLibR_CullBox_CLIENT, void*, const Vector& mins, con
 	return false;
 }
 
-Define_method_Hook(bool, MathLibR_CullBox_SERVER, void*, const Vector& mins, const Vector& maxs, const Frustum_t& frustum)
+Define_method_Hook(bool, CM_BoxVisible_ENGINE, void*, const Vector& mins, const Vector& maxs, const byte* visbits, int vissize)
 {
 	if (GlobalConvars::c_frustumcull && GlobalConvars::c_frustumcull->GetBool()) {
-		return MathLibR_CullBox_CLIENT_trampoline()(_this, mins, maxs, frustum);
+		return CM_BoxVisible_ENGINE_trampoline()(_this, mins, maxs, visbits, vissize);
 	}
-	return false;
+	return true;
 }
 
 
@@ -115,17 +115,24 @@ void CullingHooks::Initialize() {
 
 		static const char R_CullBox_sign[] = "48 83 EC 48 0F 10 22 33 C0";
 
+		static const char CM_BoxVisible_sign[] = "48 89 5C 24 ?? 48 89 6C 24 ?? 56 57 41 56 48 81 EC ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 ?? ?? ?? ?? F3 0F 10 22";
+
 		//R_CullBoxSkipNear doesn't exist on chromium/x86-64, see https://commits.facepunch.com/202379
 		//static const char R_CullBoxSkipNear_sign[] = "48 83 EC 48 0F 10 22 33 C0"; 
 
 		auto CLIENT_R_CullBox = ScanSign(client, R_CullBox_sign, sizeof(R_CullBox_sign) - 1);
 		auto ENGINE_R_CullBox = ScanSign(engine, R_CullBox_sign, sizeof(R_CullBox_sign) - 1);
-		auto SERVER_R_CullBox = ScanSign(server, R_CullBox_sign, sizeof(R_CullBox_sign) - 1);
+
+		auto ENGINE_CM_BoxVisible = ScanSign(engine, CM_BoxVisible_sign, sizeof(CM_BoxVisible_sign) - 1);
+
 		if (!CLIENT_R_CullBox) { Msg("[Culling Fixes] MathLib (CLIENT) R_CullBox == NULL\n"); }
 		else { Msg("[Culling Fixes] Hooked MathLib (CLIENT) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_CLIENT, CLIENT_R_CullBox) }
 
 		if (!ENGINE_R_CullBox) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullBox == NULL\n"); }
 		else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_ENGINE, ENGINE_R_CullBox) }
+
+		if (!ENGINE_CM_BoxVisible) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullBox == NULL\n"); }
+		else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) CM_BoxVisible\n"); Setup_Hook(CM_BoxVisible_ENGINE, ENGINE_CM_BoxVisible) }
 
 		//if (!SERVER_R_CullBox) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullBox == NULL\n"); }
 		//else { Msg("[Culling Fixes] Hooked MathLib (SERVER) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_SERVER, SERVER_R_CullBox) }
@@ -156,6 +163,7 @@ void CullingHooks::Shutdown() {
 	MathLibR_CullBox_CLIENT_hook.Disable();
 	MathLibR_CullBoxSkipNear_ENGINE_hook.Disable();
 	MathLibR_CullBoxSkipNear_CLIENT_hook.Disable();
+	CM_BoxVisible_ENGINE_hook.Disable();
 	//EngineR_BuildWorldLists_hook.Disable();
 
 	// Log shutdown completion
