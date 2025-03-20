@@ -4,6 +4,9 @@
     <_LastSelectedProfileId>E:\gmod-rtx-binary\RTXLauncher\Properties\PublishProfiles\FolderProfile.pubxml</_LastSelectedProfileId>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Update="Controls\GameMountCheckbox.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Update="Form1.cs">
       <SubType>Form</SubType>
     </Compile>

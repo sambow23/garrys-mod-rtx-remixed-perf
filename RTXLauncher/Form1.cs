@@ -17,6 +17,10 @@ namespace RTXLauncher
             SaveSettings();
         }
 
+        public void Refresh()
+        {
+            settingsDataBindingSource.ResetBindings(false);
+        }
         public void LoadSettings()
         {
             var serializer = new XmlSerializer(typeof(SettingsData));
@@ -31,6 +35,10 @@ namespace RTXLauncher
             else
             {
                 settingsDataBindingSource.DataSource = new SettingsData();
+            }
+            if (settingsDataBindingSource.DataSource is SettingsData settings)
+            {
+                WidthHeightComboBox.Text = $"{settings.Width}x{settings.Height}";
             }
         }
         public void SaveSettings()
@@ -57,7 +65,7 @@ namespace RTXLauncher
         {
             // refresh the form
             LoadSettings();
-            settingsDataBindingSource.ResetBindings(false);
+            Refresh();
         }
 
         private void groupBox1_Enter(object sender, EventArgs e)
@@ -88,6 +96,37 @@ namespace RTXLauncher
         private void groupBox2_Enter(object sender, EventArgs e)
         {
 
+        }
+
+        private void WidthHeightComboBox_TextUpdate(object sender, EventArgs e)
+        {
+            // set width and height from combo box string
+            var resolution = WidthHeightComboBox.Text;
+            var parts = resolution.Split('x');
+            if (parts.Length == 2)
+            {
+                if (settingsDataBindingSource.DataSource is SettingsData settings)
+                {
+                    settings.Width = int.Parse(parts[0]);
+                    settings.Height = int.Parse(parts[1]);
+                    Refresh();
+                }
+            }
+        }
+
+        private void WidthHeightComboBox_SelectedIndexChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void checkBox1_CheckedChanged(object sender, EventArgs e)
+        {
+            Refresh();
+        }
+
+        private void CloseButton_Click(object sender, EventArgs e)
+        {
+            Close();
         }
     }
 }

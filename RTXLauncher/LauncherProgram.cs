@@ -3,93 +3,93 @@ using System.Reflection;
 
 namespace RTXLauncher
 {
-    internal static class LauncherProgram
-    {
-        /// <summary>
-        ///  The main entry point for the application.
-        /// </summary>
-        [STAThread]
-        static void Main()
-        {
-            // To customize application configuration such as set high DPI settings or default font,
-            // see https://aka.ms/applicationconfiguration.
-            ApplicationConfiguration.Initialize();
-            Application.Run(new Form1());
-        }
+	internal static class LauncherProgram
+	{
+		/// <summary>
+		///  The main entry point for the application.
+		/// </summary>
+		[STAThread]
+		static void Main()
+		{
+			// To customize application configuration such as set high DPI settings or default font,
+			// see https://aka.ms/applicationconfiguration.
+			ApplicationConfiguration.Initialize();
+			Application.Run(new Form1());
+		}
 
-        public static void LaunchGameWithSettings(SettingsData settings)
-        {
-            // Launch the game with the specified settings
+		public static void LaunchGameWithSettings(SettingsData settings)
+		{
+			// Launch the game with the specified settings
 
-            var launchOptions = "-console -dxlevel 90 +mat_disable_d3d9ex 1 -windowed -noborder";
+			//-console -dxlevel 90 +mat_disable_d3d9ex 1 -windowed -noborder
 
-            launchOptions += $" -w {settings.Width}";
-            launchOptions += $" -h {settings.Height}";
+			var launchOptions = "";
 
-            if (!settings.LoadWorkshopAddons)
-            {
-                launchOptions += " -noworkshop";
-            }
+			if (settings.ConsoleEnabled)
+				launchOptions += " -console";
 
-            var game = FindGameExecutable();
+			launchOptions += $" -dxlevel {settings.DXLevel}";
 
-            // launch the game
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = game,
-                Arguments = launchOptions,
-                WorkingDirectory = Path.GetDirectoryName(game)
-            });
+			launchOptions += $" +mat_disable_d3d9ex 1";
 
-        }
+			launchOptions += $" -windowed -noborder";
 
-        // FindGameDirectory implementation remains the same
-        static string FindGameExecutable()
-        {
-            /* Old C++ code
-            wchar_t buffer[MAX_PATH];
-            GetModuleFileNameW(NULL, buffer, MAX_PATH);
-            std::wstring currentPath = buffer;
+			launchOptions += $" -w {settings.Width}";
+			launchOptions += $" -h {settings.Height}";
 
-            size_t lastSlash = currentPath.find_last_of(L"\\");
-            if (lastSlash != std::wstring::npos)
-            {
-                currentPath = currentPath.substr(0, lastSlash);
-            }
+			if (!settings.LoadWorkshopAddons)
+				launchOptions += " -noworkshop";
 
-            for (int i = 0; i < 3; i++)
-            {
-                std::wstring testPath = currentPath + L"\\bin\\win64\\gmod.exe";
-                if (GetFileAttributesW(testPath.c_str()) != INVALID_FILE_ATTRIBUTES)
-                {
-                    return currentPath;
-                }
+			if (settings.DisableChromium)
+				launchOptions += " -nochromium";
 
-                lastSlash = currentPath.find_last_of(L"\\");
-                if (lastSlash != std::wstring::npos)
-                {
-                    currentPath = currentPath.substr(0, lastSlash);
-                }
-            }
+			if (settings.DeveloperMode)
+				launchOptions += " -dev";
 
-            return L"";*/
+			if (settings.ToolsMode)
+				launchOptions += " -tools";
 
-            var execPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            var currentPath = Path.Combine(execPath, "bin", "win64");
-            if (currentPath != null)
-            {
-                for (int i = 0; i < 3; i++)
-                {
-                    var testPath = Path.Combine(currentPath, "gmod.exe");
-                    if (File.Exists(testPath))
-                    {
-                        return currentPath;
-                    }
-                    // try up one directory
-                    currentPath = Path.GetDirectoryName(currentPath);
-                }
-            }
-            return Path.Combine(execPath, "hl2.exe");
-        }
-    }
+
+			launchOptions += settings.CustomLaunchOptions;
+
+			var game = FindGameExecutable();
+
+			// launch the game
+			if (File.Exists(game))
+			{
+				Process.Start(new ProcessStartInfo
+				{
+					FileName = game,
+					Arguments = launchOptions,
+					WorkingDirectory = Path.GetDirectoryName(game)
+				});
+			}
+			else
+			{
+				MessageBox.Show("Game executable not found.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+			}
+
+		}
+
+		// FindGameDirectory implementation remains the same
+		static string FindGameExecutable()
+		{
+			var execPath = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+			var currentPath = Path.Combine(execPath, "bin", "win64");
+			if (currentPath != null)
+			{
+				for (int i = 0; i < 3; i++)
+				{
+					var testPath = Path.Combine(currentPath, "gmod.exe");
+					if (File.Exists(testPath))
+					{
+						return currentPath;
+					}
+					// try up one directory
+					currentPath = Path.GetDirectoryName(currentPath);
+				}
+			}
+			return Path.Combine(execPath, "hl2.exe");
+		}
+	}
 }
