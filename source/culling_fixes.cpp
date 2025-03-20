@@ -40,6 +40,14 @@ Define_method_Hook(bool, MathLibR_CullBoxSkipNear_ENGINE, void*, const Vector& m
 	return false;
 }
 
+Define_method_Hook(bool, MathLibR_CullBoxSkipNear_CLIENT, void*, const Vector& mins, const Vector& maxs, const Frustum_t& frustum)
+{
+	if (GlobalConvars::c_frustumcull && GlobalConvars::c_frustumcull->GetBool()) {
+		return MathLibR_CullBoxSkipNear_CLIENT_trampoline()(_this, mins, maxs, frustum);
+	}
+	return false;
+}
+
 Define_method_Hook(bool, MathLibR_CullBox_ENGINE, void*, const Vector& mins, const Vector& maxs, const Frustum_t& frustum)
 {
 	if (GlobalConvars::c_frustumcull && GlobalConvars::c_frustumcull->GetBool()) {
@@ -133,6 +141,7 @@ void CullingHooks::Shutdown() {
 	MathLibR_CullBox_ENGINE_hook.Disable();
 	MathLibR_CullBox_CLIENT_hook.Disable();
 	MathLibR_CullBoxSkipNear_ENGINE_hook.Disable();
+	MathLibR_CullBoxSkipNear_CLIENT_hook.Disable();
 	//EngineR_BuildWorldLists_hook.Disable();
 
 	// Log shutdown completion

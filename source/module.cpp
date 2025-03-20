@@ -16,6 +16,7 @@
 #include "prop_fixes.h" 
 #include <culling_fixes.h>
 #include <modelload_fixes.h>
+#include <globalconvars.h>
 
 
 #ifdef GMOD_MAIN
@@ -279,7 +280,9 @@ GMOD_MODULE_OPEN() {
             Msg("[RTX Remix Fixes 2 - Binary Module] Remix configuration set\n");
         }
 
+        GlobalConvars::InitialiseConVars();
         CullingHooks::Instance().Initialize();
+        ModelRenderHooks::Instance().Initialize();
         ModelLoadHooks::Instance().Initialize();
 
         // Register Lua functions
@@ -322,6 +325,7 @@ GMOD_MODULE_CLOSE() {
 
 
         CullingHooks::Instance().Shutdown();
+        ModelRenderHooks::Instance().Shutdown();
         ModelLoadHooks::Instance().Shutdown();
 
         // // Restore original Present function if needed
