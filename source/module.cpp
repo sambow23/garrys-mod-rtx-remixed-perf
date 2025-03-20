@@ -322,6 +322,7 @@ GMOD_MODULE_CLOSE() {
 
 
         CullingHooks::Instance().Shutdown();
+        ModelLoadHooks::Instance().Shutdown();
 
         // // Restore original Present function if needed
         // if (Present_Original) {
