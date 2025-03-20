@@ -64,6 +64,14 @@ Define_method_Hook(bool, MathLibR_CullBox_CLIENT, void*, const Vector& mins, con
 	return false;
 }
 
+Define_method_Hook(bool, MathLibR_CullBox_SERVER, void*, const Vector& mins, const Vector& maxs, const Frustum_t& frustum)
+{
+	if (GlobalConvars::c_frustumcull && GlobalConvars::c_frustumcull->GetBool()) {
+		return MathLibR_CullBox_CLIENT_trampoline()(_this, mins, maxs, frustum);
+	}
+	return false;
+}
+
 
 
 //Define_method_Hook(bool, EngineR_BuildWorldLists, void*, void* pRenderListIn, WorldListInfo_t* pInfo, int iForceViewLeaf, const VisOverrideData_t* pVisData, bool bShadowDepth /* = false */, float* pWaterReflectionHeight)
@@ -77,8 +85,10 @@ void CullingHooks::Initialize() {
 	try {
 		auto client = GetModuleHandle("client.dll");
 		auto engine = GetModuleHandle("engine.dll");
+		auto server = GetModuleHandle("server.dll");
 		if (!client) { Msg("client.dll == NULL\n"); }
 		if (!engine) { Msg("engine.dll == NULL\n"); }
+		if (!server) { Msg("server.dll == NULL\n"); }
 
 		//static const char sign1[] = "44 8B B1 ? ? ? ? 48 89 55";
 		//auto CViewRenderRender = ScanSign(client, sign1, sizeof(sign1) - 1);
@@ -95,7 +105,7 @@ void CullingHooks::Initialize() {
 		// 0F B6 81 54 03 00 00 C3
 		// EDIT: its the 2nd/4th one, 2nd doesn't work, 4th works but will change with updates :(
 
-		static const char sign2[] = "0F B6 81 54 03 00 00 C3";
+		static const char sign2[] = "0F B6 81 54";
 		auto CViewRenderShouldForceNoVis = ScanSign(client, sign2, sizeof(sign2) - 1);
 		if (!CViewRenderShouldForceNoVis) { Msg("[Culling Fixes] CViewRender::ShouldForceNoVis == NULL\n"); }
 		else {
@@ -110,11 +120,15 @@ void CullingHooks::Initialize() {
 
 		auto CLIENT_R_CullBox = ScanSign(client, R_CullBox_sign, sizeof(R_CullBox_sign) - 1);
 		auto ENGINE_R_CullBox = ScanSign(engine, R_CullBox_sign, sizeof(R_CullBox_sign) - 1);
+		auto SERVER_R_CullBox = ScanSign(server, R_CullBox_sign, sizeof(R_CullBox_sign) - 1);
 		if (!CLIENT_R_CullBox) { Msg("[Culling Fixes] MathLib (CLIENT) R_CullBox == NULL\n"); }
 		else { Msg("[Culling Fixes] Hooked MathLib (CLIENT) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_CLIENT, CLIENT_R_CullBox) }
 
 		if (!ENGINE_R_CullBox) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullBox == NULL\n"); }
 		else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_ENGINE, ENGINE_R_CullBox) }
+
+		//if (!SERVER_R_CullBox) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullBox == NULL\n"); }
+		//else { Msg("[Culling Fixes] Hooked MathLib (SERVER) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_SERVER, SERVER_R_CullBox) }
 
 		//static const char sign_RBuildWorldLists[] = "40 53 55 56 57 41 54 41 57 48 83 EC 78";
 		//static const char sign_RRecursiveWorldNodeNoCull[] = "48 89 5C 24 ? 55 48 83 EC 40 48 8B DA 48 8B E9 8B 12";
