@@ -15,6 +15,7 @@
 #include "shader_fixes/shader_hooks.h"
 #include "prop_fixes.h" 
 #include <culling_fixes.h>
+#include <modelload_fixes.h>
 
 
 #ifdef GMOD_MAIN
@@ -279,6 +280,7 @@ GMOD_MODULE_OPEN() {
         }
 
         CullingHooks::Instance().Initialize();
+        ModelLoadHooks::Instance().Initialize();
 
         // Register Lua functions
         LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB); 
@@ -317,6 +319,9 @@ GMOD_MODULE_CLOSE() {
         // ShaderAPIHooks::Instance().Shutdown();      // Need to properly update signatures to catch new shaderapidx9/materialsystem crashes
         
         // RTXLightManager::Instance().Shutdown();     // Remix API lights are dead for now, too unstable.
+
+
+        CullingHooks::Instance().Shutdown();
 
         // // Restore original Present function if needed
         // if (Present_Original) {
