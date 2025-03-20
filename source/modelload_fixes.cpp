@@ -202,14 +202,14 @@ static IVEngineClient* engineClient;
 
 void ForceModelReload() { 
 
-    Msg("[Model Load Fixes] Forcing model reload...\n");
+    Msg("[RTX Remix Fixes 2 - Model Load Fixes] Forcing model reload...\n");
     if (g_pMDLCache) {
         // Flush the entire cache
         g_pMDLCache->Flush(MDLCACHE_FLUSH_ALL);
-        Msg("[Model Load Fixes] Successfully flushed model cache\n");
+        Msg("[RTX Remix Fixes 2 - Model Load Fixes] Successfully flushed model cache\n");
     }
     else {
-        Warning("[Model Load Fixes] Couldn't access MDL cache to force reload\n");
+        Warning("[RTX Remix Fixes 2 - Model Load Fixes] Couldn't access MDL cache to force reload\n");
     }
 }
 void ForceModelReloadViaEngine() {
@@ -218,21 +218,22 @@ void ForceModelReloadViaEngine() {
         // Use safer commands that won't crash (r_flushlod crashes)
         engineClient->ClientCmd_Unrestricted("mat_reloadallmaterials");
 
-        Msg("[Model Load Fixes] Executed engine reload commands\n");
+        Msg("[RTX Remix Fixes 2 - Model Load Fixes] Executed engine reload commands\n");
     }
     else {
-        Warning("[Model Load Fixes] Couldn't access engine client, early loaded map models will not be reloaded in their RTX Remix friendly .sw.vtx form!\n");
+        Warning("[RTX Remix Fixes 2 - Model Load Fixes] Couldn't access engine client, early loaded map models will not be reloaded in their RTX Remix friendly .sw.vtx form!\n");
     }
 }
 
 void ModelLoadHooks::Initialize() {
     try {
-        Msg("[RTX Remix Fixes 2 - Binary Module] - Loading datacache\n");
+        Msg("[RTX Remix Fixes 2 - Model Load Fixes] - Loading datacache\n");
         if (!Sys_LoadInterface("datacache", MDLCACHE_INTERFACE_VERSION, NULL, (void**)&g_pMDLCache))
-            Warning("[RTX Remix Fixes 2] - Could not load studiorender interface");
+            Warning("[RTX Remix Fixes 2 - Model Load Fixes] - Could not load studiorender interface");
 
+        Msg("[RTX Remix Fixes 2 - Model Load Fixes] - Loading clientengine\n");
         if (!Sys_LoadInterface("engine", VENGINE_CLIENT_INTERFACE_VERSION, NULL, (void**)&engineClient))
-            Warning("[RTX Remix Fixes 2] - Could not load engine interface");
+            Warning("[RTX Remix Fixes 2 - Model Load Fixes] - Could not load clientengine interface");
 
         // Find the filesystem module
         HMODULE fsModule = GetModuleHandle("filesystem_stdio.dll");
@@ -241,7 +242,7 @@ void ModelLoadHooks::Initialize() {
         }
 
         if (!fsModule) {
-            Warning("[Model Load Fixes] - Could not find filesystem module");
+            Warning("[RTX Remix Fixes 2 - Model Load Fixes] - Could not find filesystem module");
             return;
         }
 
@@ -250,21 +251,21 @@ void ModelLoadHooks::Initialize() {
         void* openFunc = ScanSign(fsModule, openSig, sizeof(openSig) - 1);
 
         if (!openFunc) {
-            Warning("[Model Load Fixes] - Could not find IFileSystem::OpenEx with signature");
+            Warning("[RTX Remix Fixes 2 - Model Load Fixes] - Could not find IFileSystem::OpenEx with signature");
             return;
         }
 
-        Msg("[Model Load Fixes] Found IFileSystem::OpenEx at %p\n", openFunc);
+        Msg("[RTX Remix Fixes 2 - Model Load Fixes] Found IFileSystem::OpenEx at %p\n", openFunc);
 
         // Set up the hook directly on the function
         Setup_Hook(IFileSystem_OpenEx, openFunc);
-        Msg("[Model Load Fixes] Successfully hooked IFileSystem::OpenEx\n");
+        Msg("[RTX Remix Fixes 2 - Model Load Fixes] Successfully hooked IFileSystem::OpenEx\n");
 
         ForceModelReload();
 		ForceModelReloadViaEngine();
     }
     catch (...) {
-        Msg("[Model Load Fixes] Exception in ModelLoadHooks::Initialize\n");
+        Msg("[RTX Remix Fixes 2 - Model Load Fixes] Exception in ModelLoadHooks::Initialize\n");
     }
 }
 
@@ -274,5 +275,5 @@ void ModelLoadHooks::Shutdown() {
     IFileSystem_OpenEx_hook.Disable();
 
     // Log shutdown completion
-    Msg("[Prop Fixes] Shutdown complete\n");
+    Msg("[RTX Remix Fixes 2 - Model Load Fixes] Shutdown complete\n");
 }
