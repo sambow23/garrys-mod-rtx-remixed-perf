@@ -28,7 +28,8 @@
 4. Open `gmrtx64_(ver).zip`, extract everything inside to
 `C:\Program Files (x86)\Steam\steamapps\common\GarrysModRTX`, overwrite everything.
 5. Open the game with the `GarrysModRTX` launcher
-6. Profit.
+  - #### Close any type of overlay programs such as Medal, Discord overlay, etc. It can cause the game to crash
+7. Profit.
 
 ## Incompatible Addons
 * (Map) [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) (Breaks other shader-skybox maps)
