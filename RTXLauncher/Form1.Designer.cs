@@ -70,18 +70,15 @@
 			groupBox2.SuspendLayout();
 			MountingPage.SuspendLayout();
 			groupBox6.SuspendLayout();
+			((System.ComponentModel.ISupportInitialize)MountP2RTXCheckBox).BeginInit();
+			((System.ComponentModel.ISupportInitialize)MountPortalPreludeRTXCheckBox).BeginInit();
+			((System.ComponentModel.ISupportInitialize)MountPortalRTXCheckbox).BeginInit();
+			((System.ComponentModel.ISupportInitialize)MountHL2RTXCheckbox).BeginInit();
 			AdvancedPage.SuspendLayout();
 			groupBox5.SuspendLayout();
 			((System.ComponentModel.ISupportInitialize)numericUpDown1).BeginInit();
 			groupBox4.SuspendLayout();
 			groupBox3.SuspendLayout();
-
-
-			((System.ComponentModel.ISupportInitialize)MountHL2RTXCheckbox).BeginInit();
-			((System.ComponentModel.ISupportInitialize)MountPortalRTXCheckbox).BeginInit();
-			((System.ComponentModel.ISupportInitialize)MountPortalPreludeRTXCheckBox).BeginInit();
-			((System.ComponentModel.ISupportInitialize)MountP2RTXCheckBox).BeginInit();
-
 			SuspendLayout();
 			// 
 			// settingsDataBindingSource
@@ -219,7 +216,7 @@
 			WidthHeightComboBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 			WidthHeightComboBox.FlatStyle = FlatStyle.System;
 			WidthHeightComboBox.FormattingEnabled = true;
-			WidthHeightComboBox.Items.AddRange(new object[] { "1920x1080", "2560x1440", "3440x1440", "3480x2160", "1600x900", "1366x768", "1280x720" });
+			WidthHeightComboBox.Items.AddRange(new object[] { "1920x1080", "2560x1440", "3440x1440", "3480x2160", "1600x900", "1366x768", "1280x720", "1920x1200" });
 			WidthHeightComboBox.Location = new Point(6, 22);
 			WidthHeightComboBox.Name = "WidthHeightComboBox";
 			WidthHeightComboBox.Size = new Size(280, 23);
@@ -497,6 +494,10 @@
 			MountingPage.ResumeLayout(false);
 			groupBox6.ResumeLayout(false);
 			groupBox6.PerformLayout();
+			((System.ComponentModel.ISupportInitialize)MountP2RTXCheckBox).EndInit();
+			((System.ComponentModel.ISupportInitialize)MountPortalPreludeRTXCheckBox).EndInit();
+			((System.ComponentModel.ISupportInitialize)MountPortalRTXCheckbox).EndInit();
+			((System.ComponentModel.ISupportInitialize)MountHL2RTXCheckbox).EndInit();
 			AdvancedPage.ResumeLayout(false);
 			groupBox5.ResumeLayout(false);
 			groupBox5.PerformLayout();
@@ -505,11 +506,6 @@
 			groupBox4.PerformLayout();
 			groupBox3.ResumeLayout(false);
 			groupBox3.PerformLayout();
-
-			((System.ComponentModel.ISupportInitialize)MountHL2RTXCheckbox).EndInit();
-			((System.ComponentModel.ISupportInitialize)MountPortalRTXCheckbox).EndInit();
-			((System.ComponentModel.ISupportInitialize)MountPortalPreludeRTXCheckBox).EndInit();
-			((System.ComponentModel.ISupportInitialize)MountP2RTXCheckBox).EndInit();
 			ResumeLayout(false);
 		}
 
