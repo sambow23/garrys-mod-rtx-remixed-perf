@@ -97,13 +97,39 @@
 #include "cdll_client_int.h"
 #include "filesystem.h"  // Include for IFileSystem definitions
 #include "datacache/imdlcache.h"
+#include <stdint.h>
+#include <vector>
+#include <unordered_map>
+#include <string>
+#include <thread>
+#include <mutex>
 
 using namespace GarrysMod::Lua;
 
 // Global filesystem interface pointer
 IFileSystem* g_pFileSystem = nullptr;
 
-// Standard method hook for the filesystem open function
+// VTX file structure for checksum
+#pragma pack(push, 1)
+struct OptimizedModelFileHeader_t
+{
+    int version;
+    int vertCacheSize;
+    short maxBonesPerStrip;
+    short maxBonesPerTri;
+    int maxBonesPerVert;
+    int checkSum;
+    int numLODs;
+    int numBodyParts;
+    int bodyPartOffset;
+};
+#pragma pack(pop)
+
+// Forward declare helper functions, will implement after the hook
+int GetVtxFileChecksum(void* fs, const char* filename, const char* pathID, void* openFunc);
+int GetMdlFileChecksum(void* fs, const char* filename, const char* pathID, void* openFunc);
+
+// Modified hook with recursion prevention and checksum verification
 Define_method_Hook(FileHandle_t, IFileSystem_OpenEx, void*, const char* pFileName,
     const char* pOptions, unsigned flags, const char* pathID, char** ppszResolvedFilename)
 {
@@ -138,64 +164,112 @@ Define_method_Hook(FileHandle_t, IFileSystem_OpenEx, void*, const char* pFileNam
             if (filename_len > ext_len &&
                 _stricmp(pFileName + filename_len - ext_len, vtx_ext) == 0) {
 
-                // Create buffer for the .sw.vtx filename
+                // Create SW VTX path
                 char* sw_path = (char*)malloc(filename_len + 1);
                 if (sw_path) {
-                    // Copy the original file path
                     strcpy(sw_path, pFileName);
-
-                    // Find the extension in our copied string and replace it
-                    // We use the exact position rather than strstr to handle 
-                    // cases where the extension might appear elsewhere in the path
                     char* ext = sw_path + (filename_len - ext_len);
                     strcpy(ext, ".sw.vtx");
 
-                    // Check if the .sw.vtx file exists first
-                    bool exists = false;
-                    __try {
-                        // Try a non-opening existence check first (if available)
-                        if ((void*)_this && ((IFileSystem*)_this)->FileExists(sw_path, pathID)) {
-                            exists = true;
-                            Msg("[Model Load Fixes] .sw.vtx file exists: %s\n", sw_path);
+                    // Try to open both files and check checksums
+                    FileHandle_t origFile = IFileSystem_OpenEx_trampoline()(_this, pFileName, "rb", 0, pathID, NULL);
+                    FileHandle_t swFile = IFileSystem_OpenEx_trampoline()(_this, sw_path, "rb", 0, pathID, NULL);
+
+                    bool canUseSwVtx = false;
+
+                    if (origFile && swFile) {
+                        // Read checksums from both files
+                        OptimizedModelFileHeader_t origHeader, swHeader;
+                        bool origValid = (((IFileSystem*)_this)->Read(&origHeader, sizeof(origHeader), origFile) == sizeof(origHeader));
+                        bool swValid = (((IFileSystem*)_this)->Read(&swHeader, sizeof(swHeader), swFile) == sizeof(swHeader));
+
+                        // Check if checksums match
+                        if (origValid && swValid && origHeader.checkSum == swHeader.checkSum) {
+                            canUseSwVtx = true;
                         }
                     }
-                    __except (EXCEPTION_EXECUTE_HANDLER) {
-                        // Couldn't check existence, will try direct open
-                    }
 
-                    // Try to open the .sw.vtx file
-                    FileHandle_t handle = NULL;
-                    __try {
-                        handle = IFileSystem_OpenEx_trampoline()(_this, sw_path, pOptions, flags, pathID, ppszResolvedFilename);
-                    }
-                    __except (EXCEPTION_EXECUTE_HANDLER) {
-                        Msg("[Model Load Fixes] Exception trying to open %s\n", sw_path);
-                        handle = NULL;
-                    }
+                    // Close the test files
+                    if (origFile) ((IFileSystem*)_this)->Close(origFile);
+                    if (swFile) ((IFileSystem*)_this)->Close(swFile);
 
-                    if (handle) {
-                        Msg("[Model Load Fixes] Successfully redirected %s to %s\n", pFileName, sw_path);
-                        free(sw_path);
-                        return handle;
-                    }
-                    else {
-                        // Only log when we specifically tried but failed to redirect
-                        Msg("[Model Load Fixes] Failed to redirect %s to %s (file may not exist)\n",
-                            pFileName, sw_path);
+                    // If checksums match, use the SW VTX file for actual operation
+                    if (canUseSwVtx) {
+                        FileHandle_t handle = IFileSystem_OpenEx_trampoline()(_this, sw_path, pOptions, flags, pathID, ppszResolvedFilename);
+                        if (handle) {
+                            Msg("[RTX Remix Fixes 2] Successfully redirected %s to checksum-verified %s\n", pFileName, sw_path);
+                            free(sw_path);
+                            return handle;
+                        }
                     }
 
                     free(sw_path);
                 }
-
-                // We matched an extension but couldn't redirect
                 break;
             }
         }
     }
 
-    // Fall back to original behavior without logging
+    // Fall back to original behavior
     return IFileSystem_OpenEx_trampoline()(_this, pFileName, pOptions, flags, pathID, ppszResolvedFilename);
 }
+
+// Helper function to read checksum from a VTX file - now using trampoline directly
+typedef FileHandle_t(*OpenExFunc)(void*, const char*, const char*, unsigned, const char*, char**);
+
+int GetVtxFileChecksum(void* fs, const char* filename, const char* pathID, void* openFunc)
+{
+    OpenExFunc openExFn = (OpenExFunc)openFunc;
+
+    // Open the file directly using the trampoline
+    FileHandle_t file = openExFn(fs, filename, "rb", 0, pathID, NULL);
+    if (!file)
+        return 0;
+
+    OptimizedModelFileHeader_t header;
+    size_t bytesRead = ((IFileSystem*)fs)->Read(&header, sizeof(header), file);
+    ((IFileSystem*)fs)->Close(file);
+
+    if (bytesRead != sizeof(header))
+        return 0;
+
+    return header.checkSum;
+}
+
+// Helper to get MDL checksum - using trampoline
+int GetMdlFileChecksum(void* fs, const char* filename, const char* pathID, void* openFunc)
+{
+    // Extract base MDL path
+    std::string mdlPath = filename;
+
+    // Replace VTX extension with MDL extension
+    const char* extensions[] = { ".dx90.vtx", ".dx80.vtx", ".dx70.vtx", ".sw.vtx" };
+    for (const char* ext : extensions) {
+        size_t pos = mdlPath.rfind(ext);
+        if (pos != std::string::npos) {
+            mdlPath.replace(pos, strlen(ext), ".mdl");
+            break;
+        }
+    }
+
+    OpenExFunc openExFn = (OpenExFunc)openFunc;
+
+    // Open the MDL file using the trampoline
+    FileHandle_t file = openExFn(fs, mdlPath.c_str(), "rb", 0, pathID, NULL);
+    if (!file)
+        return 0;
+
+    // Read the checksum from the MDL file
+    // For most Source engine games, the checksum is at offset 0x4C
+    ((IFileSystem*)fs)->Seek(file, 0x4C, FILESYSTEM_SEEK_HEAD);
+
+    int checksum = 0;
+    ((IFileSystem*)fs)->Read(&checksum, sizeof(checksum), file);
+    ((IFileSystem*)fs)->Close(file);
+
+    return checksum;
+}
+
 
 static IMDLCache* g_pMDLCache;
 static IVEngineClient* engineClient;
