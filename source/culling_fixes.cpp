@@ -372,6 +372,65 @@ static ConCommand rtx_check_patches("rtx_check_patches", CheckAndReapplyPatches_
 
 static StudioRenderConfig_t s_StudioRenderConfig;
  
+// Original function pointer to the NoCull variant
+typedef void (*R_RecursiveWorldNodeNoCull_t)(void* _this, void* pRenderList, void* node, int nCullMask);
+R_RecursiveWorldNodeNoCull_t original_R_RecursiveWorldNodeNoCull = nullptr;
+
+// Our hook for the normal R_RecursiveWorldNode
+Define_method_Hook(void, R_RecursiveWorldNode, void*, void* pRenderList, void* node, int nCullMask)
+{
+    if (GlobalConvars::r_worldnodenocull && !GlobalConvars::r_worldnodenocull->GetBool()) {
+        R_RecursiveWorldNode_trampoline()(_this, pRenderList, node, nCullMask);
+    }
+    // Just call the NoCull version instead
+    if (original_R_RecursiveWorldNodeNoCull) {
+        original_R_RecursiveWorldNodeNoCull(_this, pRenderList, node, nCullMask);
+    }
+    else {
+        // Fall back to original if we somehow don't have the NoCull function
+        R_RecursiveWorldNode_trampoline()(_this, pRenderList, node, nCullMask);
+    }
+}
+
+// Initialize the hook
+void SetupWorldNodeHook() {
+    try {
+        // Find the engine module
+        auto engine = GetModuleHandle("engine.dll");
+
+        // Find R_RecursiveWorldNode using signature
+        // 32 bit sig: "55 8B EC 83 EC 08 56 8B 75 ?? 8B 0E"
+        static const char recursiveWorldNodeSig[] = "48 8B C4 56 41 55";
+        auto worldNodeFunc = ScanSign(engine, recursiveWorldNodeSig, sizeof(recursiveWorldNodeSig) - 1);
+
+        if (!worldNodeFunc) {
+            Warning("[Culling Fixes] Failed to find R_RecursiveWorldNode\n");
+            return;
+        }
+
+        // Find R_RecursiveWorldNodeNoCull using signature
+        // 32 bit sig: "55 8B EC 83 EC 08 53 8B 5D ?? 8B 0B"
+        static const char recursiveWorldNodeNoCullSig[] = "48 89 5C 24 ? 55 48 83 EC 40 48 8B DA 48 8B E9 8B 12";
+        auto worldNodeNoCullFunc = ScanSign(engine, recursiveWorldNodeNoCullSig, sizeof(recursiveWorldNodeNoCullSig) - 1);
+
+        if (!worldNodeNoCullFunc) {
+            Warning("[Culling Fixes] Failed to find R_RecursiveWorldNodeNoCull\n");
+            return;
+        }
+
+        // Store the NoCull function pointer for use in our hook
+        original_R_RecursiveWorldNodeNoCull = (R_RecursiveWorldNodeNoCull_t)worldNodeNoCullFunc;
+
+        // Set up the hook to replace R_RecursiveWorldNode
+        Setup_Hook(R_RecursiveWorldNode, worldNodeFunc);
+
+        Msg("[Culling Fixes] Successfully hooked R_RecursiveWorldNode to use NoCull version\n");
+    }
+    catch (...) {
+        Msg("[Culling Fixes] Exception in SetupWorldNodeHook\n");
+    }
+}
+
 void CullingHooks::Initialize() {
 	try {
 		auto client = GetModuleHandle("client.dll");
@@ -406,7 +465,7 @@ void CullingHooks::Initialize() {
 
 		static const char R_CullBox_sign[] = "48 83 EC 48 0F 10 22 33 C0";
 
-		static const char CM_BoxVisible_sign[] = "48 89 5C 24 ?? 48 89 6C 24 ?? 56 57 41 56 48 81 EC ?? ?? ?? ?? 48 8B 05 ?? ?? ?? ?? 48 33 C4 48 89 84 24 ?? ?? ?? ?? F3 0F 10 22";
+		static const char CM_BoxVisible_sign[] = "48 89 5C 24 ? 48 89 6C 24 ? 56 57 41 56 48 81 EC ? ? ? ? 48 8B 05 ? ? ? ? 48 33 C4 48 89 84 24 ? ? ? ? F3 0F 10 22";
 
 		//R_CullBoxSkipNear doesn't exist on chromium/x86-64, see https://commits.facepunch.com/202379
 		//static const char R_CullBoxSkipNear_sign[] = "48 83 EC 48 0F 10 22 33 C0"; 
@@ -423,14 +482,15 @@ void CullingHooks::Initialize() {
 		else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_ENGINE, ENGINE_R_CullBox) }
 
 
+        SetupWorldNodeHook();
         // Get the ICvar interface
-        g_pCVar = (ICvar*)InterfacePointers::Cvar();
-        if (g_pCVar) {
-			g_pCVar->RegisterConCommand(&rtx_check_patches);
-        }
+   //     g_pCVar = (ICvar*)InterfacePointers::Cvar();
+   //     if (g_pCVar) {
+			//g_pCVar->RegisterConCommand(&rtx_check_patches);
+   //     }
 
-		//if (!ENGINE_CM_BoxVisible) { Msg("[Culling Fixes] MathLib (ENGINE) CM_BoxVisible == NULL\n"); }
-		//else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) CM_BoxVisible\n"); Setup_Hook(CM_BoxVisible_ENGINE, ENGINE_CM_BoxVisible) }
+		if (!ENGINE_CM_BoxVisible) { Msg("[Culling Fixes] MathLib (ENGINE) CM_BoxVisible == NULL\n"); }
+		else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) CM_BoxVisible\n"); Setup_Hook(CM_BoxVisible_ENGINE, ENGINE_CM_BoxVisible) }
 
 		//if (!SERVER_R_CullBox) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullBox == NULL\n"); }
 		//else { Msg("[Culling Fixes] Hooked MathLib (SERVER) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_SERVER, SERVER_R_CullBox) }
@@ -484,7 +544,7 @@ void CullingHooks::Initialize() {
 	}
 	catch (...) {
 		Msg("[Culling Fixes] Exception in CullingHooks::Initialize\n");
-	}
+	}   
 }
 
 void CullingHooks::Shutdown() {
@@ -495,6 +555,10 @@ void CullingHooks::Shutdown() {
 	MathLibR_CullBox_CLIENT_hook.Disable();
 	MathLibR_CullBoxSkipNear_ENGINE_hook.Disable();
 	MathLibR_CullBoxSkipNear_CLIENT_hook.Disable();
+    CM_BoxVisible_ENGINE_hook.Disable();
+
+
+    R_RecursiveWorldNode_hook.Disable();
 
     // Restore original bytes for all applied patches
     Msg("[Culling Fixes] Restoring %d memory patches\n", g_AppliedPatches.size());

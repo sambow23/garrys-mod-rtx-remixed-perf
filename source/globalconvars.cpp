@@ -11,6 +11,7 @@ static GarrysMod::Lua::ILuaConVars* m_pLuaConVars;
  
 ConVar* GlobalConvars::r_forcenovis;
 ConVar* GlobalConvars::c_frustumcull;
+ConVar* GlobalConvars::r_worldnodenocull;
 void GlobalConvars::InitialiseConVars() {
 	m_pLuaConVars = loader_lua_shared.GetInterface<GarrysMod::Lua::ILuaConVars>(GMOD_LUACONVARS_INTERFACE);
 	if (!m_pLuaConVars) {
@@ -28,4 +29,10 @@ void GlobalConvars::InitialiseConVars() {
 	if (!c_frustumcull) { c_frustumcull = cvar->FindVar("c_frustumcull"); }
 	if (!c_frustumcull) { Error("[RTX Fixes 2] Failed to create c_frustumcull convar\n"); }
 	else { Msg("[RTX Fixes 2] c_frustumcull convar created\n"); }
+
+
+	r_worldnodenocull = m_pLuaConVars->CreateConVar("r_worldnodenocull", "0", "Force world node nocull", FCVAR_ARCHIVE);
+	if (!r_worldnodenocull) { r_worldnodenocull = cvar->FindVar("r_worldnodenocull"); }
+	if (!r_worldnodenocull) { Error("[RTX Fixes 2] Failed to create r_worldnodenocull convar\n"); }
+	else { Msg("[RTX Fixes 2] r_worldnodenocull convar created\n"); }
 }

@@ -197,7 +197,7 @@ Define_method_Hook(FileHandle_t, IFileSystem_OpenEx, void*, const char* pFileNam
                     if (canUseSwVtx) {
                         FileHandle_t handle = IFileSystem_OpenEx_trampoline()(_this, sw_path, pOptions, flags, pathID, ppszResolvedFilename);
                         if (handle) {
-                            Msg("[RTX Remix Fixes 2] Successfully redirected %s to checksum-verified %s\n", pFileName, sw_path);
+                            //Msg("[RTX Remix Fixes 2] Successfully redirected %s to checksum-verified %s\n", pFileName, sw_path);
                             free(sw_path);
                             return handle;
                         }
