@@ -3,7 +3,6 @@ require("niknaks")
 local lights
 local stash
 local model
-local doshuffle = true
 local showlights = CreateConVar( "rtx_lightupdater_show", 0,  FCVAR_ARCHIVE )
 local updatelights = CreateConVar( "rtx_lightupdater", 1,  FCVAR_ARCHIVE )
 
@@ -26,6 +25,7 @@ local function MovetoPositions()
 	if (lights == nil) then
 		lights = NikNaks.CurrentMap:FindByClass( "light" )
 		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_spot" ))
+		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_environment" ))
 	end
 
 	if (model == nil) then
@@ -38,11 +38,11 @@ local function MovetoPositions()
 		end
 	end
 
-	if (doshuffle) then
-	stash = shuffle(lights)
-	end
-	for i, light in pairs(stash) do
-		pos1 = stash[i].origin - (stash[i].angles:Forward() * 8)
+	--if (doshuffle) then
+	--stash = shuffle(lights)
+	--end
+	for i, light in pairs(lights) do
+		pos1 = lights[i].origin - (lights[i].angles:Forward() * 8)
 		render.Model({model = "models/hunter/plates/plate.mdl", pos = pos1}, model) 	-- lighting
 	end
 end
