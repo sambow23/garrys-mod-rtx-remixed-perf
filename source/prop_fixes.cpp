@@ -98,8 +98,8 @@ void ModelRenderHooks::Initialize() {
 void ModelRenderHooks::Shutdown() { 
 	// Existing shutdown code  
 	R_StudioSetupSkinAndLighting_hook.Disable();
-	g_MemoryPatcher.DisablePatch("ForceHardwareSkinning1");
 	g_MemoryPatcher.DisablePatch("ForceHardwareSkinning2");
+	g_MemoryPatcher.DisablePatch("ForceStaticModel1");
 
 	// Log shutdown completion
 	Msg("[Prop Fixes] Shutdown complete\n");
