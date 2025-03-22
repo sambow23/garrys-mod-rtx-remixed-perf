@@ -74,6 +74,13 @@ namespace RTXLauncher
 		static string FindGameExecutable()
 		{
 			var execPath = Path.GetDirectoryName(System.AppContext.BaseDirectory);//Assembly.GetExecutingAssembly().Location);
+
+			var patcherlauncher = Path.Combine(execPath, "patcherlauncher.exe");
+			if (File.Exists(patcherlauncher))
+			{
+				return patcherlauncher;
+			}
+
 			var currentPath = Path.Combine(execPath, "bin", "win64");
 			if (currentPath != null)
 			{

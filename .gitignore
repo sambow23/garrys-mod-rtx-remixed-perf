@@ -959,3 +959,6 @@ source/launcher/CMakeCache.txt
 /RTXLauncher/.vs
 /RTXLauncher/bin/Debug
 /RTXLauncher/obj
+/patcherlauncher/.vs
+/patcherlauncher/PatcherLauncher/x64
+/patcherlauncher/x64
