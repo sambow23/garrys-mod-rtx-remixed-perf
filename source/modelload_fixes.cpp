@@ -301,6 +301,57 @@ void ForceModelReloadViaEngine() {
 
 void ModelLoadHooks::Initialize() {
     try {
+
+        //Sys_LoadInterface CRASHES for some reason?????
+#ifdef _WIN32
+        //HMODULE datacacheModule = LoadLibraryA("datacache.dll");
+        //if (!datacacheModule) {
+        //    Warning("[RTX Remix Fixes 2] - Failed to load datacache.dll: error code %d\n", GetLastError());
+        //    return;
+        //}
+
+        //// Get the interface creation function
+        using CreateInterfaceFn = void* (*)(const char* pName, int* pReturnCode);
+        //CreateInterfaceFn createInterface = (CreateInterfaceFn)GetProcAddress(datacacheModule, "CreateInterface");
+
+        //if (!createInterface) {
+        //    Warning("[RTX Remix Fixes 2] - Failed to get CreateInterface from datacache.dll\n");
+        //    FreeLibrary(datacacheModule);
+        //    return;
+        //}
+
+        //// Get the MDLCache interface
+        //g_pMDLCache = (IMDLCache*)createInterface(MDLCACHE_INTERFACE_VERSION, nullptr);
+        //if (!g_pMDLCache) {
+        //    Warning("[RTX Remix Fixes 2] - Failed to get MDLCache interface\n");
+        //}
+        //else {
+        //    Msg("[RTX Remix Fixes 2] - Successfully loaded MDLCache interface\n");
+        //}
+
+        // Similarly for engine
+        Msg("[RTX Remix Fixes 2 - Model Load Fixes] - Loading clientengine\n");
+        HMODULE engineModule = LoadLibraryA("engine.dll");
+        if (!engineModule) {
+            Warning("[RTX Remix Fixes 2] - Failed to load engine.dll: error code %d\n", GetLastError());
+            return;
+        }
+
+        CreateInterfaceFn createInterface = (CreateInterfaceFn)GetProcAddress(engineModule, "CreateInterface");
+        if (!createInterface) {
+            Warning("[RTX Remix Fixes 2] - Failed to get CreateInterface from engine.dll\n");
+            FreeLibrary(engineModule);
+            return;
+        }
+
+        engineClient = (IVEngineClient*)createInterface(VENGINE_CLIENT_INTERFACE_VERSION, nullptr);
+        if (!engineClient) {
+            Warning("[RTX Remix Fixes 2] - Failed to get engine client interface\n");
+        }
+        else {
+            Msg("[RTX Remix Fixes 2] - Successfully loaded engine client interface\n");
+        }
+#else
         Msg("[RTX Remix Fixes 2 - Model Load Fixes] - Loading datacache\n");
         if (!Sys_LoadInterface("datacache", MDLCACHE_INTERFACE_VERSION, NULL, (void**)&g_pMDLCache))
             Warning("[RTX Remix Fixes 2 - Model Load Fixes] - Could not load studiorender interface");
@@ -308,6 +359,8 @@ void ModelLoadHooks::Initialize() {
         Msg("[RTX Remix Fixes 2 - Model Load Fixes] - Loading clientengine\n");
         if (!Sys_LoadInterface("engine", VENGINE_CLIENT_INTERFACE_VERSION, NULL, (void**)&engineClient))
             Warning("[RTX Remix Fixes 2 - Model Load Fixes] - Could not load clientengine interface");
+
+#endif // _WIN32
 
         // Find the filesystem module
         HMODULE fsModule = GetModuleHandle("filesystem_stdio.dll");
@@ -321,7 +374,13 @@ void ModelLoadHooks::Initialize() {
         }
 
         // Use the signature to find IFileSystem::OpenEx
+#ifdef _WIN64
         static const char openSig[] = "4C 8B DC 48 81 EC";
+#endif
+#ifdef _WIN32
+		static const char openSig[] = "55 8B EC 81 EC 18 03 00 00";
+#endif
+
         void* openFunc = ScanSign(fsModule, openSig, sizeof(openSig) - 1);
 
         if (!openFunc) {

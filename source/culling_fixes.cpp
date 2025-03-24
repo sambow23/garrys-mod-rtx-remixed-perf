@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <Psapi.h>
 
+
 using namespace GarrysMod::Lua; 
 
 Define_method_Hook(void, CViewRenderRender, CViewRender*, vrect_t* rect)
@@ -53,6 +54,15 @@ Define_method_Hook(bool, MathLibR_CullBoxSkipNear_CLIENT, void*, const Vector& m
 	}
 	return false;
 }
+
+
+//Define_method_Hook(bool, MathLibR_CullNode_ENGINE, void*, Frustum_t *pAreaFrustum, void *pNode, int& nClipMask)
+//{
+//	if (GlobalConvars::c_frustumcull && GlobalConvars::c_frustumcull->GetBool()) {
+//		return MathLibR_CullNode_ENGINE_trampoline()(_this, pAreaFrustum, pNode, nClipMask);
+//	}
+//	return false;
+//}
 
 Define_method_Hook(bool, MathLibR_CullBox_ENGINE, void*, const Vector& mins, const Vector& maxs, const Frustum_t& frustum)
 {
@@ -181,6 +191,8 @@ void CullingHooks::Initialize() {
 			Setup_Hook(CViewRenderShouldForceNoVis, CViewRenderShouldForceNoVis)
 		}
 
+		//static const char R_CullNode_sign[] = "48 83 EC 48 80 3D ? ? ? ? ? 48 8B D1";
+
 		static const char R_CullBox_sign[] = "48 83 EC 48 0F 10 22 33 C0";
 
 		static const char CM_BoxVisible_sign[] = "48 89 5C 24 ? 48 89 6C 24 ? 56 57 41 56 48 81 EC ? ? ? ? 48 8B 05 ? ? ? ? 48 33 C4 48 89 84 24 ? ? ? ? F3 0F 10 22";
@@ -190,6 +202,7 @@ void CullingHooks::Initialize() {
 
 		auto CLIENT_R_CullBox = ScanSign(client, R_CullBox_sign, sizeof(R_CullBox_sign) - 1);
 		auto ENGINE_R_CullBox = ScanSign(engine, R_CullBox_sign, sizeof(R_CullBox_sign) - 1);
+		auto ENGINE_R_CullNode = ScanSign(engine, R_CullBox_sign, sizeof(R_CullBox_sign) - 1);
 
 		auto ENGINE_CM_BoxVisible = ScanSign(engine, CM_BoxVisible_sign, sizeof(CM_BoxVisible_sign) - 1);
 
@@ -198,6 +211,10 @@ void CullingHooks::Initialize() {
 
 		if (!ENGINE_R_CullBox) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullBox == NULL\n"); }
 		else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) R_CullBox\n"); Setup_Hook(MathLibR_CullBox_ENGINE, ENGINE_R_CullBox) }
+
+
+		//if (!CLIENT_R_CullBox) { Msg("[Culling Fixes] MathLib (ENGINE) R_CullNode == NULL\n"); }
+		//else { Msg("[Culling Fixes] Hooked MathLib (ENGINE) R_CullNode\n"); Setup_Hook(MathLibR_CullNode_ENGINE, ENGINE_R_CullNode) }
 
 
         SetupWorldNodeHook();
@@ -273,6 +290,7 @@ void CullingHooks::Shutdown() {
 	MathLibR_CullBox_CLIENT_hook.Disable();
 	MathLibR_CullBoxSkipNear_ENGINE_hook.Disable();
 	MathLibR_CullBoxSkipNear_CLIENT_hook.Disable();
+	//MathLibR_CullNode_ENGINE_hook.Disable();
     CM_BoxVisible_ENGINE_hook.Disable();
 
 

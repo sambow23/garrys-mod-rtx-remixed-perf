@@ -1,3 +1,4 @@
+#ifdef _WIN64
 #include "shader_hooks.h"
 #include <psapi.h>
 #pragma comment(lib, "psapi.lib")
@@ -325,3 +326,4 @@ void ShaderAPIHooks::Shutdown() {
     Msg("[RTX Remix Fixes 2 - Shader Fixes] Shader protection shutdown complete\n");
 }
 
+#endif

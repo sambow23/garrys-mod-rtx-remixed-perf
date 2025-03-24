@@ -1,3 +1,4 @@
+#ifdef _WIN64
 #include "rtx_light_manager.h"
 #include <tier0/dbg.h>
 #include <algorithm>
@@ -604,3 +605,4 @@ void RTXLightManager::LogMessage(const char* format, ...) {
     va_end(args);
     Msg("[RTX Light Manager] %s", buffer);
 }
+#endif

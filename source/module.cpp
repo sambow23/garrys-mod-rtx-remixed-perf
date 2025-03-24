@@ -1,6 +1,44 @@
 #include "GarrysMod/Lua/Interface.h"
+
+
+#define  DELAYIMP_INSECURE_WRITABLE_HOOKS
+#ifdef _WIN32
+#pragma comment(linker, "/DELAYLOAD:tier0.dll")
+#include <Windows.h>
+#include <DelayImp.h>
+
+
+// Define a proper LOG_GENERAL replacement function
+void DummyLogGeneral(const char* prefix, const char* msg, ...) {
+    // Basic implementation
+    char buffer[1024];
+    va_list args;
+    va_start(args, msg);
+    vsprintf_s(buffer, sizeof(buffer), msg, args);
+    va_end(args);
+    Msg("[LOG_GENERAL] %s: %s\n", prefix, buffer);
+}
+
+
+// In your delay load hook:
+FARPROC WINAPI MyDelayLoadHook(unsigned dliNotify, PDelayLoadInfo pdli)
+{
+    if (dliNotify == dliFailGetProc) {
+        if (strcmp(pdli->dlp.szProcName, "LOG_GENERAL") == 0) {
+            // Return our function instead of a dummy variable
+            return (FARPROC)DummyLogGeneral;
+        }
+    }
+    return NULL;
+}
+// Define the hook variable
+__declspec(selectany) PfnDliHook __pfnDliNotifyHook2 = MyDelayLoadHook;
+
+#endif
+#if _WIN64
 #include <remix/remix.h>
 #include <remix/remix_c.h>
+#endif
 #include "cdll_client_int.h"
 #include "materialsystem/imaterialsystem.h"
 #include <shaderapi/ishaderapi.h>
@@ -9,22 +47,28 @@
 #include <d3d9.h>
 #include "interfaces/gm_interfaces.h"
 #include "mwr/mwr.hpp"
+#ifdef _WIN64
 #include "rtx_lights/rtx_light_manager.h"
+#endif
 #include "math/math.hpp"
 #include "entity_manager/entity_manager.hpp"
+#ifdef _WIN64
 #include "shader_fixes/shader_hooks.h"
+#endif
 #include "prop_fixes.h" 
 #include <culling_fixes.h>
 #include <modelload_fixes.h>
 #include <globalconvars.h>
 
-
 #ifdef GMOD_MAIN
 extern IMaterialSystem* materials = NULL;
 #endif
 
+#ifdef _WIN64
 // extern IShaderAPI* g_pShaderAPI = NULL;
 remix::Interface* g_remix = nullptr;
+#endif
+
 IDirect3DDevice9Ex* g_d3dDevice = nullptr;
 
 using namespace GarrysMod::Lua;
@@ -39,6 +83,8 @@ using namespace GarrysMod::Lua;
     
 //     return Present_Original(device, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
 // }
+
+#ifdef _WIN64
 
 void* FindD3D9Device() {
     auto shaderapidx = GetModuleHandle("shaderapidx9.dll");
@@ -66,7 +112,11 @@ void* FindD3D9Device() {
     return device;
 }
 
+#endif // _WIN64
+
 void ClearRemixResources() {
+
+#ifdef _WIN64
     if (!g_remix) return;
 
     // Force a new present cycle
@@ -77,12 +127,15 @@ void ClearRemixResources() {
     if (g_d3dDevice) {
         g_d3dDevice->EvictManagedResources();
     }
+#endif
+    return;
 }
 
 LUA_FUNCTION(ClearRTXResources_Native) {
     try {
         Msg("[RTX Remix Fixes 2 - Binary Module] Clearing RTX resources...\n");
 
+#ifdef _WIN64
         if (g_remix) {
             // Force cleanup through config
             g_remix->SetConfigVariable("rtx.resourceLimits.forceCleanup", "1");
@@ -94,7 +147,8 @@ LUA_FUNCTION(ClearRTXResources_Native) {
             // Reset to normal cleanup behavior
             g_remix->SetConfigVariable("rtx.resourceLimits.forceCleanup", "0");
         }
-        
+#endif
+
         if (g_d3dDevice) {
             g_d3dDevice->EvictManagedResources();
         }
@@ -110,6 +164,7 @@ LUA_FUNCTION(ClearRTXResources_Native) {
 
 LUA_FUNCTION(GetRemixUIState) {
     try {
+#ifdef _WIN64
         if (!g_remix) {
             LUA->PushNumber(0); // None (UI not visible)
             return 1;
@@ -124,6 +179,9 @@ LUA_FUNCTION(GetRemixUIState) {
         // Convert to a Lua number (matching the enum values)
         int state = static_cast<int>(result.value());
         LUA->PushNumber(state);
+#else 
+		LUA->PushNumber(0);
+#endif
         return 1;
     }
     catch (...) {
@@ -135,6 +193,7 @@ LUA_FUNCTION(GetRemixUIState) {
 
 LUA_FUNCTION(SetRemixUIState) {
     try {
+#ifdef _WIN64
         if (!g_remix) {
             LUA->PushBool(false);
             return 1;
@@ -149,7 +208,10 @@ LUA_FUNCTION(SetRemixUIState) {
         remix::UIState state = static_cast<remix::UIState>(stateNum);
         
         auto result = g_remix->SetUIState(state);
-        LUA->PushBool(result);
+        LUA->PushBool(result)
+#else
+        LUA->PushBool(false);
+#endif
         return 1;
     }
     catch (...) {
@@ -161,6 +223,7 @@ LUA_FUNCTION(SetRemixUIState) {
 
 LUA_FUNCTION(PrintRemixUIState) {
     try {
+#ifdef _WIN64
         Msg("[RTX Remix Fixes 2 - Binary Module] Checking Remix UI state...\n");
         
         if (!g_remix) {
@@ -207,6 +270,7 @@ LUA_FUNCTION(PrintRemixUIState) {
         }
         
         Msg("[RTX Remix Fixes 2 - Binary Module] Current UI state: %d (%s)\n", state, stateStr);
+#endif
         return 0;
     }
     catch (...) {
@@ -236,6 +300,7 @@ GMOD_MODULE_OPEN() {
         // }
 
         // Find Source's D3D9 device
+#ifdef _WIN64
         auto sourceDevice = static_cast<IDirect3DDevice9Ex*>(FindD3D9Device());
         if (!sourceDevice) {
             LUA->ThrowError("[RTX Remix Fixes 2 - Binary Module] Failed to find D3D9 device");
@@ -279,10 +344,13 @@ GMOD_MODULE_OPEN() {
             g_remix->SetConfigVariable("rtx.fallbackLightMode", "2");
             Msg("[RTX Remix Fixes 2 - Binary Module] Remix configuration set\n");
         }
+#endif
 
         GlobalConvars::InitialiseConVars();
+#ifdef _WIN64
         CullingHooks::Instance().Initialize();
         ModelRenderHooks::Instance().Initialize();
+#endif //_WIN64
         ModelLoadHooks::Instance().Initialize();
 
         // Register Lua functions
@@ -323,9 +391,10 @@ GMOD_MODULE_CLOSE() {
         
         // RTXLightManager::Instance().Shutdown();     // Remix API lights are dead for now, too unstable.
 
-
+#ifdef _WIN64
         CullingHooks::Instance().Shutdown();
         ModelRenderHooks::Instance().Shutdown();
+#endif // _WIN64
         ModelLoadHooks::Instance().Shutdown();
 
         // // Restore original Present function if needed
@@ -340,10 +409,12 @@ GMOD_MODULE_CLOSE() {
         //     }
         // }
 
+#ifdef _WIN64
         if (g_remix) {
             delete g_remix;
             g_remix = nullptr;
         }
+#endif
 
         g_d3dDevice = nullptr;
 
