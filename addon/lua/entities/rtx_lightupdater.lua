@@ -3,6 +3,7 @@ AddCSLuaFile()
 ENT.Type 			= "anim"
 ENT.PrintName		= "lightupdater"
 ENT.Author			= "Xenthio and CR"
+ENT.Author			= "Xenthio and CR"
 ENT.Information		= "update lights as fast as possible"
 ENT.Category		= "RTX"
 

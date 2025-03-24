@@ -1,3 +1,6 @@
+if not (BRANCH == "x86-64" or BRANCH == "chromium") then return end
+if not CLIENT then return end
+
 CreateConVar( "rtx_lightupdater_count", 4096,  FCVAR_ARCHIVE )
 CreateConVar( "rtx_lightupdater_show", 0,  FCVAR_ARCHIVE )
 CreateConVar( "rtx_lightupdater_slowupdate", 1,  FCVAR_ARCHIVE )
