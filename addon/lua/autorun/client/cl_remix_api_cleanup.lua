@@ -1,3 +1,6 @@
+if not (BRANCH == "x86-64" or BRANCH == "chromium") then return end
+if not CLIENT then return end
+
 local RTX_CLEANUP_HOOKS = {
     "InitPostEntity",
     "OnReloaded",

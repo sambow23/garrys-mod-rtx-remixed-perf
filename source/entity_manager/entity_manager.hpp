@@ -5,6 +5,10 @@
 #include <unordered_map>
 #include <vector>
 #include <random>
+#include <atomic>
+#include <chrono>
+#include <thread>
+#include <mutex>
 #include <immintrin.h> // For SSE/AVX intrinsics
 
 namespace EntityManager {
@@ -266,6 +270,50 @@ namespace EntityManager {
     
     // Global preallocated data
     extern PreallocatedPVSData g_pvsData;
+
+    struct AsyncPVSUpdate {
+        std::atomic<bool> inProgress{false};
+        std::atomic<bool> requestPending{false};
+        std::atomic<int> totalProcessed{0};
+        std::atomic<int> totalEntities{0};
+        Vector playerPosition;
+        std::thread workerThread;
+        float lastUpdateTime;
+        float updateInterval;
+        
+        // Multi-frame processing parameters
+        int frameBudgetMs = 2; // 2ms max per frame for smooth performance
+    };
+
+    extern AsyncPVSUpdate g_asyncPVS;
+    extern std::mutex g_pvsMutex;
+    void StartAsyncPVSProcessing();
+    void UpdatePVSWithPlayerPosition(const Vector& playerPos);
+    void TerminateAsyncProcessing();
+    bool IsAsyncProcessingInProgress();
+
+    struct BatchProcessingJob {
+        std::vector<void*> entities;      // Lua entity pointers
+        std::vector<Vector> positions;    // Entity positions
+        std::vector<int> entityIndices;   // Entity indices for lookup
+        std::vector<bool> results;        // PVS test results
+        Vector largeMins;                 // Bounds for visible entities
+        Vector largeMaxs;                 // Bounds for visible entities
+        Vector defaultMins;               // Small bounds for non-visible entities
+        Vector defaultMaxs;               // Small bounds for non-visible entities
+        int batchSize;                    // Processing batch size
+        int maxProcessingTimeMs;          // Maximum ms per frame
+        bool inProgress;                  // Job status
+    };
+
+    extern BatchProcessingJob g_batchJob;
+
+    // Functions for entity batch processing
+    bool BeginEntityBatchProcessing(const std::vector<void*>& entities, 
+                                const std::vector<Vector>& positions,
+                                const Vector& largeMins, const Vector& largeMaxs,
+                                int maxProcessTimeMs);
+    PVSBatchResult ProcessEntityBatch(int batchSize, bool debugOutput);
 
     // Initialize entity manager
     void Initialize(GarrysMod::Lua::ILuaBase* LUA);

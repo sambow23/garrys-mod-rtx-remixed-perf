@@ -1,9 +1,8 @@
-CreateConVar( "rtx_debug_pseudoplayer", 0,  FCVAR_ARCHIVE )
 AddCSLuaFile()
 
 ENT.Type 			= "anim"
 ENT.PrintName		= "lightupdater"
-ENT.Author			= "Xenthio"
+ENT.Author			= "Xenthio and CR"
 ENT.Information		= "update lights as fast as possible"
 ENT.Category		= "RTX"
 

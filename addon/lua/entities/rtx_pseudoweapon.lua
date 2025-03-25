@@ -1,6 +1,6 @@
 -- Shitty solution to have a shadow for the player, weapon edition wow
 CreateConVar( "rtx_debug_pseudoplayer", 0, FCVAR_ARCHIVE )
-CreateClientConVar(	"rtx_pseudoweapon_unique_hashes", 0,  true, false)
+CreateClientConVar(	"rtx_pseudoweapon_unique_hashes", 1,  true, false)
 CreateClientConVar(	"rtx_pseudoweapon_unique_hashes_downscale", 1,  true, false)
 AddCSLuaFile()
 

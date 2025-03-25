@@ -1,6 +1,6 @@
 -- Shitty solution to have a shadow for the player
 CreateConVar( "rtx_debug_pseudoplayer", 0,  FCVAR_ARCHIVE ) 
-CreateClientConVar(	"rtx_pseudoplayer_unique_hashes", 0,  true, false)
+CreateClientConVar(	"rtx_pseudoplayer_unique_hashes", 1,  true, false)
 CreateClientConVar(	"rtx_pseudoplayer_offset_localangles", 0,  true, false)
 CreateClientConVar(	"rtx_pseudoplayer_offset_x", 0,  true, false)
 CreateClientConVar(	"rtx_pseudoplayer_offset_z", 0,  true, false)
