@@ -3,7 +3,7 @@ if not CLIENT then return end
 -- ConVars
 local cv_enabled = CreateClientConVar("rtx_pseudoplayer", 1, true, false)
 local cv_pseudoweapon = CreateClientConVar("rtx_pseudoweapon", 1, true, false)
-local cv_disablevertexlighting = CreateClientConVar("rtx_disablevertexlighting", 1, true, false)
+local cv_disablevertexlighting = CreateClientConVar("rtx_disablevertexlighting", 0, true, false)
 local cv_disablevertexlighting_old = CreateClientConVar("rtx_disablevertexlighting_old", 0, true, false)
 local cv_fixmaterials = CreateClientConVar("rtx_fixmaterials", 1, true, false)
 local cv_lightupdater = CreateClientConVar("rtx_lightupdater_old", 0, true, false)
