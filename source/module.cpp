@@ -208,7 +208,7 @@ LUA_FUNCTION(SetRemixUIState) {
         remix::UIState state = static_cast<remix::UIState>(stateNum);
         
         auto result = g_remix->SetUIState(state);
-        LUA->PushBool(result)
+        LUA->PushBool(result);
 #else
         LUA->PushBool(false);
 #endif
@@ -348,7 +348,7 @@ GMOD_MODULE_OPEN() {
 
         GlobalConvars::InitialiseConVars();
 #ifdef _WIN64
-        CullingHooks::Instance().Initialize();
+        //CullingHooks::Instance().Initialize();  // Disabling for now until we get the full set of culling patches for x64.
         ModelRenderHooks::Instance().Initialize();
 #endif //_WIN64
         ModelLoadHooks::Instance().Initialize();

@@ -376,9 +376,8 @@ void ModelLoadHooks::Initialize() {
         // Use the signature to find IFileSystem::OpenEx
 #ifdef _WIN64
         static const char openSig[] = "4C 8B DC 48 81 EC";
-#endif
-#ifdef _WIN32
-		static const char openSig[] = "55 8B EC 81 EC 18 03 00 00";
+#elif defined(_WIN32)
+        static const char openSig[] = "55 8B EC 81 EC 18 03 00 00";
 #endif
 
         void* openFunc = ScanSign(fsModule, openSig, sizeof(openSig) - 1);

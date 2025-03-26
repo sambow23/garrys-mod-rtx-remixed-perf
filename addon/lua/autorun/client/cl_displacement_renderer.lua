@@ -1,4 +1,5 @@
--- cl_displacement_renderer.lua
+
+if not (BRANCH == "x86-64" or BRANCH == "chromium") then return end
 if not CLIENT then return end
 require("niknaks")
 

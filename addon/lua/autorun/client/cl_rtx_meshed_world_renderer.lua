@@ -1,5 +1,7 @@
 -- Disables source engine world rendering and replaces it with chunked mesh rendering instead, fixes engine culling issues. 
 -- MAJOR THANK YOU to the creator of NikNaks, a lot of this would not be possible without it.
+
+if not (BRANCH == "x86-64" or BRANCH == "chromium") then return end
 if not CLIENT then return end
 require("niknaks")
 

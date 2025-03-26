@@ -4,6 +4,9 @@
 #include "vstdlib/random.h"
 #include <algorithm>
 #include <sstream>
+#include <chrono>
+#include <thread>
+#include <mutex>
 
 using namespace GarrysMod::Lua;
 
@@ -16,6 +19,9 @@ std::mt19937 rng(rd());
 PVSCache g_pvsCache = { {}, Vector(0,0,0), 0.0f, false };
 PVSUpdateJob g_pvsUpdateJob = { false, 0, 0, {}, {}, {}, Vector(), Vector(), 100 };
 PreallocatedPVSData g_pvsData = {}; // Zero-initialize all members
+AsyncPVSUpdate EntityManager::g_asyncPVS;
+std::mutex EntityManager::g_pvsMutex;
+BatchProcessingJob EntityManager::g_batchJob;
 
 
 // Helper function to parse color string "r g b a"
@@ -1296,23 +1302,6 @@ LUA_FUNCTION(BeginPVSEntityBatchProcessing_Native) {
     return 1;
 }
 
-LUA_FUNCTION(ProcessNextEntityBatch_Native) {
-    auto [results, complete] = EntityManager::ProcessNextEntityBatch();
-    
-    // Return batch results table
-    LUA->CreateTable();
-    for (size_t i = 0; i < results.size(); i++) {
-        LUA->PushNumber(i+1);
-        LUA->PushBool(results[i]);
-        LUA->SetTable(-3);
-    }
-    
-    // Return completion status
-    LUA->PushBool(complete);
-    
-    return 2;
-}
-
 LUA_FUNCTION(IsPVSUpdateInProgress_Native) {
     LUA->PushBool(EntityManager::IsPVSUpdateInProgress());
     return 1;
@@ -1407,6 +1396,449 @@ LUA_FUNCTION(ProcessEntityPVS_Optimized) {
     return 1;
 }
 
+void EntityManager::StartAsyncPVSProcessing() {
+    // Only start if not already running
+    if (g_asyncPVS.inProgress)
+        return;
+    
+    g_asyncPVS.inProgress = true;
+    g_asyncPVS.workerThread = std::thread([]() {
+        while (g_asyncPVS.inProgress) {
+            if (g_asyncPVS.requestPending) {
+                auto startTime = std::chrono::high_resolution_clock::now();
+                
+                // Process PVS leaf data with the new player position
+                // IMPORTANT: Allocate on heap instead of stack to prevent overflow
+                PreallocatedPVSData* newData = new PreallocatedPVSData(); 
+                memset(newData, 0, sizeof(PreallocatedPVSData)); // Zero-initialize
+
+                newData->playerPos = g_asyncPVS.playerPosition;
+                newData->lastUpdateTime = Plat_FloatTime();
+                
+                // Find map bounds first
+                Vector mins(FLT_MAX, FLT_MAX, FLT_MAX);
+                Vector maxs(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+                
+                // Copy leaf positions from cache
+                if (g_pvsCache.valid && g_pvsCache.leafPositions.size() > 0) {
+                    size_t leafCount = std::min(g_pvsCache.leafPositions.size(), 
+                                               static_cast<size_t>(MAX_PVS_LEAVES));
+                    newData->leafCount = leafCount;
+                    
+                    for (size_t i = 0; i < leafCount; i++) {
+                        // Copy leaf position
+                        newData->leafPositions[i] = g_pvsCache.leafPositions[i];
+                        
+                        // Update bounds
+                        mins.x = std::min(mins.x, g_pvsCache.leafPositions[i].x);
+                        mins.y = std::min(mins.y, g_pvsCache.leafPositions[i].y);
+                        mins.z = std::min(mins.z, g_pvsCache.leafPositions[i].z);
+                        
+                        maxs.x = std::max(maxs.x, g_pvsCache.leafPositions[i].x);
+                        maxs.y = std::max(maxs.y, g_pvsCache.leafPositions[i].y);
+                        maxs.z = std::max(maxs.z, g_pvsCache.leafPositions[i].z);
+                    }
+                }
+                
+                // Expand bounds by PVS threshold for grid building
+                Vector boundsExpansion(256.0f, 256.0f, 256.0f);
+                mins -= boundsExpansion;
+                maxs += boundsExpansion;
+                
+                // Build spatial grid
+                newData->spatialGrid.Setup(mins, maxs);
+                
+                // Add each leaf position to spatial grid
+                for (size_t i = 0; i < newData->leafCount; i++) {
+                    newData->spatialGrid.AddLeaf(newData->leafPositions[i]);
+                }
+                
+                // Swap in the newly built data
+                {
+                    std::lock_guard<std::mutex> lock(g_pvsMutex);
+                    // Delete old data if it exists
+                    static PreallocatedPVSData* oldData = nullptr;
+                    if (oldData) {
+                        delete oldData;
+                    }
+                    
+                    // Deep copy the data
+                    memcpy(&g_pvsData, newData, sizeof(PreallocatedPVSData));
+                    
+                    // Store for later deletion
+                    oldData = newData;
+                }
+                
+                g_asyncPVS.requestPending = false;
+                
+                auto endTime = std::chrono::high_resolution_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count();
+                Msg("[RTX Entity Manager] PVS update completed in %d ms\n", duration);
+            }
+            
+            // Sleep to prevent CPU burning
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
+}
+
+void EntityManager::UpdatePVSWithPlayerPosition(const Vector& playerPos) {
+    if (!g_asyncPVS.inProgress) {
+        StartAsyncPVSProcessing();
+    }
+    
+    g_asyncPVS.playerPosition = playerPos;
+    g_asyncPVS.requestPending = true;
+}
+
+void EntityManager::TerminateAsyncProcessing() {
+    g_asyncPVS.inProgress = false;
+    if (g_asyncPVS.workerThread.joinable()) {
+        g_asyncPVS.workerThread.join();
+    }
+}
+
+bool EntityManager::IsAsyncProcessingInProgress() {
+    return g_asyncPVS.requestPending;
+}
+
+LUA_FUNCTION(RequestAsyncPVSUpdate_Native) {
+    LUA->CheckType(1, Type::Vector);
+    Vector* playerPos = LUA->GetUserType<Vector>(1, Type::Vector);
+    
+    EntityManager::UpdatePVSWithPlayerPosition(*playerPos);
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
+LUA_FUNCTION(IsAsyncPVSComplete_Native) {
+    LUA->PushBool(!EntityManager::g_asyncPVS.requestPending);
+    return 1;
+}
+
+LUA_FUNCTION(IsAsyncProcessingInProgress_Native) {
+    LUA->PushBool(EntityManager::IsAsyncProcessingInProgress());
+    return 1;
+}
+
+bool EntityManager::BeginEntityBatchProcessing(
+    const std::vector<void*>& entities, 
+    const std::vector<Vector>& positions,
+    const Vector& largeMins, const Vector& largeMaxs,
+    int maxProcessTimeMs)
+{
+    if (g_batchJob.inProgress) return false;
+    
+    g_batchJob.entities = entities;
+    g_batchJob.positions = positions;
+    g_batchJob.largeMins = largeMins;
+    g_batchJob.largeMaxs = largeMaxs;
+    g_batchJob.defaultMins = Vector(-1, -1, -1);
+    g_batchJob.defaultMaxs = Vector(1, 1, 1);
+    g_batchJob.maxProcessingTimeMs = maxProcessTimeMs;
+    g_batchJob.batchSize = 250; // Default batch size
+    g_batchJob.inProgress = true;
+    g_batchJob.results.clear();
+    g_batchJob.results.resize(entities.size(), false);
+    
+    return true;
+}
+
+PVSBatchResult EntityManager::ProcessEntityBatch(int batchSize, bool debugOutput) {
+    auto startTime = std::chrono::high_resolution_clock::now();
+    int processingTimeMs = g_batchJob.maxProcessingTimeMs;
+    int totalEntities = g_batchJob.entities.size();
+    int startIndex = g_batchJob.results.size() - g_batchJob.entities.size();
+    
+    PVSBatchResult result;
+    result.visibleCount = 0;
+    result.isInPVS.clear();
+    
+    // Calculate how many entities we can process in this frame
+    if (batchSize <= 0) batchSize = g_batchJob.batchSize;
+    int endIndex = std::min(startIndex + batchSize, totalEntities);
+    
+    // Lock PVS data
+    std::lock_guard<std::mutex> lock(g_pvsMutex);
+    
+    // Test each entity position against PVS
+    for (int i = startIndex; i < endIndex; i++) {
+        // Get entity position
+        Vector pos = g_batchJob.positions[i];
+        
+        // Fast PVS test using spatial grid
+        bool inPVS = g_pvsData.spatialGrid.TestPosition(pos, 128.0f);
+        g_batchJob.results[i] = inPVS;
+        
+        if (inPVS) {
+            result.visibleCount++;
+        }
+        
+        result.isInPVS.push_back(inPVS);
+        
+        // NOTE: We don't directly set entity bounds here in C++,
+        // the Lua code will handle that when it receives the results
+        
+        // Check if we're running out of frame budget
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            currentTime - startTime).count();
+        
+        if (elapsedMs >= processingTimeMs) {
+            // Hit time limit, exit early
+            if (debugOutput) {
+                Msg("[RTX Entity Manager] Frame budget reached after %d entities (%.2f ms)\n", 
+                    i - startIndex + 1, elapsedMs);
+            }
+            break;
+        }
+    }
+    
+    // Check if we've processed all entities
+    g_batchJob.inProgress = (endIndex < totalEntities);
+    
+    // Return results for this batch
+    return result;
+}
+
+struct ViewConeInfo {
+    Vector playerPos;
+    Vector playerDir;
+    float fieldOfView;
+    float cosHalfFOV;
+};
+
+// Calculate view priority using SIMD for 4 entities at once
+std::vector<float> CalculateViewPriorities(
+    const std::vector<Vector>& positions, 
+    const Vector& playerPos,
+    const Vector& viewDir,
+    float fieldOfView,
+    float weightFactor) 
+{
+    std::vector<float> priorities(positions.size(), 0.0f);
+    float cosHalfFOV = cos(fieldOfView * 0.5f * M_PI / 180.0f);
+    
+    // Process in batches of 4 for SIMD
+    __m128 viewDir4 = _mm_set_ps(viewDir.z, viewDir.y, viewDir.x, 0.0f);
+    __m128 playerPos4X = _mm_set1_ps(playerPos.x);
+    __m128 playerPos4Y = _mm_set1_ps(playerPos.y);
+    __m128 playerPos4Z = _mm_set1_ps(playerPos.z);
+    __m128 cosHalfFOV4 = _mm_set1_ps(cosHalfFOV);
+    __m128 weightFactor4 = _mm_set1_ps(weightFactor);
+    
+    for (size_t i = 0; i < positions.size(); i += 4) {
+        // Load 4 positions at once
+        __m128 posX = _mm_set_ps(
+            i+3 < positions.size() ? positions[i+3].x : 0,
+            i+2 < positions.size() ? positions[i+2].x : 0,
+            i+1 < positions.size() ? positions[i+1].x : 0,
+            i < positions.size() ? positions[i].x : 0
+        );
+        
+        __m128 posY = _mm_set_ps(
+            i+3 < positions.size() ? positions[i+3].y : 0,
+            i+2 < positions.size() ? positions[i+2].y : 0,
+            i+1 < positions.size() ? positions[i+1].y : 0,
+            i < positions.size() ? positions[i].y : 0
+        );
+        
+        __m128 posZ = _mm_set_ps(
+            i+3 < positions.size() ? positions[i+3].z : 0,
+            i+2 < positions.size() ? positions[i+2].z : 0,
+            i+1 < positions.size() ? positions[i+1].z : 0,
+            i < positions.size() ? positions[i].z : 0
+        );
+        
+        // Calculate direction vectors (entity - player)
+        __m128 dirX = _mm_sub_ps(posX, playerPos4X);
+        __m128 dirY = _mm_sub_ps(posY, playerPos4Y);
+        __m128 dirZ = _mm_sub_ps(posZ, playerPos4Z);
+        
+        // Normalize
+        __m128 lenSq = _mm_add_ps(
+            _mm_add_ps(_mm_mul_ps(dirX, dirX), _mm_mul_ps(dirY, dirY)),
+            _mm_mul_ps(dirZ, dirZ)
+        );
+        __m128 invLen = _mm_rsqrt_ps(lenSq);
+        
+        dirX = _mm_mul_ps(dirX, invLen);
+        dirY = _mm_mul_ps(dirY, invLen);
+        dirZ = _mm_mul_ps(dirZ, invLen);
+        
+        // Calculate dot product with view direction
+        __m128 dotProduct = _mm_add_ps(
+            _mm_add_ps(_mm_mul_ps(dirX, _mm_set1_ps(viewDir.x)), 
+                       _mm_mul_ps(dirY, _mm_set1_ps(viewDir.y))),
+            _mm_mul_ps(dirZ, _mm_set1_ps(viewDir.z))
+        );
+        
+        // Compare with cosine of half FOV
+        __m128 inViewCone = _mm_cmpge_ps(dotProduct, cosHalfFOV4);
+        
+        // Calculate priority based on dot product
+        __m128 dotScale = _mm_div_ps(_mm_sub_ps(dotProduct, cosHalfFOV4), 
+                                    _mm_sub_ps(_mm_set1_ps(1.0f), cosHalfFOV4));
+        __m128 priorityValue = _mm_add_ps(
+            _mm_set1_ps(0.2f), // Minimum priority 0.2
+            _mm_mul_ps(_mm_mul_ps(dotScale, weightFactor4), 
+                       _mm_and_ps(inViewCone, _mm_set1_ps(1.0f)))
+        );
+        
+        // Store results
+        float results[4];
+        _mm_store_ps(results, priorityValue);
+        
+        for (int j = 0; j < 4 && i+j < positions.size(); j++) {
+            priorities[i+j] = results[j];
+        }
+    }
+    
+    return priorities;
+}
+
+LUA_FUNCTION(BatchProcessEntities_Native) {
+    LUA->CheckType(1, Type::TABLE); // entities
+    LUA->CheckType(2, Type::TABLE); // positions 
+    LUA->CheckType(3, Type::Vector); // largeMins
+    LUA->CheckType(4, Type::Vector); // largeMaxs
+    LUA->CheckNumber(5); // maxProcessingTimeMs
+    
+    std::vector<void*> entities;
+    std::vector<Vector> positions;
+    
+    // Get table size - using a safer approach
+    int entityCount = 0;
+    
+    // Count table entries manually
+    LUA->PushNil(); // first key
+    while (LUA->Next(1) != 0) {
+        entityCount++;
+        LUA->Pop(); // pop value, keep key for next iteration
+    }
+    
+    if (entityCount == 0) {
+        Msg("[RTX Entity Manager] Warning: Empty entities table\n");
+        LUA->PushBool(false);
+        return 1;
+    }
+    
+    // Safer approach: pre-allocate and use direct indexing
+    entities.reserve(entityCount);
+    positions.reserve(entityCount);
+    
+    // Use direct numeric indexing - the Lua way
+    for (int i = 1; i <= entityCount; i++) {
+        // Get entity
+        LUA->PushNumber(i);
+        LUA->GetTable(1);
+        bool validEntity = LUA->IsType(-1, Type::Entity);
+        
+        // Get position
+        LUA->PushNumber(i);
+        LUA->GetTable(2);
+        bool validPosition = LUA->IsType(-1, Type::Vector);
+        
+        if (validEntity && validPosition) {
+            // Create a safe reference to the entity
+            LUA->Push(-2); // Duplicate the entity
+            int ref = LUA->ReferenceCreate();
+            entities.push_back((void*)(intptr_t)ref);
+            
+            // Copy the position vector
+            Vector* pos = LUA->GetUserType<Vector>(-1, Type::Vector);
+            positions.push_back(*pos);
+        }
+        
+        // Pop both values
+        LUA->Pop(2);
+    }
+    
+    // Get bounds and settings
+    Vector* largeMins = LUA->GetUserType<Vector>(3, Type::Vector);
+    Vector* largeMaxs = LUA->GetUserType<Vector>(4, Type::Vector);
+    int maxProcessingTimeMs = LUA->GetNumber(5);
+    
+    if (entities.empty()) {
+        Msg("[RTX Entity Manager] Warning: No valid entities/positions found\n");
+        LUA->PushBool(false);
+        return 1;
+    }
+    
+    // Process entities
+    bool success = EntityManager::BeginEntityBatchProcessing(
+        entities, positions, *largeMins, *largeMaxs, maxProcessingTimeMs);
+    
+    LUA->PushBool(success);
+    return 1;
+}
+
+LUA_FUNCTION(ProcessNextEntityBatch_Native) {
+    int batchSize = 250;
+    bool debugOutput = false;
+    
+    if (LUA->IsType(1, Type::NUMBER)) {
+        batchSize = LUA->GetNumber(1);
+    }
+    
+    if (LUA->IsType(2, Type::BOOL)) {
+        debugOutput = LUA->GetBool(2);
+    }
+    
+    PVSBatchResult result = EntityManager::ProcessEntityBatch(batchSize, debugOutput);
+    
+    // Return batch results table
+    LUA->CreateTable();
+    for (size_t i = 0; i < result.isInPVS.size(); i++) {
+        LUA->PushNumber(i+1);
+        LUA->PushBool(result.isInPVS[i]);
+        LUA->SetTable(-3);
+    }
+    
+    // Return visible count and completion status
+    LUA->PushNumber(result.visibleCount);
+    LUA->PushBool(!EntityManager::g_batchJob.inProgress); // Done when not in progress
+    
+    return 3;
+}
+
+LUA_FUNCTION(CalculateViewConePrority_Native) {
+    LUA->CheckType(1, Type::TABLE); // positions
+    LUA->CheckType(2, Type::Vector); // playerPos
+    LUA->CheckType(3, Type::Vector); // viewDir
+    float fieldOfView = LUA->CheckNumber(4);
+    float weightFactor = LUA->CheckNumber(5);
+    
+    std::vector<Vector> positions;
+    
+    // Extract positions
+    LUA->PushNil();
+    while (LUA->Next(1) != 0) {
+        if (LUA->IsType(-1, Type::Vector)) {
+            Vector* pos = LUA->GetUserType<Vector>(-1, Type::Vector);
+            positions.push_back(*pos);
+        }
+        LUA->Pop();
+    }
+    
+    Vector* playerPos = LUA->GetUserType<Vector>(2, Type::Vector);
+    Vector* viewDir = LUA->GetUserType<Vector>(3, Type::Vector);
+    
+    std::vector<float> priorities = CalculateViewPriorities(
+        positions, *playerPos, *viewDir, fieldOfView, weightFactor);
+    
+    // Return priorities table
+    LUA->CreateTable();
+    for (size_t i = 0; i < priorities.size(); i++) {
+        LUA->PushNumber(i+1);
+        LUA->PushNumber(priorities[i]);
+        LUA->SetTable(-3);
+    }
+    
+    return 1;
+}
+
 void Initialize(ILuaBase* LUA) {
     LUA->CreateTable();
 
@@ -1476,6 +1908,21 @@ void Initialize(ILuaBase* LUA) {
     
     LUA->PushCFunction(ProcessEntityPVS_Optimized);
     LUA->SetField(-2, "ProcessEntityPVS_Optimized");
+
+    LUA->PushCFunction(RequestAsyncPVSUpdate_Native);
+    LUA->SetField(-2, "RequestAsyncPVSUpdate");
+
+    LUA->PushCFunction(IsAsyncPVSComplete_Native);
+    LUA->SetField(-2, "IsAsyncPVSComplete");
+
+    LUA->PushCFunction(IsAsyncProcessingInProgress_Native);
+    LUA->SetField(-2, "IsAsyncProcessingInProgress");
+
+    LUA->PushCFunction(BatchProcessEntities_Native);
+    LUA->SetField(-2, "BatchProcessEntities");
+
+    LUA->PushCFunction(CalculateViewConePrority_Native);
+    LUA->SetField(-2, "CalculateViewConePriority");
 
     LUA->SetField(-2, "EntityManager");
 }

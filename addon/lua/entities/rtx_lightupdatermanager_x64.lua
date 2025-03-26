@@ -4,8 +4,8 @@ CreateConVar( "rtx_lightupdater_slowupdate", 1,  FCVAR_ARCHIVE )
 AddCSLuaFile()
 
 ENT.Type            = "anim"
-ENT.PrintName       = "lightupdatermanager"
-ENT.Author          = "Xenthio"
+ENT.PrintName       = "lightupdatermanager_x64"
+ENT.Author          = "Xenthio and CR"
 ENT.Information     = "update lights as fast as possible"
 ENT.Category        = "RTX"
 

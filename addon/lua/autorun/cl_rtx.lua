@@ -6,10 +6,17 @@ local cv_pseudoweapon = CreateClientConVar("rtx_pseudoweapon", 1, true, false)
 local cv_disablevertexlighting = CreateClientConVar("rtx_disablevertexlighting", 0, true, false)
 local cv_disablevertexlighting_old = CreateClientConVar("rtx_disablevertexlighting_old", 0, true, false)
 local cv_fixmaterials = CreateClientConVar("rtx_fixmaterials", 1, true, false)
-local cv_lightupdater = CreateClientConVar("rtx_lightupdater_old", 0, true, false)
+local cv_lightupdater = CreateClientConVar("rtx_lightupdater_x64", 1, true, false)
 local cv_experimental_manuallight = CreateClientConVar("rtx_experimental_manuallight", 0, true, false)
 local cv_experimental_mightcrash_combinedlightingmode = CreateClientConVar("rtx_experimental_mightcrash_combinedlightingmode", 0, false, false)
 local cv_disable_when_unsupported = CreateClientConVar("rtx_disable_when_unsupported", 1, false, false)
+
+-- We don't want the user manually setting what lightupdater to use
+if BRANCH and (BRANCH == "x86-64" or BRANCH == "chromium") then
+    cv_lightupdater:SetInt(1) -- Client is x64, set to 1
+else
+    cv_lightupdater:SetInt(0) -- Client is not x64, set to 0
+end
 
 -- Light system cache
 local lastLightUpdate = 0
@@ -107,8 +114,23 @@ local function MaterialFixups()
 
     -- Fix GUI materials
     local function FixupGUIMaterial(mat)
+        -- Skip if the material isn't valid
+        if type(mat) == "number" or not mat.SetTexture then
+            print("[RTX Remix Fixes 2] - Skipping invalid GUI material")
+            return
+        end
+        
         local blankmat = Material("rtx/guiwhite")
-        mat:SetTexture("$basetexture", blankmat:GetTexture("$basetexture"))
+        -- Check if the blank material is valid too
+        if type(blankmat) == "number" or not blankmat.GetTexture then
+            print("[RTX Remix Fixes 2] - Missing rtx/guiwhite material, skipping GUI material fixup")
+            return
+        end
+        
+        local baseTexture = blankmat:GetTexture("$basetexture")
+        if baseTexture then
+            mat:SetTexture("$basetexture", baseTexture)
+        end
     end
 
     local guiMaterials = {
@@ -181,7 +203,7 @@ local function RTXLoad()
     flashlightent:Spawn()
 
     if cv_lightupdater:GetBool() then
-        local lightManager = ents.CreateClientside("rtx_lightupdatermanager_old")
+        local lightManager = ents.CreateClientside("rtx_lightupdatermanager_x64")
         lightManager:Spawn()
     end
 

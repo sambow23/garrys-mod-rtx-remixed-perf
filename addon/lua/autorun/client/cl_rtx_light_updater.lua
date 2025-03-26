@@ -1,3 +1,4 @@
+if (BRANCH == "x86-64" or BRANCH == "chromium") then return end
 if not CLIENT then return end
 require("niknaks")
 local lights

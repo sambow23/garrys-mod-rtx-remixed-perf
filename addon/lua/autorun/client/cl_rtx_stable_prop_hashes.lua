@@ -1,3 +1,4 @@
+if (BRANCH == "x86-64" or BRANCH == "chromium") then return end
 if not CLIENT then return end
 CreateClientConVar(	"rtx_disablevertexlighting", 0,  true, false) 
 
