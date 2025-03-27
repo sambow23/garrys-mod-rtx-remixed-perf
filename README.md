@@ -49,7 +49,7 @@
 - Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them) do not appear or behave strangely (investigating)
 - NPC Eyes do not render as the fixed function rendering fallback no longer exists (investigating)
 - Some particles will not render (need to change each material from $SpriteCard to $UnlitGeneric to fix)
-- HDR maps crash the game or have no lighting (limitation of FF rendering)
+- HDR maps have no lighting (mat_fullbright 1 is forced if the SM isnt high enough)
 - Some meshes will not render (limitation of FF rendering)
 - Some maps will be rasterized and have vertex explosions.
 - Some map lights will cull even with Lightupdaters active (investigating)
