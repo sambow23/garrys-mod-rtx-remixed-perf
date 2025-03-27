@@ -348,9 +348,11 @@ GMOD_MODULE_OPEN() {
 
         GlobalConvars::InitialiseConVars();
 #ifdef _WIN64
+#ifdef CULLING_PATCHES
         //CullingHooks::Instance().Initialize();  // Disabling for now until we get the full set of culling patches for x64.
-        ModelRenderHooks::Instance().Initialize();
+#endif //CULLING_PATCHES
 #endif //_WIN64
+        ModelRenderHooks::Instance().Initialize();
         ModelLoadHooks::Instance().Initialize();
 
         // Register Lua functions

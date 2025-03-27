@@ -12,6 +12,7 @@ static GarrysMod::Lua::ILuaConVars* m_pLuaConVars;
 ConVar* GlobalConvars::r_forcenovis;
 ConVar* GlobalConvars::c_frustumcull;
 ConVar* GlobalConvars::r_worldnodenocull;
+ConVar* GlobalConvars::r_forcehwlight;
 void GlobalConvars::InitialiseConVars() {
 	m_pLuaConVars = loader_lua_shared.GetInterface<GarrysMod::Lua::ILuaConVars>(GMOD_LUACONVARS_INTERFACE);
 	if (!m_pLuaConVars) {
@@ -35,4 +36,10 @@ void GlobalConvars::InitialiseConVars() {
 	if (!r_worldnodenocull) { r_worldnodenocull = cvar->FindVar("r_worldnodenocull"); }
 	if (!r_worldnodenocull) { Error("[RTX Fixes 2] Failed to create r_worldnodenocull convar\n"); }
 	else { Msg("[RTX Fixes 2] r_worldnodenocull convar created\n"); }
+
+
+	r_forcehwlight = m_pLuaConVars->CreateConVar("r_forcehwlight", "0", "Force LIGHTING_HARDWARE", FCVAR_ARCHIVE);
+	if (!r_worldnodenocull) { r_forcehwlight = cvar->FindVar("r_forcehwlight"); }
+	if (!r_worldnodenocull) { Error("[RTX Fixes 2] Failed to create r_forcehwlight convar\n"); }
+	else { Msg("[RTX Fixes 2] r_forcehwlight convar created\n"); }
 }
