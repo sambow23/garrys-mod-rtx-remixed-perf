@@ -189,23 +189,23 @@ void ModelRenderHooks::Initialize() {
 
 #ifdef _WIN64
 		// hardware skin patch 2, overrides the first jnz to jump after pColorMeshes is checked
-		g_MemoryPatcher.FindAndPatch(
-			"ForceHardwareSkinning2",
-			studiorenderModule,
-			"75 ?? F6 40 ?? ?? 75",
-			"EB",
-			"Force models to use Hardware Skinning (2/2)"
-		);
+		//g_MemoryPatcher.FindAndPatch(
+		//	"ForceHardwareSkinning2",
+		//	studiorenderModule,
+		//	"75 ?? F6 40 ?? ?? 75",
+		//	"EB",
+		//	"Force models to use Hardware Skinning (2/2)"
+		//);
 #endif
 
 #ifdef _WIN64
-		g_MemoryPatcher.FindAndPatch(
-			"ForceStaticModel1",
-			studiorenderModule,
-			"75 ?? 84 C0 75",
-			"90",
-			"Force models to use static meshes (1/2)"
-		);
+		//g_MemoryPatcher.FindAndPatch(
+		//	"ForceStaticModel1",
+		//	studiorenderModule,
+		//	"75 ?? 84 C0 75",
+		//	"90",
+		//	"Force models to use static meshes (1/2)"
+		//);
 #else
 		//g_MemoryPatcher.FindAndPatch(
 		//	"ForceStaticModel1",
@@ -245,8 +245,8 @@ void ModelRenderHooks::Shutdown() {
 	R_StudioSetupSkinAndLighting_hook.Disable();
 	R_StudioDrawDynamicMesh_hook.Disable();
 #ifdef _WIN64
-	g_MemoryPatcher.DisablePatch("ForceHardwareSkinning2");
-	g_MemoryPatcher.DisablePatch("ForceStaticModel1");
+	//g_MemoryPatcher.DisablePatch("ForceHardwareSkinning2");
+	//g_MemoryPatcher.DisablePatch("ForceStaticModel1");
 #endif
 
 	// Log shutdown completion
