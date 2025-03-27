@@ -1,35 +1,29 @@
 
-# Garry's Mod RTX Fixes 2 (x64)
+# Garry's Mod RTX Fixes 2
 ## Features
-- Custom World Renderer
-  * Renders map geometry with meshed chunks to prevent PVS/Frustrum culling of brush faces
-- View Frustrum Forcing
-  * Modifies render bounds of static props and light updaters to prevent them getting culled by the view frustrum
-- Water replacer
-  * Replaces all map water materials with a single one so it can be replaced in Remix
-    * Some non-water materials in maps might get replaced with water. If so, please make a github issue with the map name and screenshot on where its happening.
+### Universal (x86 and x64)
 - Light Updaters
     * Forces Source to render all map lights
+- Water replacer
+  * Replaces all map water materials with a single one so it can be replaced in Remix
 - Material Fixer
     * Fixes some broken UI/game materials and removes detail textures
+- Model fixer
+    * Fixes props having unstable hashes in RTX Remix so they can be replaced in the Remix Toolkit
+    * Allows HL2 RTX mesh replacements to load correctly
+ 
+### x64 Only
+- Custom World Renderer (required as x64's culling patches are not complete)
+  * Renders map geometry with meshed chunks to prevent PVS/Frustrum culling of brush faces
+- View Frustrum Forcing (required as x64's culling patches are not complete)
+  * Modifies render bounds of static props and light updaters to prevent them getting culled by the view frustrum
+
 ## Installation:
-> [!WARNING]
-> ### This is a total conversion, do not install this on a Garry's Mod install you care about
-> ### Ensure you are using the x86-64 branch of Garry's Mod
-> <img width="632" alt="image" src="https://github.com/user-attachments/assets/4f26ce9f-ac2a-4469-93f0-4fcdf0dffee4" />
-
-
-1. Subscribe to this [addon collection](https://steamcommunity.com/sharedfiles/filedetails/?id=3417054376) (click `Subscribe to all` > `Add Only`)
-2. Download the latest [release](https://github.com/Xenthio/gmod-rtx-fixes-2/releases/latest)
-3. Make a copy of your Garry's Mod installation and call it something like `GarrysModRTX`. The path should look like this:    
-(If you're doing a clean install, open the game once with steam before installing the mod)
-  - `C:\Program Files (x86)\Steam\steamapps\common\GarrysModRTX`
-
-4. Open `gmrtx64_(ver).zip`, extract everything inside to
-`C:\Program Files (x86)\Steam\steamapps\common\GarrysModRTX`, overwrite everything.
-5. Open the game with the `GarrysModRTX` launcher
-  - #### Close any type of overlay programs such as Medal, Discord overlay, etc. It can cause the game to crash
-7. Profit.
+1. Subscribe to [NikNaks](https://steamcommunity.com/sharedfiles/filedetails/?id=2861839844) on the Steam Workshop.
+2. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
+3. Put `RTXLauncher.exe` in an empty folder, run it as an Administrator.
+4. Select `Run Quick Install` on the main screen and follow the prompts when asked.
+5. Profit
 
 ## Incompatible Addons
 * (Map) [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) (Breaks other shader-skybox maps)
