@@ -7,8 +7,14 @@
 #include "prop_fixes.h"
 #include <memory_patcher.h>
 #include <globalconvars.h>
+#include "icliententity.h" // Add this include to resolve the incomplete type error
+#include <c_baseanimating.h>
+#include "engine/ivmodelinfo.h"
 
 using namespace GarrysMod::Lua;
+
+IVModelInfo* pModelInfo = nullptr;
+static StudioRenderConfig_t s_StudioRenderConfig;
 
 Define_method_Hook(IMaterial*, R_StudioSetupSkinAndLighting, void*, IMatRenderContext* pRenderContext, int index, IMaterial** ppMaterials, int materialFlags,
 	IClientRenderable* pClientRenderable, void* pColorMeshes, int &lighting)
@@ -18,11 +24,22 @@ Define_method_Hook(IMaterial*, R_StudioSetupSkinAndLighting, void*, IMatRenderCo
 
 #ifdef _WIN64
 	if (GlobalConvars::r_forcehwlight && GlobalConvars::r_forcehwlight->GetBool()) {
-//#endif
 		lighting = 0; // LIGHTING_HARDWARE 
-//#ifdef _WIN64
 	}
 #endif
+	// only force LIGHTING_HARDWARE to anything that isn't a ragdoll or has flexes
+	auto mdl = pClientRenderable->GetModel();
+	if(!mdl) mdl = pClientRenderable->GetIClientUnknown()->GetBaseEntity()->GetModel();
+	auto pStudioHdr = pModelInfo->GetStudiomodel(mdl);
+	//Msg("[Prop Fixes] numflexrules is %d\n", pStudioHdr->numflexrules);
+	//Msg("[Prop Fixes] numflexdesc is %d\n", pStudioHdr->numflexdesc);
+	//Msg("[Prop Fixes] numflexcontrollers is %d\n", pStudioHdr->numflexcontrollers);
+	//Msg("[Prop Fixes] numbodyparts is %d\n", pStudioHdr->numbodyparts);
+	//Msg("[Prop Fixes] numbones is %d\n", pStudioHdr->numbones);
+	if (pStudioHdr && !(pStudioHdr->numbones > 1)) {
+		lighting = 0; // LIGHTING_HARDWARE 
+	}
+
 	return pMaterial;
 }
 
@@ -36,8 +53,6 @@ Define_method_Hook(int*, R_StudioDrawDynamicMesh, void*, IMatRenderContext* pRen
 	auto returncode = R_StudioDrawDynamicMesh_trampoline()(_this, pRenderContext, pmesh, pGroup, lighting, r_blend, pMaterial, lod);
 	return returncode;
 }
-
-static StudioRenderConfig_t s_StudioRenderConfig;
  
 void ModelRenderHooks::Initialize() {
 	try { 
@@ -60,10 +75,30 @@ void ModelRenderHooks::Initialize() {
 			return;
 		}
 		g_pStudioRender = (IStudioRender*)createInterface(STUDIO_RENDER_INTERFACE_VERSION, nullptr);
+
+		HMODULE engineLib = LoadLibraryA("engine.dll");
+		if (!engineLib) {
+			Warning("[RTX Remix Fixes 2] - Failed to load engine.dll: error code %d\n", GetLastError());
+			return;
+		}
+
+		CreateInterfaceFn createEngineInterface = (CreateInterfaceFn)GetProcAddress(engineLib, "CreateInterface");
+		if (!createEngineInterface) {
+			Warning("[RTX Remix Fixes 2] - Could not get CreateInterface from engine.dll\n");
+			return;
+		}
+		pModelInfo = (IVModelInfo*)createEngineInterface(VMODELINFO_CLIENT_INTERFACE_VERSION, nullptr);
+		if (!pModelInfo) {
+			Warning("[RTX Remix Fixes 2] - Could not get IVModelInfo interface\n");
+			return;
+		}
 #else
 		Msg("[RTX Remix Fixes 2 - Binary Module] - Loading studiorender\n");
 		if (!Sys_LoadInterface("studiorender", STUDIO_RENDER_INTERFACE_VERSION, NULL, (void**)&g_pStudioRender))
 			Warning("[RTX Remix Fixes 2] - Could not load studiorender interface");
+
+		if (!Sys_LoadInterface("engine", VMODELINFO_CLIENT_INTERFACE_VERSION, NULL, (void**)&pModelInfo))
+			Warning("[RTX Remix Fixes 2] - Could not load IVModelInfo interface");
 #endif
 
 #ifdef _WIN32
@@ -209,8 +244,10 @@ void ModelRenderHooks::Shutdown() {
 	// Existing shutdown code  
 	R_StudioSetupSkinAndLighting_hook.Disable();
 	R_StudioDrawDynamicMesh_hook.Disable();
+#ifdef _WIN64
 	g_MemoryPatcher.DisablePatch("ForceHardwareSkinning2");
 	g_MemoryPatcher.DisablePatch("ForceStaticModel1");
+#endif
 
 	// Log shutdown completion
 	Msg("[Prop Fixes] Shutdown complete\n");

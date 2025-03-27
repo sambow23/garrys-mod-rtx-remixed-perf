@@ -395,8 +395,8 @@ GMOD_MODULE_CLOSE() {
 
 #ifdef _WIN64
         CullingHooks::Instance().Shutdown();
-        ModelRenderHooks::Instance().Shutdown();
 #endif // _WIN64
+        ModelRenderHooks::Instance().Shutdown();
         ModelLoadHooks::Instance().Shutdown();
 
         // // Restore original Present function if needed
