@@ -1,4 +1,3 @@
-
 # Garry's Mod RTX Fixes 2
 ## Features
 ### Universal (x86 and x64)
@@ -18,12 +17,12 @@
 - View Frustrum Forcing (required as x64's culling patches are not complete)
   * Modifies render bounds of static props and light updaters to prevent them getting culled by the view frustrum
 
-## Installation:
+## Installation
 1. Subscribe to [NikNaks](https://steamcommunity.com/sharedfiles/filedetails/?id=2861839844) on the Steam Workshop.
 2. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
 3. Put `RTXLauncher.exe` in an empty folder, run it as an Administrator.
 4. Select `Run Quick Install` on the main screen and follow the prompts when asked.
-5. Profit
+5. Profit.
 
 ## Incompatible Addons
 * (Map) [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) (Breaks other shader-skybox maps)
@@ -37,7 +36,7 @@
 * (Addon) [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860)
    - Consumes a lot of vram, most likely precaching
 
-## Known issues:
+## Known issues
 ### Vanilla
 - Shader skyboxes (gm_flatgrass, gm_construct, etc) cannot be interacted with and may have rendering issues
 - Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them) do not appear or behave strangely (investigating)
