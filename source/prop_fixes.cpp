@@ -136,7 +136,7 @@ void ModelRenderHooks::Initialize() {
 		if (!studiorenderdll) { Msg("studiorender.dll == NULL\n"); }
 
 #ifdef _WIN64
-		static const char R_StudioSetupSkinAndLighting_sign[] = "48 89 54 24 10 48 89 4C 24 08 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 50 48 8B 41 08 45 32 F6 49 63 F0 4D 8B E1 4C 8B EA 4C 8B F9 0F B6 A8 58 02 00 00 48 8B B8 50 02 00 00 40 88 AC 24 A0 00 00 00 83 FE 1F 77 20 4C 8B 84 F0 60 02 00 00 4D 85 C0 74 13 0F B6";
+		static const char R_StudioSetupSkinAndLighting_sign[] = "48 89 54 24 ? 48 89 4C 24 ? 55 56";
 #else
 		static const char R_StudioSetupSkinAndLighting_sign[] = "55 8B EC 83 EC 18 8B C1";
 #endif
