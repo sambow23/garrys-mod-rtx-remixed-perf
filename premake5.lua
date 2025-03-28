@@ -26,6 +26,8 @@ CreateWorkspace({name = "RTXFixesBinary", abi_compatible = false, path = ""})
 		IncludeSDKCommon()
 		IncludeSDKTier0()
 		IncludeSDKTier1()
+		IncludeSDKTier2()
+		IncludeSDKTier3()
 		IncludeSDKMathlib()
 		IncludeHelpersExtended()
 

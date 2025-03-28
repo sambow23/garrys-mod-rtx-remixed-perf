@@ -3,7 +3,7 @@
 
 #define  DELAYIMP_INSECURE_WRITABLE_HOOKS
 #ifdef _WIN32
-#pragma comment(linker, "/DELAYLOAD:tier0.dll")
+#pragma comment(linker, "/DELAYLOAD:\"tier0.dll\"")
 #include <Windows.h>
 #include <DelayImp.h>
 
@@ -56,6 +56,7 @@ __declspec(selectany) PfnDliHook __pfnDliNotifyHook2 = MyDelayLoadHook;
 #include "shader_fixes/shader_hooks.h"
 #endif
 #include "prop_fixes.h" 
+#include "HardwareSkinningHooks.h" 
 #include <culling_fixes.h>
 #include <modelload_fixes.h>
 #include <globalconvars.h>
@@ -354,6 +355,9 @@ GMOD_MODULE_OPEN() {
 #endif //_WIN64
         ModelRenderHooks::Instance().Initialize();
         ModelLoadHooks::Instance().Initialize();
+#ifdef HWSKIN_PATCHES
+        HardwareSkinningHooks::Instance().Initialize();
+#endif //HWSKIN_PATCHES
 
         // Register Lua functions
         LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB); 
@@ -398,6 +402,9 @@ GMOD_MODULE_CLOSE() {
 #endif // _WIN64
         ModelRenderHooks::Instance().Shutdown();
         ModelLoadHooks::Instance().Shutdown();
+#ifdef HWSKIN_PATCHES
+        HardwareSkinningHooks::Instance().Shutdown();
+#endif //HWSKIN_PATCHES
 
         // // Restore original Present function if needed
         // if (Present_Original) {
