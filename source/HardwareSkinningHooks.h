@@ -25,7 +25,7 @@ private:
 // Global data structure for bone data
 struct BoneData_t {
     int bone_count;
-    VMatrix bone_matrices[512];
+    matrix3x4_t bone_matrices[512];
 };
 
 extern BoneData_t g_BONEDATA;

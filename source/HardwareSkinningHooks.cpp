@@ -12,6 +12,7 @@
 #include "istudiorender.h"
 #include "optimize.h"
 #include "materialsystem/imesh.h"
+#include "mathlib/vmatrix.h"
  
 
 // Global variables for bone data handling
@@ -45,17 +46,17 @@ typedef void* (__fastcall* srv_MethodQuadArgRet)(void*, void*, void*, void*, voi
 
 // Helper functions to manipulate matrices, these might be defined elsewhere right now and i actually didnt notice.
 
-void MatrixCopy(const matrix3x4_t& in, VMatrix& out)
-{
-    out.CopyFrom3x4(in);
-}
-
 void MatrixInverseTR(const matrix3x4_t& in, matrix3x4_t& out)
 {
     VMatrix tmp, inverse;
     tmp.CopyFrom3x4(in);
     inverse = tmp.InverseTR();
     memcpy(&out, &inverse, sizeof(matrix3x4_t));
+}
+
+void MatrixCopy(const matrix3x4_t& in, VMatrix& out)
+{
+	out.CopyFrom3x4(in);
 }
 
 // Hook implementation for StudioDrawGroupHWSkin
@@ -190,7 +191,7 @@ Define_method_Hook(void*, R_StudioRenderFinal, void*, IMatRenderContext* pRender
     Msg("Running StudioRenderFinal - MatrixCopy\n");
 
     // TODO, ACTUALLY DO THIS BECAUSE IT CRASHES AND I CANT FIGURE OUT WHY!!!!!
-    // MatrixCopy(m_rgflCoordinateFrame, modelToWorld);
+    MatrixCopy(m_rgflCoordinateFrame, modelToWorld);
 
     Msg("Running StudioRenderFinal - activate_holder = true\n");
     activate_holder = true;
