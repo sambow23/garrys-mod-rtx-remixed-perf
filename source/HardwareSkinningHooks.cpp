@@ -262,7 +262,7 @@ void HardwareSkinningHooks::Initialize() {
         static const char StudioDrawGroupHWSkin_sign[] = "55 8B EC 83 EC 0C 53 8B 5D ? 56";
         static const char StudioBuildMeshGroup_sign[] = "55 8B EC 81 EC 00 02 00 00";
         static const char StudioRenderFinal_sign[] = "55 8B EC 83 EC 10 53 57";
-        static const char SetFixedFunctionStateSkinningMatrices_sign[] = "55 8B EC 83 EC 48 53 8B D9"; // to find this, search for D3DXMatrixTranspose, it's actually SetSkinningMatrices
+        static const char SetFixedFunctionStateSkinningMatrices_sign[] = "55 8B EC 83 EC 48 53 8B D9"; // to find this, search for D3DXMatrixTranspose, it's actually SetSkinningMatrices and SetFixedFunctionStateSkinningMatrices is baked in i think
 #endif
 
         // Scan for function addresses
