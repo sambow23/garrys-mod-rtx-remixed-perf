@@ -218,7 +218,7 @@ Define_method_Hook(void, SetFixedFunctionStateSkinningMatrices, void*)
         return;
 
     // guesses, (206?), 196, 164, copilot reckons 140, 
-    IDirect3DDevice9* m_pD3DDevice = *(IDirect3DDevice9**)((intptr_t)_this + 196);  // NOTE!!!!! Offset might need adjustment, this is just what was given to me as is right now.
+    IDirect3DDevice9* m_pD3DDevice = *(IDirect3DDevice9**)((intptr_t)_this + 164);  // NOTE!!!!! Offset might need adjustment, this is just what was given to me as is right now.
 
     if (g_BONEDATA.bone_count > 1)
         m_pD3DDevice->SetRenderState(D3DRS_INDEXEDVERTEXBLENDENABLE, TRUE);
