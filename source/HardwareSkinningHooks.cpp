@@ -1,3 +1,7 @@
+
+//#define HWSKIN_PATCHES
+
+#ifdef HWSKIN_PATCHES
 #include "HardwareSkinningHooks.h"
 #include "e_utils.h"  
 #include "c_baseentity.h"
@@ -14,6 +18,8 @@
 #include "materialsystem/imesh.h"
 #include "mathlib/vmatrix.h"
  
+
+static IMaterialSystemHardwareConfig* g_pHardwareConfig;
 
 // Global variables for bone data handling
 BoneData_t g_BONEDATA = { -1 };
@@ -203,22 +209,19 @@ Define_method_Hook(void*, R_StudioRenderFinal, void*, IMatRenderContext* pRender
     return ret;
 }
 
+static IDirect3DDevice9Ex* m_pD3DDevice;
 
 // I can't actually find SetFixedFunctionStateSkinningMatrices, only SetSkinningMatrices, so i'm just going to use that for now.
 // BUT unfortunately, I can't actually see this being called at all at runtime???
 Define_method_Hook(void, SetFixedFunctionStateSkinningMatrices, void*)
 {
 	Msg("Running SetFixedFunctionStateSkinningMatrices\n");
-    void* mystery_obj = (void*)((intptr_t)_this + 4);
-    void* mystery_obj_vtable = *(void**)(mystery_obj);
-    srv_MethodSingleArgRet GetMaxBlendMatricies = *(srv_MethodSingleArgRet*)((intptr_t)mystery_obj_vtable + 96);
-    int blend_count = (int)GetMaxBlendMatricies(mystery_obj, edx);
-
+	int blend_count = g_pHardwareConfig->MaxBlendMatrices();
     if (blend_count < 1)
         return;
 
     // guesses, (206?), 196, 164, copilot reckons 140, 
-    IDirect3DDevice9* m_pD3DDevice = *(IDirect3DDevice9**)((intptr_t)_this + 164);  // NOTE!!!!! Offset might need adjustment, this is just what was given to me as is right now.
+    //IDirect3DDevice9* m_pD3DDevice = *(IDirect3DDevice9**)((intptr_t)_this + 164);  // NOTE!!!!! Offset might need adjustment, this is just what was given to me as is right now.
 
     if (g_BONEDATA.bone_count > 1)
         m_pD3DDevice->SetRenderState(D3DRS_INDEXEDVERTEXBLENDENABLE, TRUE);
@@ -236,6 +239,47 @@ Define_method_Hook(void, SetFixedFunctionStateSkinningMatrices, void*)
         m_pD3DDevice->SetTransform(D3DTS_WORLDMATRIX(i), (D3DMATRIX*)&mat);
     }
 }
+
+void* FindD3D9Device() {
+    auto shaderapidx = GetModuleHandle("shaderapidx9.dll");
+    if (!shaderapidx) {
+        Error("[RTX Remix Fixes 2 - Binary Module] Failed to get shaderapidx9.dll module\n");
+        return nullptr;
+    }
+
+    Msg("[RTX Remix Fixes 2 - Binary Module] shaderapidx9.dll module: %p\n", shaderapidx);
+
+#ifdef _WIN64
+    static const char sign[] = "BA E1 0D 74 5E 48 89 1D ?? ?? ?? ??";
+    auto ptr = ScanSign(shaderapidx, sign, sizeof(sign) - 1);
+    if (!ptr) {
+        Error("[RTX Remix Fixes 2 - Binary Module] Failed to find D3D9Device signature\n");
+        return nullptr;
+    }
+
+    auto offset = ((uint32_t*)ptr)[2];
+    auto device = *(IDirect3DDevice9Ex**)((char*)ptr + offset + 12);
+    if (!device) {
+        Error("[RTX Remix Fixes 2 - Binary Module] D3D9Device pointer is null\n");
+        return nullptr;
+    }
+
+    return device;
+#else
+    //A1 ?? ?? ?? ?? 6A 00 56 6A 00 8B 08 6A 15 68 ?? ?? ?? ?? 6A 00 6A 01 6A 01 50 FF 51 5C 85 C0 79 06 C7 06 ?? ?? ?? ??
+    //A1 ?? ?? ?? ?? 6A 00 56 6A 00 8B
+    //A1 ?? ?? ?? ?? 50 8B 08 FF 51 0C
+    //A1 ?? ?? ?? ?? 8B 08 8B 51 5C 6A
+    static const char sign[] = "A1 ?? ?? ?? ?? 6A 00 56 6A 00 8B 08 6A 15 68 ?? ?? ?? ?? 6A 00 6A 01 6A 01 50 FF 51 5C 85 C0 79 06 C7 06 ?? ?? ?? ??";
+    auto ptr = **(IDirect3DDevice9Ex***)(ScanSign(shaderapidx, sign, sizeof(sign) - 1));
+    if (!ptr) {
+        Error("[RTX Remix Fixes 2 - Binary Module] Failed to find D3D9Device signature\n");
+        return nullptr;
+    }
+    return ptr;
+#endif
+}
+
 void HardwareSkinningHooks::Initialize() {
     try {
         Msg("[Hardware Skinning] - Initializing...\n");
@@ -252,6 +296,34 @@ void HardwareSkinningHooks::Initialize() {
             Msg("[Hardware Skinning] - materialsystem.dll == NULL\n");
             return;
         }
+
+        auto shaderapidx9dll = GetModuleHandle("shaderapidx9.dll");
+        if (!shaderapidx9dll) {
+            Msg("[Hardware Skinning] - shaderapidx9.dll == NULL\n");
+            return;
+        }
+
+        m_pD3DDevice = static_cast<IDirect3DDevice9Ex*>(FindD3D9Device());
+
+        // get g_pHardwareConfig global interface (MATERIALSYSTEM_HARDWARECONFIG_INTERFACE_VERSION)
+#ifdef _WIN32
+		Msg("[RTX Remix Fixes 2 - Binary Module] - Loading materialsystem\n");
+        HMODULE materialsystemLib = LoadLibraryA("materialsystem.dll");
+        if (!materialsystemLib) {
+            Warning("[RTX Remix Fixes 2] - Failed to load materialsystem.dll: error code %d\n", GetLastError());
+            return;
+        }
+
+        using CreateInterfaceFn = void* (*)(const char* pName, int* pReturnCode);
+        CreateInterfaceFn createInterface = (CreateInterfaceFn)GetProcAddress(materialsystemLib, "CreateInterface");
+        if (!createInterface) {
+            Warning("[RTX Remix Fixes 2] - Could not get CreateInterface from materialsystem.dll\n");
+            return;
+        }
+        g_pHardwareConfig = (IMaterialSystemHardwareConfig*)createInterface(MATERIALSYSTEM_HARDWARECONFIG_INTERFACE_VERSION, nullptr);
+#endif
+
+
 
 		// Define signature patterns for the functions we need to hook, copilot wanted to autocomplete these so i let it lmao, Still have yet to actually find the signatures
 #ifdef _WIN64
@@ -270,7 +342,7 @@ void HardwareSkinningHooks::Initialize() {
         auto StudioDrawGroupHWSkin_addr = ScanSign(studiorenderdll, StudioDrawGroupHWSkin_sign, sizeof(StudioDrawGroupHWSkin_sign) - 1);
         auto StudioBuildMeshGroup_addr = ScanSign(studiorenderdll, StudioBuildMeshGroup_sign, sizeof(StudioBuildMeshGroup_sign) - 1);
         auto StudioRenderFinal_addr = ScanSign(studiorenderdll, StudioRenderFinal_sign, sizeof(StudioRenderFinal_sign) - 1);
-        auto SetFixedFunctionStateSkinningMatrices_addr = ScanSign(materialsystemdll, SetFixedFunctionStateSkinningMatrices_sign, sizeof(SetFixedFunctionStateSkinningMatrices_sign) - 1);
+        auto SetFixedFunctionStateSkinningMatrices_addr = ScanSign(shaderapidx9dll, SetFixedFunctionStateSkinningMatrices_sign, sizeof(SetFixedFunctionStateSkinningMatrices_sign) - 1);
 
         modelToWorld.SetToIdentity();
 
@@ -300,9 +372,9 @@ void HardwareSkinningHooks::Initialize() {
             (F_SetFixedFunctionStateSkinningMatrices)SetFixedFunctionStateSkinningMatrices_addr;
 
         // Create and enable the hooks
-        Setup_Hook(R_StudioDrawGroupHWSkin, StudioDrawGroupHWSkin_addr);
-        Setup_Hook(R_StudioBuildMeshGroup, StudioBuildMeshGroup_addr);
-        Setup_Hook(R_StudioRenderFinal, StudioRenderFinal_addr);
+        //Setup_Hook(R_StudioDrawGroupHWSkin, StudioDrawGroupHWSkin_addr);
+        //Setup_Hook(R_StudioBuildMeshGroup, StudioBuildMeshGroup_addr);
+        //Setup_Hook(R_StudioRenderFinal, StudioRenderFinal_addr);
 
         if (SetFixedFunctionStateSkinningMatrices_addr) {
             Setup_Hook(SetFixedFunctionStateSkinningMatrices, SetFixedFunctionStateSkinningMatrices_addr);
@@ -334,3 +406,4 @@ void HardwareSkinningHooks::Shutdown() {
         Msg("[Hardware Skinning] - Exception in HardwareSkinningHooks::Shutdown\n");
     }
 }
+#endif

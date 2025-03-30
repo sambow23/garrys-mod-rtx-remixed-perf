@@ -40,6 +40,8 @@ Define_method_Hook(IMaterial*, R_StudioSetupSkinAndLighting, void*, IMatRenderCo
 		lighting = 0; // LIGHTING_HARDWARE 
 	}
 
+	lighting = 0; // LIGHTING_HARDWARE 
+
 	return pMaterial;
 }
 

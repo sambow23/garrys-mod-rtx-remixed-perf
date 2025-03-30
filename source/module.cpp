@@ -280,6 +280,8 @@ LUA_FUNCTION(PrintRemixUIState) {
     }
 }
 
+//#define HWSKIN_PATCHES
+
 GMOD_MODULE_OPEN() { 
     try {
         Msg("[RTX Remix Fixes 2 - Binary Module] - Module loaded!\n"); 
