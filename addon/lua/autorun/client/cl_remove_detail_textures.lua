@@ -11,7 +11,7 @@ local apply_delay = CreateConVar("dtexture_remover_delay", "0", FCVAR_ARCHIVE, "
 local debug_mode = CreateConVar("dtexture_remover_debug", "0", FCVAR_ARCHIVE, "Enable debugging output")
 
 -- The replacement texture - using the error texture
-local replacementTexture = "dev/dev_exclude_error"
+local replacementTexture = "rtx/ignore"
 
 -- Keep track of modified materials to avoid reprocessing
 local modifiedMaterials = {}
