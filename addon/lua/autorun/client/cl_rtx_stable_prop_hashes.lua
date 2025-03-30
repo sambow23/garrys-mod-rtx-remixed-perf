@@ -22,6 +22,7 @@ local function FixupModelMaterial(mat)
 
     -- Safe way to set flags2
     local newFlags = bit.band(flags2, bit.bnot(512))
+    --newFlags = bit.bor(newFlags, 131072)
     success = pcall(function()
         mat:SetInt("$flags2", newFlags)
     end)
