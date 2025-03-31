@@ -35,7 +35,7 @@ Define_method_Hook(IMaterial*, R_StudioSetupSkinAndLighting, void*, IMatRenderCo
 	{
 		auto mdl = pClientRenderable->GetModel();
 		if (!mdl) mdl = pClientRenderable->GetIClientUnknown()->GetBaseEntity()->GetModel();
-		if (mdl)
+		if (mdl && pModelInfo)
 		{
 			auto pStudioHdr = pModelInfo->GetStudiomodel(mdl);
 			if (pStudioHdr && !(pStudioHdr->numbones > 1)) {
@@ -111,30 +111,34 @@ void ModelRenderHooks::Initialize() {
 
 #ifdef _WIN32
 		// Use direct vtable call to avoid calling convention issues
-		typedef void(__thiscall* GetConfigFn)(void*, StudioRenderConfig_t&);
-		void** vtable = *reinterpret_cast<void***>(g_pStudioRender);
-		GetConfigFn GetConfig = reinterpret_cast<GetConfigFn>(vtable[9]); // GetCurrentConfig at index 9
-		GetConfig(g_pStudioRender, s_StudioRenderConfig);
+		if (g_pStudioRender) {
+			typedef void(__thiscall* GetConfigFn)(void*, StudioRenderConfig_t&);
+			void** vtable = *reinterpret_cast<void***>(g_pStudioRender);
+			GetConfigFn GetConfig = reinterpret_cast<GetConfigFn>(vtable[9]); // GetCurrentConfig at index 9
+			GetConfig(g_pStudioRender, s_StudioRenderConfig);
 
-		s_StudioRenderConfig.bSoftwareSkin = false;
-		s_StudioRenderConfig.bSoftwareLighting = false;
-		s_StudioRenderConfig.bDrawNormals = false;
-		s_StudioRenderConfig.bDrawTangentFrame = false;
-		//s_StudioRenderConfig.bFlex = false;
+			s_StudioRenderConfig.bSoftwareSkin = false;
+			s_StudioRenderConfig.bSoftwareLighting = false;
+			s_StudioRenderConfig.bDrawNormals = false;
+			s_StudioRenderConfig.bDrawTangentFrame = false;
+			//s_StudioRenderConfig.bFlex = false;
 
-		// Similarly for UpdateConfig
-		typedef void(__thiscall* UpdateConfigFn)(void*, const StudioRenderConfig_t&);
-		UpdateConfigFn UpdateConfig = reinterpret_cast<UpdateConfigFn>(vtable[8]); // UpdateConfig at index 8
-		UpdateConfig(g_pStudioRender, s_StudioRenderConfig);
+			// Similarly for UpdateConfig
+			typedef void(__thiscall* UpdateConfigFn)(void*, const StudioRenderConfig_t&);
+			UpdateConfigFn UpdateConfig = reinterpret_cast<UpdateConfigFn>(vtable[8]); // UpdateConfig at index 8
+			UpdateConfig(g_pStudioRender, s_StudioRenderConfig);
+		}
 #else
 		// 64-bit code remains unchanged
-		g_pStudioRender->GetCurrentConfig(s_StudioRenderConfig);
-		s_StudioRenderConfig.bSoftwareSkin = false;
-		s_StudioRenderConfig.bSoftwareLighting = false;
-		s_StudioRenderConfig.bDrawNormals = false;
-		s_StudioRenderConfig.bDrawTangentFrame = false;
-		//s_StudioRenderConfig.bFlex = false;
-		g_pStudioRender->UpdateConfig(s_StudioRenderConfig);
+		if (g_pStudioRender) {
+			g_pStudioRender->GetCurrentConfig(s_StudioRenderConfig);
+			s_StudioRenderConfig.bSoftwareSkin = false;
+			s_StudioRenderConfig.bSoftwareLighting = false;
+			s_StudioRenderConfig.bDrawNormals = false;
+			s_StudioRenderConfig.bDrawTangentFrame = false;
+			//s_StudioRenderConfig.bFlex = false;
+			g_pStudioRender->UpdateConfig(s_StudioRenderConfig);
+		}
 #endif
 
 		// end config stuff
