@@ -187,7 +187,6 @@ Define_method_Hook(void*, R_StudioRenderFinal, void*, IMatRenderContext* pRender
 
     Msg("Running StudioRenderFinal - MatrixCopy\n");
 
-    // TODO, ACTUALLY DO THIS BECAUSE IT CRASHES AND I CANT FIGURE OUT WHY!!!!!
     TinyMathLib_MatrixCopy(m_rgflCoordinateFrame, modelToWorld);
 
     Msg("Running StudioRenderFinal - activate_holder = true\n");
