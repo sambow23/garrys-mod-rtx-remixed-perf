@@ -22,6 +22,14 @@ void TinyMathLib_MatrixCopy(const matrix3x4_t& in, VMatrix& out)
     out.CopyFrom3x4(in);
 }
 
+void TinyMathLib_MatrixCopy(const VMatrix& src, VMatrix& dst)
+{
+	if (&src != &dst)
+	{
+		memcpy(dst.m, src.m, 16 * sizeof(float));
+	}
+}
+
 vec_t TinyMathLib_DotProduct(const vec_t* v1, const vec_t* v2)
 {
     return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];

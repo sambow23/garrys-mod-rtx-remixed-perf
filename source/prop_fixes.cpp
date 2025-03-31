@@ -29,16 +29,19 @@ Define_method_Hook(IMaterial*, R_StudioSetupSkinAndLighting, void*, IMatRenderCo
 	}
 #endif
 	// only force LIGHTING_HARDWARE to anything that isn't a ragdoll or has flexes
-	auto mdl = pClientRenderable->GetModel();
-	if(!mdl) mdl = pClientRenderable->GetIClientUnknown()->GetBaseEntity()->GetModel();
-	auto pStudioHdr = pModelInfo->GetStudiomodel(mdl);
-	//Msg("[Prop Fixes] numflexrules is %d\n", pStudioHdr->numflexrules);
-	//Msg("[Prop Fixes] numflexdesc is %d\n", pStudioHdr->numflexdesc);
-	//Msg("[Prop Fixes] numflexcontrollers is %d\n", pStudioHdr->numflexcontrollers);
-	//Msg("[Prop Fixes] numbodyparts is %d\n", pStudioHdr->numbodyparts);
-	//Msg("[Prop Fixes] numbones is %d\n", pStudioHdr->numbones);
-	if (pStudioHdr && !(pStudioHdr->numbones > 1)) {
-		lighting = 0; // LIGHTING_HARDWARE 
+	
+	// this crashes if an entity is deleted while being rendered, so we need to check if it's valid
+	if (pClientRenderable && pClientRenderable->GetIClientUnknown() && pClientRenderable->GetIClientUnknown()->GetBaseEntity())
+	{
+		auto mdl = pClientRenderable->GetModel();
+		if (!mdl) mdl = pClientRenderable->GetIClientUnknown()->GetBaseEntity()->GetModel();
+		if (mdl)
+		{
+			auto pStudioHdr = pModelInfo->GetStudiomodel(mdl);
+			if (pStudioHdr && !(pStudioHdr->numbones > 1)) {
+				lighting = 0; // LIGHTING_HARDWARE 
+			}
+		}
 	}
 
 #ifdef HWSKIN_PATCHES

@@ -11,6 +11,8 @@
 
 static IMaterialSystemHardwareConfig* g_pHardwareConfig;
 
+static IDirect3DDevice9* m_pD3DDevice;
+
 // Global variables for bone data handling
 BoneData_t g_BONEDATA = { -1 };
 static bool activate_holder = false;
@@ -43,9 +45,6 @@ typedef void* (__fastcall* srv_MethodQuadArgRet)(void*, void*, void*, void*, voi
 // Hook implementation for StudioDrawGroupHWSkin
 Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRenderContext, studiomeshgroup_t* pGroup, IMesh* pMesh, ColorMeshInfo_t* pColorMeshInfo)
 {
-	Msg("Running R_StudioDrawGroupHWSkin\n");
-
-    Msg("Running pStudioHdr =\n");
     studiohdr_t* pStudioHdr = *(studiohdr_t**)((long int)_this + 44 * sizeof(void*));
     if (pStudioHdr->numbones == 1 || !activate_holder)
     {
@@ -54,17 +53,13 @@ Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRend
 
     int numberTrianglesRendered = 0;
 
-
-    Msg("getting m_pBoneToWorld =\n");
     matrix3x4_t* m_pBoneToWorld = *(matrix3x4_t**)((intptr_t)_this + 39 * sizeof(void*));
     matrix3x4_t* m_PoseToWorld = *(matrix3x4_t**)((intptr_t)_this + 40 * sizeof(void*));
     int zero = 0;
 
-    Msg("Running MatrixInvert modelToWorld\n");
     matrix3x4_t worldToModel;
     TinyMathLib_MatrixInvert(modelToWorld, worldToModel);
     matrix3x4_t temp_pBoneToWorld[512];
-    Msg("Running for pStudioHdr numbones\n");
     for (int i = 0; i < pStudioHdr->numbones; i++)
     {
         mstudiobone_t* bdata = pStudioHdr->pBone(i);
@@ -74,14 +69,12 @@ Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRend
     }
 
     matrix3x4_t new_BoneToWorld[512];
-    Msg("Running for pStudioHdr numbones (2)\n");
     for (int i = 0; i < pStudioHdr->numbones; i++)
     {
         TinyMathLib_ConcatTransforms(worldToModel, temp_pBoneToWorld[i], new_BoneToWorld[i]);
     }
 
     matrix3x4_t new_PoseToWorld[512];
-    Msg("Running for pStudioHdr numbones (3)\n");
     for (int i = 0; i < pStudioHdr->numbones; i++)
     {
         mstudiobone_t* bdata = pStudioHdr->pBone(i);
@@ -133,10 +126,7 @@ Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRend
         pMesh->SetColorMesh(NULL,0);
 
         // Increment Magic
-        void* m_uniqueTris_Base = *(void**)((intptr_t)pGroup + 28);
-        void* m_pUniqueTris = (void*)((intptr_t)m_uniqueTris_Base + (4 * i));
-        int triangle_count = *(int*)m_pUniqueTris;
-        numberTrianglesRendered += triangle_count;
+        numberTrianglesRendered += pGroup->m_pUniqueTris[i];
     }
     g_BONEDATA.bone_count = -1;
 
@@ -149,7 +139,6 @@ Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRend
     pRenderContext->MatrixMode(MATERIAL_MODEL);
     pRenderContext->LoadIdentity();
 
-    Msg("Finished R_StudioDrawGroupHWSkin\n");
     return numberTrianglesRendered;
 }
 
@@ -174,35 +163,19 @@ Define_method_Hook(void*, R_StudioRenderFinal, void*, IMatRenderContext* pRender
     int skin, int nBodyPartCount, void* pBodyPartInfo, IClientEntity* pClientEntity,
     IMaterial** ppMaterials, int* pMaterialFlags, int boneMask, int lod, ColorMeshInfo_t* pColorMeshes)
 {
-	Msg("Running StudioRenderFinal\n");
-
-    Msg("Running m_rgflCoordinateFrame =\n");
     matrix3x4_t m_rgflCoordinateFrame = *(matrix3x4_t*)((intptr_t)pClientEntity + 776);  // NOTE!!!!! Offset might need adjustment, this is just what was given to me as is right now.
-	
-    //matrix3x4_t m_rgflCoordinateFrame;
-
-    // get from entity instead if possible (pClientEntity->GetBaseEntity()->EntityToWorldTransform();)
-
-    //m_rgflCoordinateFrame = pClientEntity->RenderableToWorldTransform();//GetBaseEntity()->EntityToWorldTransform();
-
-    Msg("Running StudioRenderFinal - MatrixCopy\n");
 
     TinyMathLib_MatrixCopy(m_rgflCoordinateFrame, modelToWorld);
 
-    Msg("Running StudioRenderFinal - activate_holder = true\n");
     activate_holder = true;
-    Msg("Running StudioRenderFinal - R_StudioRenderFinal_trampoline\n");
     void* ret = R_StudioRenderFinal_trampoline()(_this, pRenderContext, skin, nBodyPartCount, pBodyPartInfo, pClientEntity, ppMaterials, pMaterialFlags, boneMask, lod, pColorMeshes);
-    Msg("Running StudioRenderFinal - activate_holder = false\n");
     activate_holder = false;
-    Msg("Running StudioRenderFinal - return\n");
+
     return ret;
 }
 
-static IDirect3DDevice9* m_pD3DDevice;
-
 // I can't actually find SetFixedFunctionStateSkinningMatrices, only SetSkinningMatrices, so i'm just going to use that for now.
-// BUT unfortunately, I can't actually see this being called at all at runtime???
+// (EDIT: i see it being called now) --BUT unfortunately, I can't actually see this being called at all at runtime???--
 Define_method_Hook(void, SetFixedFunctionStateSkinningMatrices, void*)
 {
 	//Msg("Running SetFixedFunctionStateSkinningMatrices\n");
