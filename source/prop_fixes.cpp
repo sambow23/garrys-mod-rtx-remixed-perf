@@ -1,4 +1,4 @@
-#define HWSKIN_PATCHES
+//#define HWSKIN_PATCHES
 #include "GarrysMod/Lua/Interface.h" 
 #include "e_utils.h"  
 #include "iclientrenderable.h"

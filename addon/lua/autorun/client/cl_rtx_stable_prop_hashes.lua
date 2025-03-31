@@ -1,6 +1,7 @@
 if (BRANCH == "x86-64" or BRANCH == "chromium") then return end
 if not CLIENT then return end
 CreateClientConVar(	"rtx_disablevertexlighting", 0,  true, false) 
+CreateClientConVar(	"rtx_drawfix", 1,  true, false) 
 
 
 local function FixupModelMaterial(mat)
@@ -34,7 +35,11 @@ end
 
 local function DrawFix( self, flags )
     if (GetConVar( "mat_fullbright" ):GetBool()) then return end
-    render.SuppressEngineLighting( GetConVar( "rtx_disablevertexlighting" ):GetBool() )
+    if (!GetConVar( "rtx_drawfix" ):GetBool()) then 
+        self:DrawModel(flags) -- Fix hash instability
+        return 
+    end
+    --render.SuppressEngineLighting( GetConVar( "rtx_disablevertexlighting" ):GetBool() )
 
 	if (self:GetMaterial() != "") then -- Fixes material tool and lua SetMaterial
 		render.MaterialOverride(Material(self:GetMaterial()))
@@ -48,7 +53,7 @@ local function DrawFix( self, flags )
  
 	self:DrawModel(bit.bor(flags, STUDIO_STATIC_LIGHTING)) -- Fix hash instability
 	render.MaterialOverride(nil)
-    render.SuppressEngineLighting( false )
+    --render.SuppressEngineLighting( false )
 
 end
 

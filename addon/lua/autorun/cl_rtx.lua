@@ -149,48 +149,48 @@ local function MaterialFixups()
 end
 
 -- Entity management
-local function DrawFix(self, flags)
-    if cv_experimental_manuallight:GetBool() then return end
-    render.SuppressEngineLighting(cv_disablevertexlighting:GetBool())
+-- local function DrawFix(self, flags)
+--     if cv_experimental_manuallight:GetBool() then return end
+--     render.SuppressEngineLighting(cv_disablevertexlighting:GetBool())
 
-    -- Handle material overrides
-    if self:GetMaterial() ~= "" then
-        render.MaterialOverride(Material(self:GetMaterial()))
-    end
+--     -- Handle material overrides
+--     if self:GetMaterial() ~= "" then
+--         render.MaterialOverride(Material(self:GetMaterial()))
+--     end
 
-    -- Handle submaterials
-    for k, _ in pairs(self:GetMaterials()) do
-        if self:GetSubMaterial(k - 1) ~= "" then
-            render.MaterialOverrideByIndex(k - 1, Material(self:GetSubMaterial(k - 1)))
-        end
-    end
+--     -- Handle submaterials
+--     for k, _ in pairs(self:GetMaterials()) do
+--         if self:GetSubMaterial(k - 1) ~= "" then
+--             render.MaterialOverrideByIndex(k - 1, Material(self:GetSubMaterial(k - 1)))
+--         end
+--     end
 
-    -- Draw the model with static lighting
-    self:DrawModel(flags + STUDIO_STATIC_LIGHTING)
-    render.MaterialOverride(nil)
-    render.SuppressEngineLighting(false)
-end
+--     -- Draw the model with static lighting
+--     self:DrawModel(flags + STUDIO_STATIC_LIGHTING)
+--     render.MaterialOverride(nil)
+--     render.SuppressEngineLighting(false)
+-- end
 
-local function FixupEntity(ent)
-    if IsValid(ent) and ent:GetClass() ~= "procedural_shard" then
-        ent.RenderOverride = DrawFix
-    end
-end
+-- local function FixupEntity(ent)
+--     if IsValid(ent) and ent:GetClass() ~= "procedural_shard" then
+--         ent.RenderOverride = DrawFix
+--     end
+-- end
 
-local function FixupEntities()
-    for _, ent in pairs(ents.GetAll()) do
-        FixupEntity(ent)
-    end
-end
+-- local function FixupEntities()
+--     for _, ent in pairs(ents.GetAll()) do
+--         FixupEntity(ent)
+--     end
+-- end
 
 -- RTX initialization
 local function RTXLoad()
     print("[RTX Remix Fixes 2] - Initializing Client")
 
     -- Set up console commands
-    RunConsoleCommand("r_radiosity", "0")
+    --RunConsoleCommand("r_radiosity", "0")
     RunConsoleCommand("r_PhysPropStaticLighting", "1")
-    RunConsoleCommand("r_colorstaticprops", "0")
+    --RunConsoleCommand("r_colorstaticprops", "0")
     RunConsoleCommand("r_lightinterp", "0")
     RunConsoleCommand("mat_fullbright", cv_experimental_manuallight:GetBool() and "1" or "0")
 
@@ -208,7 +208,7 @@ local function RTXLoad()
     end
 
     -- Initialize systems
-    FixupEntities()
+    -- FixupEntities()
     halo.Add = function() end
 
     if cv_fixmaterials:GetBool() then
@@ -238,8 +238,7 @@ end
 hook.Add("InitPostEntity", "RTXReady", RTXLoad)
 hook.Add("PreRender", "RTXPreRender", PreRender)
 hook.Add("PreDrawOpaqueRenderables", "RTXPreRenderOpaque", PreRender)
-hook.Add("PreDrawTranslucentRenderables", "RTXPreRenderTranslucent", PreRender)
-hook.Add("OnEntityCreated", "RTXEntityFixups", FixupEntity)
+hook.Add("PreDrawTranslucentRenderables", "RTXPreRenderTranslucent", PreRender) 
 
 -- Console commands
 concommand.Add("rtx_fixnow", RTXLoad)

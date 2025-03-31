@@ -1,3 +1,4 @@
+//#define HWSKIN_PATCHES
 #include "GarrysMod/Lua/Interface.h"
 
 
@@ -279,8 +280,6 @@ LUA_FUNCTION(PrintRemixUIState) {
         return 0;
     }
 }
-
-#define HWSKIN_PATCHES
 
 GMOD_MODULE_OPEN() { 
     try {
