@@ -35,7 +35,7 @@ end
 
 local function DrawFix( self, flags )
     if (GetConVar( "mat_fullbright" ):GetBool()) then return end
-    if (!GetConVar( "rtx_drawfix" ):GetBool()) then 
+    if (GetConVar( "rtx_drawfix" ):GetBool() == false) then 
         self:DrawModel(flags) -- Fix hash instability
         return 
     end
