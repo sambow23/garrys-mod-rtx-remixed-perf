@@ -280,7 +280,7 @@ LUA_FUNCTION(PrintRemixUIState) {
     }
 }
 
-//#define HWSKIN_PATCHES
+#define HWSKIN_PATCHES
 
 GMOD_MODULE_OPEN() { 
     try {
@@ -355,11 +355,11 @@ GMOD_MODULE_OPEN() {
         //CullingHooks::Instance().Initialize();  // Disabling for now until we get the full set of culling patches for x64.
 #endif //CULLING_PATCHES
 #endif //_WIN64
-        ModelRenderHooks::Instance().Initialize();
-        ModelLoadHooks::Instance().Initialize();
 #ifdef HWSKIN_PATCHES
         HardwareSkinningHooks::Instance().Initialize();
 #endif //HWSKIN_PATCHES
+        ModelRenderHooks::Instance().Initialize();
+        ModelLoadHooks::Instance().Initialize();
 
         // Register Lua functions
         LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB); 
@@ -402,11 +402,11 @@ GMOD_MODULE_CLOSE() {
 #ifdef _WIN64
         CullingHooks::Instance().Shutdown();
 #endif // _WIN64
-        ModelRenderHooks::Instance().Shutdown();
-        ModelLoadHooks::Instance().Shutdown();
 #ifdef HWSKIN_PATCHES
         HardwareSkinningHooks::Instance().Shutdown();
 #endif //HWSKIN_PATCHES
+        ModelRenderHooks::Instance().Shutdown();
+        ModelLoadHooks::Instance().Shutdown();
 
         // // Restore original Present function if needed
         // if (Present_Original) {

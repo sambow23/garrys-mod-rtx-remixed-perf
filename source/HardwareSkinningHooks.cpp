@@ -1,22 +1,12 @@
 
-//#define HWSKIN_PATCHES
+#define HWSKIN_PATCHES
 
 #ifdef HWSKIN_PATCHES
+
 #include "HardwareSkinningHooks.h"
 #include "e_utils.h"  
-#include "c_baseentity.h"
-#include "iclientrenderable.h"
-#include "engine/ivmodelinfo.h"
-#include "interfaces/interfaces.h"
-#include <memory_patcher.h>
-#include "icliententity.h"
-#include "bone_setup.h"
-#include "studio.h"
-#include "materialsystem/imaterialsystem.h"
-#include "istudiorender.h"
+#include "cbase.h"
 #include "optimize.h"
-#include "materialsystem/imesh.h"
-#include "mathlib/vmatrix.h"
  
 
 static IMaterialSystemHardwareConfig* g_pHardwareConfig;
@@ -59,16 +49,18 @@ void MatrixInverseTR(const matrix3x4_t& in, matrix3x4_t& out)
     inverse = tmp.InverseTR();
     memcpy(&out, &inverse, sizeof(matrix3x4_t));
 }
-
 void MatrixCopy(const matrix3x4_t& in, VMatrix& out)
 {
 	out.CopyFrom3x4(in);
 }
 
+
 // Hook implementation for StudioDrawGroupHWSkin
 Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRenderContext, studiomeshgroup_t* pGroup, IMesh* pMesh, ColorMeshInfo_t* pColorMeshInfo)
 {
 	Msg("Running R_StudioDrawGroupHWSkin\n");
+
+    Msg("Running pStudioHdr =\n");
     studiohdr_t* pStudioHdr = *(studiohdr_t**)((long int)_this + 44 * sizeof(void*));
     if (pStudioHdr->numbones == 1 || !activate_holder)
     {
@@ -77,18 +69,23 @@ Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRend
 
     int numberTrianglesRendered = 0;
 
+
+    Msg("getting m_pBoneToWorld =\n");
     matrix3x4_t* m_pBoneToWorld = *(matrix3x4_t**)((intptr_t)_this + 39 * sizeof(void*));
     matrix3x4_t* m_PoseToWorld = *(matrix3x4_t**)((intptr_t)_this + 40 * sizeof(void*));
     int zero = 0;
 
+    Msg("Running MatrixInvert modelToWorld\n");
     matrix3x4_t worldToModel;
     MatrixInvert(modelToWorld, worldToModel);
     matrix3x4_t temp_pBoneToWorld[512];
+    Msg("Running for pStudioHdr numbones\n");
     for (int i = 0; i < pStudioHdr->numbones; i++)
     {
         mstudiobone_t* bdata = pStudioHdr->pBone(i);
         matrix3x4_t invert;
         MatrixInverseTR(bdata->poseToBone, invert);
+        Msg("Running ConcatTransforms m_PoseToWorld temp_pBoneToWorld\n");
         ConcatTransforms(m_PoseToWorld[i], invert, temp_pBoneToWorld[i]);
     }
 
@@ -173,7 +170,7 @@ Define_method_Hook(void*, R_StudioBuildMeshGroup, void*, const char* pModelName,
     OptimizedModel::StripGroupHeader_t* pStripGroup, mstudiomesh_t* pMesh,
     studiohdr_t* pStudioHdr, VertexFormat_t vertexFormat)
 {
-	Msg("Running R_StudioBuildMeshGroup\n");
+	//Msg("Running R_StudioBuildMeshGroup\n");
     if (pStudioHdr->numbones > 0 && !(pStripGroup->flags & 0x02))
     {
         pMeshGroup->m_Flags |= 2u;
@@ -190,32 +187,32 @@ Define_method_Hook(void*, R_StudioRenderFinal, void*, IMatRenderContext* pRender
     int skin, int nBodyPartCount, void* pBodyPartInfo, IClientEntity* pClientEntity,
     IMaterial** ppMaterials, int* pMaterialFlags, int boneMask, int lod, ColorMeshInfo_t* pColorMeshes)
 {
-	Msg("Running StudioRenderFinal\n");
+	//Msg("Running StudioRenderFinal\n");
 
-    Msg("Running m_rgflCoordinateFrame =\n");
+    //Msg("Running m_rgflCoordinateFrame =\n");
     matrix3x4_t m_rgflCoordinateFrame = *(matrix3x4_t*)((intptr_t)pClientEntity + 776);  // NOTE!!!!! Offset might need adjustment, this is just what was given to me as is right now.
-    Msg("Running StudioRenderFinal - MatrixCopy\n");
+    //Msg("Running StudioRenderFinal - MatrixCopy\n");
 
     // TODO, ACTUALLY DO THIS BECAUSE IT CRASHES AND I CANT FIGURE OUT WHY!!!!!
     //MatrixCopy(m_rgflCoordinateFrame, modelToWorld);
 
-    Msg("Running StudioRenderFinal - activate_holder = true\n");
+    //Msg("Running StudioRenderFinal - activate_holder = true\n");
     activate_holder = true;
-    Msg("Running StudioRenderFinal - R_StudioRenderFinal_trampoline\n");
+    //Msg("Running StudioRenderFinal - R_StudioRenderFinal_trampoline\n");
     void* ret = R_StudioRenderFinal_trampoline()(_this, pRenderContext, skin, nBodyPartCount, pBodyPartInfo, pClientEntity, ppMaterials, pMaterialFlags, boneMask, lod, pColorMeshes);
-    Msg("Running StudioRenderFinal - activate_holder = false\n");
+    //Msg("Running StudioRenderFinal - activate_holder = false\n");
     activate_holder = false;
-    Msg("Running StudioRenderFinal - return\n");
+    //Msg("Running StudioRenderFinal - return\n");
     return ret;
 }
 
-static IDirect3DDevice9Ex* m_pD3DDevice;
+static IDirect3DDevice9* m_pD3DDevice;
 
 // I can't actually find SetFixedFunctionStateSkinningMatrices, only SetSkinningMatrices, so i'm just going to use that for now.
 // BUT unfortunately, I can't actually see this being called at all at runtime???
 Define_method_Hook(void, SetFixedFunctionStateSkinningMatrices, void*)
 {
-	Msg("Running SetFixedFunctionStateSkinningMatrices\n");
+	//Msg("Running SetFixedFunctionStateSkinningMatrices\n");
 	int blend_count = g_pHardwareConfig->MaxBlendMatrices();
     if (blend_count < 1)
         return;
@@ -238,46 +235,6 @@ Define_method_Hook(void, SetFixedFunctionStateSkinningMatrices, void*)
 
         m_pD3DDevice->SetTransform(D3DTS_WORLDMATRIX(i), (D3DMATRIX*)&mat);
     }
-}
-
-void* FindD3D9Device() {
-    auto shaderapidx = GetModuleHandle("shaderapidx9.dll");
-    if (!shaderapidx) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Failed to get shaderapidx9.dll module\n");
-        return nullptr;
-    }
-
-    Msg("[RTX Remix Fixes 2 - Binary Module] shaderapidx9.dll module: %p\n", shaderapidx);
-
-#ifdef _WIN64
-    static const char sign[] = "BA E1 0D 74 5E 48 89 1D ?? ?? ?? ??";
-    auto ptr = ScanSign(shaderapidx, sign, sizeof(sign) - 1);
-    if (!ptr) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Failed to find D3D9Device signature\n");
-        return nullptr;
-    }
-
-    auto offset = ((uint32_t*)ptr)[2];
-    auto device = *(IDirect3DDevice9Ex**)((char*)ptr + offset + 12);
-    if (!device) {
-        Error("[RTX Remix Fixes 2 - Binary Module] D3D9Device pointer is null\n");
-        return nullptr;
-    }
-
-    return device;
-#else
-    //A1 ?? ?? ?? ?? 6A 00 56 6A 00 8B 08 6A 15 68 ?? ?? ?? ?? 6A 00 6A 01 6A 01 50 FF 51 5C 85 C0 79 06 C7 06 ?? ?? ?? ??
-    //A1 ?? ?? ?? ?? 6A 00 56 6A 00 8B
-    //A1 ?? ?? ?? ?? 50 8B 08 FF 51 0C
-    //A1 ?? ?? ?? ?? 8B 08 8B 51 5C 6A
-    static const char sign[] = "A1 ?? ?? ?? ?? 6A 00 56 6A 00 8B 08 6A 15 68 ?? ?? ?? ?? 6A 00 6A 01 6A 01 50 FF 51 5C 85 C0 79 06 C7 06 ?? ?? ?? ??";
-    auto ptr = **(IDirect3DDevice9Ex***)(ScanSign(shaderapidx, sign, sizeof(sign) - 1));
-    if (!ptr) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Failed to find D3D9Device signature\n");
-        return nullptr;
-    }
-    return ptr;
-#endif
 }
 
 void HardwareSkinningHooks::Initialize() {
@@ -303,7 +260,7 @@ void HardwareSkinningHooks::Initialize() {
             return;
         }
 
-        m_pD3DDevice = static_cast<IDirect3DDevice9Ex*>(FindD3D9Device());
+        //m_pD3DDevice = static_cast<IDirect3DDevice9Ex*>(FindD3D9Device(shaderapidx9dll));
 
         // get g_pHardwareConfig global interface (MATERIALSYSTEM_HARDWARECONFIG_INTERFACE_VERSION)
 #ifdef _WIN32
@@ -321,6 +278,14 @@ void HardwareSkinningHooks::Initialize() {
             return;
         }
         g_pHardwareConfig = (IMaterialSystemHardwareConfig*)createInterface(MATERIALSYSTEM_HARDWARECONFIG_INTERFACE_VERSION, nullptr);
+
+        createInterface = (CreateInterfaceFn)GetProcAddress(shaderapidx9dll, "CreateInterface");
+        if (!createInterface) {
+            Warning("[RTX Remix Fixes 2] - Could not get CreateInterface from shaderapidx9.dll\n");
+            return;
+        }
+        //**(IDirect3DDevice9***)(((DWORD_PTR**)CreateInterface("ShaderDevice001", NULL))[0][5] + 2);
+		m_pD3DDevice = **(IDirect3DDevice9***)(((DWORD_PTR**)createInterface("ShaderDevice001", NULL))[0][5] + 2);
 #endif
 
 
@@ -372,9 +337,9 @@ void HardwareSkinningHooks::Initialize() {
             (F_SetFixedFunctionStateSkinningMatrices)SetFixedFunctionStateSkinningMatrices_addr;
 
         // Create and enable the hooks
-        //Setup_Hook(R_StudioDrawGroupHWSkin, StudioDrawGroupHWSkin_addr);
-        //Setup_Hook(R_StudioBuildMeshGroup, StudioBuildMeshGroup_addr);
-        //Setup_Hook(R_StudioRenderFinal, StudioRenderFinal_addr);
+        Setup_Hook(R_StudioDrawGroupHWSkin, StudioDrawGroupHWSkin_addr);
+        Setup_Hook(R_StudioBuildMeshGroup, StudioBuildMeshGroup_addr);
+        Setup_Hook(R_StudioRenderFinal, StudioRenderFinal_addr);
 
         if (SetFixedFunctionStateSkinningMatrices_addr) {
             Setup_Hook(SetFixedFunctionStateSkinningMatrices, SetFixedFunctionStateSkinningMatrices_addr);
