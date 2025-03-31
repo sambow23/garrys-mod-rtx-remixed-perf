@@ -1,3 +1,4 @@
+#define HWSKIN_PATCHES
 #include "GarrysMod/Lua/Interface.h" 
 #include "e_utils.h"  
 #include "iclientrenderable.h"
@@ -40,7 +41,9 @@ Define_method_Hook(IMaterial*, R_StudioSetupSkinAndLighting, void*, IMatRenderCo
 		lighting = 0; // LIGHTING_HARDWARE 
 	}
 
+#ifdef HWSKIN_PATCHES
 	lighting = 0; // LIGHTING_HARDWARE 
+#endif
 
 	return pMaterial;
 }

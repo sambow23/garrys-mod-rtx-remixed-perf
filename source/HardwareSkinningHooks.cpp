@@ -7,7 +7,7 @@
 #include "e_utils.h"  
 #include "cbase.h"
 #include "optimize.h"
- 
+#include "TinyMathLib.h"
 
 static IMaterialSystemHardwareConfig* g_pHardwareConfig;
 
@@ -40,21 +40,6 @@ typedef void(__fastcall* srv_MethodQuadArg)(void*, void*, void*, void*, void*, v
 typedef void* (__fastcall* srv_MethodSingleArgRet)(void*, void*);
 typedef void* (__fastcall* srv_MethodQuadArgRet)(void*, void*, void*, void*, void*);
 
-// Helper functions to manipulate matrices, these might be defined elsewhere right now and i actually didnt notice.
-
-void MatrixInverseTR(const matrix3x4_t& in, matrix3x4_t& out)
-{
-    VMatrix tmp, inverse;
-    tmp.CopyFrom3x4(in);
-    inverse = tmp.InverseTR();
-    memcpy(&out, &inverse, sizeof(matrix3x4_t));
-}
-void MatrixCopy(const matrix3x4_t& in, VMatrix& out)
-{
-	out.CopyFrom3x4(in);
-}
-
-
 // Hook implementation for StudioDrawGroupHWSkin
 Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRenderContext, studiomeshgroup_t* pGroup, IMesh* pMesh, ColorMeshInfo_t* pColorMeshInfo)
 {
@@ -77,29 +62,30 @@ Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRend
 
     Msg("Running MatrixInvert modelToWorld\n");
     matrix3x4_t worldToModel;
-    MatrixInvert(modelToWorld, worldToModel);
+    TinyMathLib_MatrixInvert(modelToWorld, worldToModel);
     matrix3x4_t temp_pBoneToWorld[512];
     Msg("Running for pStudioHdr numbones\n");
     for (int i = 0; i < pStudioHdr->numbones; i++)
     {
         mstudiobone_t* bdata = pStudioHdr->pBone(i);
         matrix3x4_t invert;
-        MatrixInverseTR(bdata->poseToBone, invert);
-        Msg("Running ConcatTransforms m_PoseToWorld temp_pBoneToWorld\n");
-        ConcatTransforms(m_PoseToWorld[i], invert, temp_pBoneToWorld[i]);
+        TinyMathLib_MatrixInverseTR(bdata->poseToBone, invert); 
+        TinyMathLib_ConcatTransforms(m_PoseToWorld[i], invert, temp_pBoneToWorld[i]);
     }
 
     matrix3x4_t new_BoneToWorld[512];
+    Msg("Running for pStudioHdr numbones (2)\n");
     for (int i = 0; i < pStudioHdr->numbones; i++)
     {
-        ConcatTransforms(worldToModel, temp_pBoneToWorld[i], new_BoneToWorld[i]);
+        TinyMathLib_ConcatTransforms(worldToModel, temp_pBoneToWorld[i], new_BoneToWorld[i]);
     }
 
     matrix3x4_t new_PoseToWorld[512];
+    Msg("Running for pStudioHdr numbones (3)\n");
     for (int i = 0; i < pStudioHdr->numbones; i++)
     {
         mstudiobone_t* bdata = pStudioHdr->pBone(i);
-        ConcatTransforms(new_BoneToWorld[i], bdata->poseToBone, new_PoseToWorld[i]);
+        TinyMathLib_ConcatTransforms(new_BoneToWorld[i], bdata->poseToBone, new_PoseToWorld[i]);
     }
 
     matrix3x4_t viewmat;
@@ -115,7 +101,7 @@ Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRend
     {
         for (int i = 0; i < pStudioHdr->numbones; i++)
         {
-            ConcatTransforms(modelToWorld, new_PoseToWorld[i], new_PoseToWorld[i]);
+            TinyMathLib_ConcatTransforms(modelToWorld, new_PoseToWorld[i], new_PoseToWorld[i]);
         }
     }
 
@@ -135,7 +121,7 @@ Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRend
                 if (m_StateChange->newBoneID < 0)
                     break;
 
-                MatrixCopy(new_PoseToWorld[m_StateChange->newBoneID], g_BONEDATA.bone_matrices[m_StateChange->newBoneID]);
+                TinyMathLib_MatrixCopy(new_PoseToWorld[m_StateChange->newBoneID], g_BONEDATA.bone_matrices[m_StateChange->newBoneID]);
             }
         }
         // Tristrip optimization? If yes, mat_tristrip, or mat_triangles
@@ -163,6 +149,7 @@ Define_method_Hook(int, R_StudioDrawGroupHWSkin, void*, IMatRenderContext* pRend
     pRenderContext->MatrixMode(MATERIAL_MODEL);
     pRenderContext->LoadIdentity();
 
+    Msg("Finished R_StudioDrawGroupHWSkin\n");
     return numberTrianglesRendered;
 }
 
@@ -187,22 +174,29 @@ Define_method_Hook(void*, R_StudioRenderFinal, void*, IMatRenderContext* pRender
     int skin, int nBodyPartCount, void* pBodyPartInfo, IClientEntity* pClientEntity,
     IMaterial** ppMaterials, int* pMaterialFlags, int boneMask, int lod, ColorMeshInfo_t* pColorMeshes)
 {
-	//Msg("Running StudioRenderFinal\n");
+	Msg("Running StudioRenderFinal\n");
 
-    //Msg("Running m_rgflCoordinateFrame =\n");
+    Msg("Running m_rgflCoordinateFrame =\n");
     matrix3x4_t m_rgflCoordinateFrame = *(matrix3x4_t*)((intptr_t)pClientEntity + 776);  // NOTE!!!!! Offset might need adjustment, this is just what was given to me as is right now.
-    //Msg("Running StudioRenderFinal - MatrixCopy\n");
+	
+    //matrix3x4_t m_rgflCoordinateFrame;
+
+    // get from entity instead if possible (pClientEntity->GetBaseEntity()->EntityToWorldTransform();)
+
+    //m_rgflCoordinateFrame = pClientEntity->RenderableToWorldTransform();//GetBaseEntity()->EntityToWorldTransform();
+
+    Msg("Running StudioRenderFinal - MatrixCopy\n");
 
     // TODO, ACTUALLY DO THIS BECAUSE IT CRASHES AND I CANT FIGURE OUT WHY!!!!!
-    //MatrixCopy(m_rgflCoordinateFrame, modelToWorld);
+    TinyMathLib_MatrixCopy(m_rgflCoordinateFrame, modelToWorld);
 
-    //Msg("Running StudioRenderFinal - activate_holder = true\n");
+    Msg("Running StudioRenderFinal - activate_holder = true\n");
     activate_holder = true;
-    //Msg("Running StudioRenderFinal - R_StudioRenderFinal_trampoline\n");
+    Msg("Running StudioRenderFinal - R_StudioRenderFinal_trampoline\n");
     void* ret = R_StudioRenderFinal_trampoline()(_this, pRenderContext, skin, nBodyPartCount, pBodyPartInfo, pClientEntity, ppMaterials, pMaterialFlags, boneMask, lod, pColorMeshes);
-    //Msg("Running StudioRenderFinal - activate_holder = false\n");
+    Msg("Running StudioRenderFinal - activate_holder = false\n");
     activate_holder = false;
-    //Msg("Running StudioRenderFinal - return\n");
+    Msg("Running StudioRenderFinal - return\n");
     return ret;
 }
 
@@ -228,10 +222,10 @@ Define_method_Hook(void, SetFixedFunctionStateSkinningMatrices, void*)
     for (int i = 0; i < g_BONEDATA.bone_count; i++)
     {
         VMatrix mat;
-        MatrixCopy(g_BONEDATA.bone_matrices[i], mat);
+        TinyMathLib_MatrixCopy(g_BONEDATA.bone_matrices[i], mat);
 
         if (g_BONEDATA.bone_count != 1)
-            MatrixTranspose(mat, mat);
+            TinyMathLib_MatrixTranspose(mat, mat);
 
         m_pD3DDevice->SetTransform(D3DTS_WORLDMATRIX(i), (D3DMATRIX*)&mat);
     }
