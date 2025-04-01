@@ -75,17 +75,6 @@ IDirect3DDevice9Ex* g_d3dDevice = nullptr;
 
 using namespace GarrysMod::Lua;
 
-// typedef HRESULT (WINAPI* Present_t)(IDirect3DDevice9* device, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion);
-// Present_t Present_Original = nullptr;
-
-// HRESULT WINAPI Present_Hook(IDirect3DDevice9* device, CONST RECT* pSourceRect, CONST RECT* pDestRect, HWND hDestWindowOverride, CONST RGNDATA* pDirtyRegion) {
-//     if (g_remix && RTXLightManager::Instance().HasActiveLights()) {
-//         RTXLightManager::Instance().DrawLights();
-//     }
-    
-//     return Present_Original(device, pSourceRect, pDestRect, hDestWindowOverride, pDirtyRegion);
-// }
-
 #ifdef _WIN64
 
 void* FindD3D9Device() {
@@ -285,22 +274,6 @@ GMOD_MODULE_OPEN() {
     try {
         Msg("[RTX Remix Fixes 2 - Binary Module] - Module loaded!\n"); 
 
-        // Initialize shader protection
-        // ShaderAPIHooks::Instance().Initialize();                      // Need to properly update signatures to catch new shaderapidx9/materialsystem crashes
-        
-        // if (Interfaces::Initialize()) {                              // Disabled for now until i dump the vtables for materialsystem
-        //     Msg("[RTX Remix Fixes 2 - Binary Module] Interfaces initialized successfully\n");
-            
-        //     // Replace SpriteCard materials
-        //     if (Interfaces::ReplaceSpriteCardWithUnlitGeneric()) {
-        //         Msg("[RTX Remix Fixes 2 - Binary Module] Successfully replaced SpriteCard materials with UnlitGeneric\n");
-        //     } else {
-        //         Msg("[RTX Remix Fixes 2 - Binary Module] No SpriteCard materials found or replacement failed\n");
-        //     }
-        // } else {
-        //     Error("[RTX Remix Fixes 2 - Binary Module] Failed to initialize interfaces\n");
-        // }
-
         // Find Source's D3D9 device
 #ifdef _WIN64
         auto sourceDevice = static_cast<IDirect3DDevice9Ex*>(FindD3D9Device());
@@ -326,19 +299,6 @@ GMOD_MODULE_OPEN() {
             g_remix->SetConfigVariable("rtx.resourceLimits.maxVRAM", "1024");     // MB
             g_remix->SetConfigVariable("rtx.resourceLimits.forceCleanup", "1");
         }
-
-        // // Setup frame rendering
-        // void** vTable = *reinterpret_cast<void***>(sourceDevice);
-        // Present_Original = reinterpret_cast<Present_t>(vTable[17]); // Present is at index 17
-
-        // // Setup hook
-        // DWORD oldProtect;
-        // VirtualProtect(vTable + 17, sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect);
-        // vTable[17] = reinterpret_cast<void*>(&Present_Hook);
-        // VirtualProtect(vTable + 17, sizeof(void*), oldProtect, &oldProtect);
-
-        // // Initialize RTX Light Manager
-        // RTXLightManager::Instance().Initialize(g_remix);
 
         // Configure RTX settings
         if (g_remix) {
@@ -393,11 +353,6 @@ GMOD_MODULE_CLOSE() {
     try {
         Msg("[RTX Remix Fixes 2 - Binary Module] Shutting down module...\n");
 
-        // Shutdown shader protection
-        // ShaderAPIHooks::Instance().Shutdown();      // Need to properly update signatures to catch new shaderapidx9/materialsystem crashes
-        
-        // RTXLightManager::Instance().Shutdown();     // Remix API lights are dead for now, too unstable.
-
 #ifdef _WIN64
         CullingHooks::Instance().Shutdown();
 #endif // _WIN64
@@ -406,18 +361,6 @@ GMOD_MODULE_CLOSE() {
 #endif //HWSKIN_PATCHES
         ModelRenderHooks::Instance().Shutdown();
         ModelLoadHooks::Instance().Shutdown();
-
-        // // Restore original Present function if needed
-        // if (Present_Original) {
-        //     auto device = static_cast<IDirect3DDevice9Ex*>(FindD3D9Device());
-        //     if (device) {
-        //         void** vTable = *reinterpret_cast<void***>(device);
-        //         DWORD oldProtect;
-        //         VirtualProtect(vTable + 17, sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect);
-        //         vTable[17] = reinterpret_cast<void*>(Present_Original);
-        //         VirtualProtect(vTable + 17, sizeof(void*), oldProtect, &oldProtect);
-        //     }
-        // }
 
 #ifdef _WIN64
         if (g_remix) {
