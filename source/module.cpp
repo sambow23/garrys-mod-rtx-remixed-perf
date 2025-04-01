@@ -270,6 +270,37 @@ LUA_FUNCTION(PrintRemixUIState) {
     }
 }
 
+LUA_FUNCTION(SetIgnoreGameDirectionalLights) {
+    try {
+        #ifdef _WIN64
+        if (!g_remix) {
+            LUA->PushBool(false);
+            return 1;
+        }
+
+        if (!LUA->IsType(1, Type::BOOL)) {
+            LUA->ThrowError("Expected boolean argument for IgnoreGameDirectionalLights state");
+            return 0;
+        }
+
+        bool shouldIgnore = LUA->GetBool(1);
+        const char* value = shouldIgnore ? "1" : "0";
+        
+        bool result = g_remix->SetConfigVariable("rtx.ignoreGameDirectionalLights", value);
+        
+        Msg("[RTX Remix Fixes 2 - Binary Module] Setting rtx.ignoreGameDirectionalLights to %s\n", value);
+        
+        LUA->PushBool(result);
+        #endif
+        return 1;
+    }
+    catch (...) {
+        Error("[RTX Remix Fixes 2 - Binary Module] Exception in SetIgnoreGameDirectionalLights\n");
+        LUA->PushBool(false);
+        return 1;
+    }
+}
+
 GMOD_MODULE_OPEN() { 
     try {
         Msg("[RTX Remix Fixes 2 - Binary Module] - Module loaded!\n"); 
@@ -334,6 +365,9 @@ GMOD_MODULE_OPEN() {
 
             LUA->PushCFunction(ClearRTXResources_Native);
             LUA->SetField(-2, "ClearRTXResources");
+
+            LUA->PushCFunction(SetIgnoreGameDirectionalLights);
+            LUA->SetField(-2, "SetIgnoreGameDirectionalLights");
 
             RTXMath::Initialize(LUA);
             EntityManager::Initialize(LUA);
