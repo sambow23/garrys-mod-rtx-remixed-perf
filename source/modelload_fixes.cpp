@@ -228,11 +228,11 @@ Define_method_Hook(FileHandle_t, IFileSystem_OpenEx, void*, const char* pFileNam
                         if (canUseSwVtx) {
                             result = IFileSystem_OpenEx_trampoline()(_this, sw_path, pOptions, flags, pathID, ppszResolvedFilename);
                             // Only log successful redirections in debug mode or with a debug flag
-#ifdef 0
+                            #if 0
                             if (result) {
                                 Msg("[RTX Remix Fixes 2] Redirected %s to %s\n", pFileName, sw_path);
                             }
-#endif
+                            #endif
                         }
                     }
                     catch (...) {
