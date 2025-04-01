@@ -985,15 +985,6 @@ function RTXFrustumState.LightManager:SetupLightEntity(ent)
     ent:DisableMatrix("RenderMultiply")
     ent:SetNoDraw(false)
     
-    -- Apply appropriate rendering mode
-    if GetConVar("rtx_lightupdater_show") and GetConVar("rtx_lightupdater_show"):GetBool() then
-        ent:SetRenderMode(0)
-        ent:SetColor(Color(255, 255, 255, 255))
-    else
-        ent:SetRenderMode(2)
-        ent:SetColor(Color(255, 255, 255, 1))
-    end
-    
     return true
 end
 
