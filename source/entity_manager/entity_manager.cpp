@@ -1032,45 +1032,90 @@ LUA_FUNCTION(SetEntityBoundsComprehensive_Native) {
     Vector* mins = LUA->GetUserType<Vector>(6, Type::Vector);
     Vector* maxs = LUA->GetUserType<Vector>(7, Type::Vector);
     
-    // Get entity class
-    LUA->GetField(1, "GetClass");
-    LUA->Push(1);
-    LUA->Call(1, 1);
-    const char* className = LUA->GetString(-1);
-    LUA->Pop();
-    
-    // Get entity position
-    LUA->GetField(1, "GetPos");
-    LUA->Push(1);
-    LUA->Call(1, 1);
-    Vector* entityPos = nullptr;
-    if (LUA->IsType(-1, Type::Vector)) {
-        entityPos = LUA->GetUserType<Vector>(-1, Type::Vector);
+    if (!mins || !maxs) {
+        Msg("[RTX Entity Manager] Error: Invalid vector bounds passed to SetEntityBoundsComprehensive\n");
+        return 0;
     }
-    LUA->Pop();
     
-    // If position is invalid, return
-    if (!entityPos) return 0;
+    // Get entity class - Safer version with null checking
+    const char* className = "unknown";
+    LUA->GetField(1, "GetClass");
+    if (LUA->IsType(-1, Type::Function)) {
+        LUA->Push(1);
+        if (LUA->PCall(1, 1, 0) == 0) {
+            if (LUA->IsType(-1, Type::String)) {
+                className = LUA->GetString(-1);
+            }
+        }
+    }
+    LUA->Pop(); // Pop result or error
+    
+    // Get entity position - Safer version with null checking
+    Vector entityPos(0, 0, 0);
+    bool hasValidPos = false;
+    
+    LUA->GetField(1, "GetPos");
+    if (LUA->IsType(-1, Type::Function)) {
+        LUA->Push(1);
+        if (LUA->PCall(1, 1, 0) == 0) {
+            if (LUA->IsType(-1, Type::Vector)) {
+                Vector* posPtr = LUA->GetUserType<Vector>(-1, Type::Vector);
+                if (posPtr) {
+                    entityPos = *posPtr;
+                    hasValidPos = true;
+                }
+            }
+        }
+    }
+    LUA->Pop(); // Pop result or error
+    
+    // Early exit if we can't get a valid position
+    if (!hasValidPos) {
+        // No need to error, some entities might not have a position
+        return 0;
+    }
     
     // If useOriginal, restore original bounds and return
     if (useOriginal) {
-        LUA->Push(1);
-        LUA->GetTable(3); // originalBounds[entity]
+        // Get originalBounds[entity]
+        LUA->Push(1);  // Push entity
+        LUA->GetTable(3);  // Get originalBounds[entity]
         
-        if (!LUA->IsType(-1, Type::NIL)) {
+        if (!LUA->IsType(-1, Type::NIL) && LUA->IsType(-1, Type::Table)) {
+            Vector origMins(0, 0, 0);
+            Vector origMaxs(0, 0, 0);
+            bool hasValidBounds = false;
+            
+            // Get mins
             LUA->GetField(-1, "mins");
-            Vector* origMins = LUA->GetUserType<Vector>(-1, Type::Vector);
+            if (LUA->IsType(-1, Type::Vector)) {
+                Vector* minsPtr = LUA->GetUserType<Vector>(-1, Type::Vector);
+                if (minsPtr) {
+                    origMins = *minsPtr;
+                    hasValidBounds = true;
+                }
+            }
             LUA->Pop();
             
+            // Get maxs
             LUA->GetField(-1, "maxs");
-            Vector* origMaxs = LUA->GetUserType<Vector>(-1, Type::Vector);
+            if (LUA->IsType(-1, Type::Vector)) {
+                Vector* maxsPtr = LUA->GetUserType<Vector>(-1, Type::Vector);
+                if (maxsPtr && hasValidBounds) {
+                    origMaxs = *maxsPtr;
+                    
+                    // Set render bounds only if both vectors are valid
+                    LUA->GetField(1, "SetRenderBounds");
+                    if (LUA->IsType(-1, Type::Function)) {
+                        LUA->Push(1);
+                        LUA->PushVector(origMins);
+                        LUA->PushVector(origMaxs);
+                        LUA->PCall(3, 0, 0);
+                    }
+                    LUA->Pop(); // Pop SetRenderBounds
+                }
+            }
             LUA->Pop();
-            
-            LUA->GetField(1, "SetRenderBounds");
-            LUA->Push(1);
-            LUA->PushVector(*origMins);
-            LUA->PushVector(*origMaxs);
-            LUA->Call(3, 0);
         }
         
         LUA->Pop(); // Pop originalBounds[entity]
@@ -1078,74 +1123,117 @@ LUA_FUNCTION(SetEntityBoundsComprehensive_Native) {
     }
     
     // Store original bounds if not already stored
-    LUA->Push(1);
-    LUA->GetTable(3); // originalBounds[entity]
+    LUA->Push(1);  // Push entity
+    LUA->GetTable(3);  // Get originalBounds[entity]
     
     if (LUA->IsType(-1, Type::NIL)) {
-        LUA->Pop();
+        LUA->Pop();  // Pop nil
         
         // Get current render bounds
+        Vector currentMins(0, 0, 0);
+        Vector currentMaxs(0, 0, 0);
+        bool hasValidBounds = false;
+        
         LUA->GetField(1, "GetRenderBounds");
-        LUA->Push(1);
-        LUA->Call(1, 2);
+        if (LUA->IsType(-1, Type::Function)) {
+            LUA->Push(1);
+            if (LUA->PCall(1, 2, 0) == 0) {
+                if (LUA->IsType(-2, Type::Vector) && LUA->IsType(-1, Type::Vector)) {
+                    Vector* minsPtr = LUA->GetUserType<Vector>(-2, Type::Vector);
+                    Vector* maxsPtr = LUA->GetUserType<Vector>(-1, Type::Vector);
+                    
+                    if (minsPtr && maxsPtr) {
+                        currentMins = *minsPtr;
+                        currentMaxs = *maxsPtr;
+                        hasValidBounds = true;
+                    }
+                }
+            }
+        }
+        LUA->Pop(LUA->Top() - 1);  // Pop everything but the entity (arg 1)
         
-        // Create bounds table
-        LUA->CreateTable();
-        
-        LUA->PushVector(LUA->GetVector(-2)); // mins
-        LUA->SetField(-2, "mins");
-        
-        LUA->PushVector(LUA->GetVector(-1)); // maxs
-        LUA->SetField(-2, "maxs");
-        
-        LUA->Pop(2); // Pop mins and maxs
-        
-        // Store in originalBounds
-        LUA->Push(1); // Entity
-        LUA->Push(-1); // Bounds table
-        LUA->SetTable(3);
-        
-        LUA->Pop(); // Pop the bounds table
+        if (hasValidBounds) {
+            // Create bounds table
+            LUA->CreateTable();
+            
+            LUA->PushVector(currentMins);
+            LUA->SetField(-2, "mins");
+            
+            LUA->PushVector(currentMaxs);
+            LUA->SetField(-2, "maxs");
+            
+            // Store in originalBounds
+            LUA->Push(1);  // Push entity again
+            LUA->Push(-2);  // Push bounds table
+            LUA->SetTable(3);  // originalBounds[entity] = bounds
+            
+            LUA->Pop();  // Pop bounds table
+        }
     } else {
-        LUA->Pop(); // Pop originalBounds[entity]
+        LUA->Pop();  // Pop originalBounds[entity]
     }
     
     // Check if it's an RTX updater
-    LUA->Push(1);
-    LUA->GetTable(4); // rtxUpdaterCache[entity]
-    bool isRTXUpdater = !LUA->IsType(-1, Type::NIL);
-    LUA->Pop(); // Pop rtxUpdaterCache[entity]
+    bool isRTXUpdater = false;
+    LUA->Push(1);  // Push entity
+    LUA->GetTable(4);  // Get rtxUpdaterCache[entity]
+    isRTXUpdater = !LUA->IsType(-1, Type::NIL);
+    LUA->Pop();  // Pop rtxUpdaterCache[entity] result
     
     // Now apply bounds based on entity type and PVS status
     if (!isInPVS && !isRTXUpdater) {
         // Not in PVS, restore original bounds
-        LUA->Push(1);
-        LUA->GetTable(3); // originalBounds[entity]
+        LUA->Push(1);  // Push entity
+        LUA->GetTable(3);  // Get originalBounds[entity]
         
-        if (!LUA->IsType(-1, Type::NIL)) {
+        if (!LUA->IsType(-1, Type::NIL) && LUA->IsType(-1, Type::Table)) {
+            Vector origMins(0, 0, 0);
+            Vector origMaxs(0, 0, 0);
+            bool hasValidBounds = false;
+            
+            // Get mins
             LUA->GetField(-1, "mins");
-            Vector* origMins = LUA->GetUserType<Vector>(-1, Type::Vector);
+            if (LUA->IsType(-1, Type::Vector)) {
+                Vector* minsPtr = LUA->GetUserType<Vector>(-1, Type::Vector);
+                if (minsPtr) {
+                    origMins = *minsPtr;
+                    hasValidBounds = true;
+                }
+            }
             LUA->Pop();
             
+            // Get maxs
             LUA->GetField(-1, "maxs");
-            Vector* origMaxs = LUA->GetUserType<Vector>(-1, Type::Vector);
+            if (LUA->IsType(-1, Type::Vector)) {
+                Vector* maxsPtr = LUA->GetUserType<Vector>(-1, Type::Vector);
+                if (maxsPtr && hasValidBounds) {
+                    origMaxs = *maxsPtr;
+                    
+                    // Set render bounds only if both vectors are valid
+                    LUA->GetField(1, "SetRenderBounds");
+                    if (LUA->IsType(-1, Type::Function)) {
+                        LUA->Push(1);
+                        LUA->PushVector(origMins);
+                        LUA->PushVector(origMaxs);
+                        LUA->PCall(3, 0, 0);
+                    }
+                    LUA->Pop(); // Pop SetRenderBounds
+                }
+            }
             LUA->Pop();
-            
-            LUA->GetField(1, "SetRenderBounds");
-            LUA->Push(1);
-            LUA->PushVector(*origMins);
-            LUA->PushVector(*origMaxs);
-            LUA->Call(3, 0);
         }
         
         LUA->Pop(); // Pop originalBounds[entity]
     } else {
         // In PVS or special case, use large bounds
         LUA->GetField(1, "SetRenderBounds");
-        LUA->Push(1);
-        LUA->PushVector(*mins);
-        LUA->PushVector(*maxs);
-        LUA->Call(3, 0);
+        if (LUA->IsType(-1, Type::Function)) {
+            LUA->Push(1);
+            LUA->PushVector(*mins);
+            LUA->PushVector(*maxs);
+            LUA->PCall(3, 0, 0);
+        }
+        LUA->Pop(); // Pop SetRenderBounds
     }
     
     return 0;
