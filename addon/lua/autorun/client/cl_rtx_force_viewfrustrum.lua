@@ -22,6 +22,7 @@ RTXFrustumState = RTXFrustumState or {
     active = false,           -- Is the system currently active
     initialized = false,      -- Has the system been initialized
     processingUpdate = false, -- Is an update in progress
+    asyncPVSPending = false,  -- pendign async updates
     
     -- Entity tracking with strong references to prevent GC issues
     entitiesToReset = {},     -- Entities that need proper reset on toggle/change
@@ -201,6 +202,11 @@ function RTXFrustumState:DeactivateSystem()
     -- Remove all hooks and timers first
     local hooksRemoved = self:RemoveAllHooks()
     local timersRemoved = self:RemoveAllTimers()
+
+    -- Cancel any async PVS processing
+    if EntityManager and EntityManager.TerminateAsyncProcessing then
+        EntityManager.TerminateAsyncProcessing()
+    end
     
     -- Reset all entity bounds
     local entitiesReset = self:ResetAllEntityBounds()
@@ -309,6 +315,23 @@ function RTXFrustumState.PVSManager:RequestUpdate(force)
             playerPos.x, playerPos.y, playerPos.z))
     end
     
+    -- Check if we can use async PVS processing (best performance)
+    if EntityManager and EntityManager.RequestAsyncPVSUpdate then
+        -- Request async PVS processing
+        EntityManager.RequestAsyncPVSUpdate(playerPos)
+        
+        if cv_debug:GetBool() then
+            print("[RTX Force View Frustum] Requested async PVS update")
+        end
+        
+        -- For force updates, we'll still do immediate processing for this frame
+        -- For regular updates, we can exit early and let async processing complete
+        if not force then
+            self.updateInProgress = false
+            return true
+        end
+    end
+    
     -- Generate PVS data from NikNaks
     local pvs = NikNaks.CurrentMap:PVSForOrigin(playerPos)
     if not pvs then
@@ -348,7 +371,10 @@ function RTXFrustumState.PVSManager:RequestUpdate(force)
     
     -- Push leafs to optimized system if available
     if EntityManager and EntityManager.SetPVSLeafData_Optimized then
-        EntityManager.SetPVSLeafData_Optimized(self.leafPositions, playerPos)
+        local success = EntityManager.SetPVSLeafData_Optimized(self.leafPositions, playerPos)
+        if cv_debug:GetBool() and success then
+            print("[RTX Force View Frustum] PVS data optimized storage initialized")
+        end
     end
     
     -- Trigger entity batch processing using unified system
@@ -389,13 +415,9 @@ end
 function RTXFrustumState.PVSManager:IsInPVS(pos)
     if not self.current then return true end -- Default to visible if no PVS data
     
-    -- Use native implementation if available
-    if self.current.TestPosition then
-        return self.current:TestPosition(pos)
+    if EntityManager and EntityManager.TestPositionInPVS_Optimized then
+        return EntityManager.TestPositionInPVS_Optimized(pos)
     end
-    
-    -- Fallback: always visible
-    return true
 end
 
 -- ==========================================================================
@@ -666,36 +688,28 @@ function RTXFrustumState.EntityManager:ProcessEntity(ent, forceOriginal)
     local isInPVS = true
     
     if cv_use_pvs:GetBool() and not forceOriginal then
-        local className = ent:GetClass()
+        -- Use the optimized single-entity check if available
+        if EntityManager and EntityManager.ProcessEntityPVS_Optimized then
+            isInPVS = EntityManager.ProcessEntityPVS_Optimized(ent)
+        else
+            -- Fallback to direct position check
+            local entPos = ent:GetPos()
+            
+            -- First check player distance as a quick acceptance test
+            local playerPos = LocalPlayer():GetPos()
+            if entPos:DistToSqr(playerPos) < (2048 * 2048) then
+                isInPVS = true
+            else
+                -- Test against PVS
+                isInPVS = RTXFrustumState.PVSManager:IsInPVS(entPos)
+            end
+        end
         
-        if className:find("prop_physics") then
-            -- Props are always considered in PVS
-            isInPVS = true
+        -- Update PVS tracking
+        if isInPVS then
             RTXFrustumState.entitiesInPVS[ent] = true
         else
-            -- Use the optimized single-entity check if available
-            if EntityManager and EntityManager.ProcessEntityPVS_Optimized then
-                isInPVS = EntityManager.ProcessEntityPVS_Optimized(ent)
-            else
-                -- Fallback to direct position check
-                local entPos = ent:GetPos()
-                
-                -- First check player distance as a quick acceptance test
-                local playerPos = LocalPlayer():GetPos()
-                if entPos:DistToSqr(playerPos) < (2048 * 2048) then
-                    isInPVS = true
-                else
-                    -- Test against PVS
-                    isInPVS = RTXFrustumState.PVSManager:IsInPVS(entPos)
-                end
-            end
-            
-            -- Update PVS tracking
-            if isInPVS then
-                RTXFrustumState.entitiesInPVS[ent] = true
-            else
-                RTXFrustumState.entitiesInPVS[ent] = nil
-            end
+            RTXFrustumState.entitiesInPVS[ent] = nil
         end
     end
     
@@ -1279,9 +1293,64 @@ function RTXFrustumState.StaticPropManager:UpdateAllProps()
     local updateCount = 0
     local inPVSCount = 0
     
-    -- Do direct PVS testing if EntityManager isn't available
-    if not EntityManager or not EntityManager.BeginPVSEntityBatchProcessing then
-        -- Fallback direct method
+    -- Use BatchTestPVSVisibility_Native if available for better performance
+    if EntityManager and EntityManager.BatchTestPVSVisibility_Native and #propEntities > 0 then
+        -- Get current PVS leaf positions
+        local leafPositions = {}
+        if RTXFrustumState.PVSManager.leafPositions then
+            leafPositions = RTXFrustumState.PVSManager.leafPositions
+        end
+        
+        -- Process close props first for immediate visual feedback
+        for i, prop in ipairs(propEntities) do
+            local pos = propPositions[i]
+            -- Auto-include props very close to player 
+            if pos:DistToSqr(playerPos) < closeDistanceSqr then
+                if IsValid(prop) and RTXFrustumState.staticProps[prop] then
+                    if not RTXFrustumState.staticProps[prop].inPVS then
+                        self:UpdatePropBounds(prop, true)
+                        RTXFrustumState.staticProps[prop].inPVS = true
+                        updateCount = updateCount + 1
+                    end
+                    inPVSCount = inPVSCount + 1
+                end
+                
+                -- Mark as already processed
+                propEntities[i] = nil
+                propPositions[i] = nil
+            end
+        end
+        
+        -- Compact arrays
+        local compactEntities = {}
+        local compactPositions = {}
+        for i, prop in ipairs(propEntities) do
+            if prop then
+                table.insert(compactEntities, prop)
+                table.insert(compactPositions, propPositions[i])
+            end
+        end
+        
+        -- Do batch PVS testing for remaining props
+        if #compactPositions > 0 then
+            local results, visibleCount = EntityManager.BatchTestPVSVisibility_Native(compactPositions, leafPositions)
+            
+            -- Apply the results
+            for i, isInPVS in ipairs(results) do
+                local prop = compactEntities[i]
+                if IsValid(prop) and RTXFrustumState.staticProps[prop] then
+                    if isInPVS then inPVSCount = inPVSCount + 1 end
+                    
+                    if isInPVS ~= RTXFrustumState.staticProps[prop].inPVS then
+                        self:UpdatePropBounds(prop, isInPVS)
+                        RTXFrustumState.staticProps[prop].inPVS = isInPVS
+                        updateCount = updateCount + 1
+                    end
+                end
+            end
+        end
+    else
+        -- Fallback to the original Lua implementation if module fails
         for i, prop in ipairs(propEntities) do
             local pos = propPositions[i]
             -- First check distance - anything close to player is automatically in PVS
@@ -1302,94 +1371,6 @@ function RTXFrustumState.StaticPropManager:UpdateAllProps()
                 end
             end
         end
-        
-        -- Force stats update
-        RTXFrustumState.stats.staticPropsInPVS = inPVSCount
-        RTXFrustumState.stats.staticPropsTotal = #propEntities
-        
-        if cv_debug:GetBool() then
-            print(string.format("[RTX Force View Frustum] Static prop PVS update complete (direct): %d props, %d in PVS, %d changed",
-                RTXFrustumState.stats.staticPropsTotal,
-                RTXFrustumState.stats.staticPropsInPVS,
-                updateCount))
-        end
-        return true
-    end
-    
-    -- Use modified approach with manual checking for closest props
-    inPVSCount = 0
-    changedCount = 0
-    
-    -- First check - manually process close props for immediate feedback
-    for i, prop in ipairs(propEntities) do
-        local pos = propPositions[i]
-        
-        -- Auto-include close props for immediate visual feedback
-        local inPVS = pos:DistToSqr(playerPos) < closeDistanceSqr
-        
-        if IsValid(prop) and RTXFrustumState.staticProps[prop] then
-            if inPVS then 
-                inPVSCount = inPVSCount + 1
-                
-                if inPVS ~= RTXFrustumState.staticProps[prop].inPVS then
-                    self:UpdatePropBounds(prop, true)
-                    RTXFrustumState.staticProps[prop].inPVS = true
-                    changedCount = changedCount + 1
-                end
-            else
-                -- Process via batch system below
-            end
-        end
-    end
-    
-    -- Use batch system for farther props
-    local currentBoundsSize = cv_bounds_size:GetFloat()
-    local batchSize = 250
-    
-    -- Collect non-close props for batch processing
-    local batchProps = {}
-    local batchPositions = {}
-    
-    for i, prop in ipairs(propEntities) do
-        local pos = propPositions[i]
-        -- Skip props we already processed (close ones)
-        if pos:DistToSqr(playerPos) >= closeDistanceSqr and IsValid(prop) then
-            table.insert(batchProps, prop)
-            table.insert(batchPositions, pos)
-        end
-    end
-    
-    if #batchProps > 0 then
-        EntityManager.BeginPVSEntityBatchProcessing(batchProps, batchPositions, 
-            Vector(-currentBoundsSize, -currentBoundsSize, -currentBoundsSize), 
-            Vector(currentBoundsSize, currentBoundsSize, currentBoundsSize), 
-            batchSize)
-        
-        -- Process batches
-        local processedCount = 0
-        
-        while EntityManager.IsPVSUpdateInProgress() do
-            local results, complete = EntityManager.ProcessNextEntityBatch()
-            
-            for i, isInPVS in ipairs(results) do
-                local index = processedCount + i
-                if index <= #batchProps then
-                    local prop = batchProps[index]
-                    if IsValid(prop) and RTXFrustumState.staticProps[prop] then
-                        if isInPVS then inPVSCount = inPVSCount + 1 end
-                        
-                        if isInPVS ~= RTXFrustumState.staticProps[prop].inPVS then
-                            self:UpdatePropBounds(prop, isInPVS)
-                            RTXFrustumState.staticProps[prop].inPVS = isInPVS
-                            changedCount = changedCount + 1
-                        end
-                    end
-                end
-            end
-            
-            processedCount = processedCount + #results
-            if complete then break end
-        end
     end
     
     -- Update statistics
@@ -1400,7 +1381,7 @@ function RTXFrustumState.StaticPropManager:UpdateAllProps()
         print(string.format("[RTX Force View Frustum] Static prop PVS update complete: %d props, %d in PVS, %d changed",
             RTXFrustumState.stats.staticPropsTotal,
             RTXFrustumState.stats.staticPropsInPVS,
-            changedCount))
+            updateCount))
     end
     
     return true
@@ -1612,6 +1593,29 @@ end)
 RTXFrustumState:AddHook("Think", "RTX_PVS_MovementTracking", function()
     if not RTXFrustumState.active then return end
     
+    -- If we're using async processing, check its status
+    if EntityManager and EntityManager.IsAsyncPVSComplete and 
+       cv_use_pvs:GetBool() and EntityManager.IsAsyncProcessingInProgress then
+        
+        -- Check if async processing has completed
+        if EntityManager.IsAsyncPVSComplete() and RTXFrustumState.asyncPVSPending then
+            -- Process entities with the newly updated PVS data
+            RTXFrustumState.EntityManager:ProcessAllEntities(false)
+            
+            -- Update static props if enabled
+            if cv_static_props_pvs:GetBool() then
+                RTXFrustumState.StaticPropManager:UpdateAllProps()
+            end
+            
+            -- Reset pending flag
+            RTXFrustumState.asyncPVSPending = false
+            
+            if cv_debug:GetBool() then
+                print("[RTX Force View Frustum] Async PVS update completed")
+            end
+        end
+    end
+    
     -- Check if player moved enough to update PVS
     if RTXFrustumState.PVSManager:ShouldUpdateForMovement() then
         if cv_debug:GetBool() then
@@ -1621,6 +1625,11 @@ RTXFrustumState:AddHook("Think", "RTX_PVS_MovementTracking", function()
         
         -- Request a fresh PVS update
         RTXFrustumState.PVSManager:RequestUpdate(true)
+        
+        -- Mark that we have a pending async update
+        if EntityManager and EntityManager.IsAsyncProcessingInProgress then
+            RTXFrustumState.asyncPVSPending = true
+        end
         
         -- Force immediate update of static props when player moves significantly
         if cv_static_props_pvs:GetBool() then
@@ -1637,6 +1646,11 @@ RTXFrustumState:AddHook("Think", "RTX_PVS_MovementTracking", function()
     if RTXFrustumState.active and cv_use_pvs:GetBool() and 
        (currentTime - RTXFrustumState.PVSManager.lastUpdateTime > updateInterval) then
         RTXFrustumState.PVSManager:RequestUpdate(false)
+        
+        -- Mark that we have a pending async update
+        if EntityManager and EntityManager.IsAsyncProcessingInProgress then
+            RTXFrustumState.asyncPVSPending = true
+        end
     end
 end)
 
