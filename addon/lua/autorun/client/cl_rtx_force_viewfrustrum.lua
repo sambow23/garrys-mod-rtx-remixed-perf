@@ -511,29 +511,153 @@ function RTXFrustumState.EntityManager:CreatePrioritizedBatches(entities)
     return result
 end
 
+function RTXFrustumState.EntityManager:ProcessEntitiesStandard(entities, forceOriginal)
+    RTXFrustumState.stats.entitiesInPVS = 0
+    RTXFrustumState.stats.totalEntities = #entities
+    
+    -- Process each entity individually
+    for _, ent in ipairs(entities) do
+        if IsValid(ent) then
+            self:ProcessEntity(ent, forceOriginal)
+            
+            -- Track statistics
+            if RTXFrustumState.entitiesInPVS[ent] then
+                RTXFrustumState.stats.entitiesInPVS = RTXFrustumState.stats.entitiesInPVS + 1
+            end
+        end
+    end
+end
+
 function RTXFrustumState.EntityManager:ProcessAllEntities(forceOriginal)
     if self.processingInProgress and not forceOriginal then return false end
     
-    -- Prepare entities in priority order
-    local allEntities = ents.GetAll()
-    self.entityBatches = self:CreatePrioritizedBatches(allEntities)
-    self.currentBatchIndex = 1
+    -- Start timer for performance tracking
+    local startTime = SysTime()
     self.processingInProgress = true
-
-    RTXFrustumState.stats.entitiesInPVS = 0
-    RTXFrustumState.stats.totalEntities = #allEntities
     
-    for ent in pairs(RTXFrustumState.entitiesInPVS) do
+    -- First handle special entities and RTX updaters separately
+    -- These need special handling that's not suited for batching
+    for ent in pairs(RTXFrustumState.rtxUpdaters) do
         if IsValid(ent) then
-            RTXFrustumState.stats.entitiesInPVS = RTXFrustumState.stats.entitiesInPVS + 1
+            if forceOriginal then
+                RTXFrustumState.LightManager:ResetLightBounds(ent)
+            else
+                RTXFrustumState.LightManager:ApplyLightBounds(ent)
+            end
         end
     end
     
-    -- Reset batch timing metrics
-    self.frameTimeHistory = {}
+    -- Handle special entities with custom bounds
+    for _, ent in ipairs(ents.GetAll()) do
+        if IsValid(ent) then
+            local className = ent:GetClass()
+            if RTXFrustumState.LightManager:HasSpecialBounds(className) then
+                if forceOriginal then
+                    self:ResetEntityBounds(ent)
+                else
+                    local specialBounds = RTXFrustumState.LightManager:GetSpecialBounds(className)
+                    self:ApplySpecialEntityBounds(ent, specialBounds)
+                end
+            end
+        end
+    end
     
-    -- Start batch processing
-    self:ProcessNextBatch(forceOriginal)
+    -- If we want to force original bounds for everything, do it directly
+    if forceOriginal then
+        for ent in pairs(RTXFrustumState.entitiesToReset) do
+            if IsValid(ent) then
+                self:ResetEntityBounds(ent)
+            end
+        end
+        
+        self.processingInProgress = false
+        return true
+    end
+    
+    -- Process regular entities in batches using the native implementation
+    if EntityManager and EntityManager.BatchProcessEntities then
+        -- Get all entities and their positions
+        local entities = {}
+        local positions = {}
+        local regularEntities = {}
+        
+        -- Get all entities that should be processed with Batch Mode
+        for _, ent in ipairs(ents.GetAll()) do
+            if IsValid(ent) and self:ShouldModifyEntityBounds(ent) and 
+               not RTXFrustumState.rtxUpdaters[ent] and
+               not RTXFrustumState.LightManager:HasSpecialBounds(ent:GetClass()) then
+                
+                table.insert(entities, ent)
+                table.insert(positions, ent:GetPos())
+                table.insert(regularEntities, ent)
+            end
+        end
+        
+        -- Store original bounds for all entities
+        for _, ent in ipairs(entities) do
+            self:StoreOriginalBounds(ent)
+        end
+        
+        -- Get the bounds size from ConVar
+        local boundsSize = cv_bounds_size:GetFloat()
+        local mins = Vector(-boundsSize, -boundsSize, -boundsSize)
+        local maxs = Vector(boundsSize, boundsSize, boundsSize)
+        
+        -- Use 5ms max processing time per frame for smooth performance
+        local maxProcessingTimeMs = 5
+        
+        -- Start batch processing
+        if #entities > 0 then
+            local success = EntityManager.BatchProcessEntities(entities, positions, mins, maxs, maxProcessingTimeMs)
+            
+            if success then
+                -- Set up batch processing callback
+                self.batchProcessingTimer = self.batchProcessingTimer or "RTX_BatchProcessingTimer"
+                
+                RTXFrustumState:AddTimer(self.batchProcessingTimer, 0, 0, function()
+                    if not RTXFrustumState.active then return end
+                    
+                    -- Process the next batch
+                    local results, visibleCount, isDone = EntityManager.ProcessNextEntityBatch(250, cv_debug:GetBool())
+                    
+                    -- Update PVS statistics
+                    RTXFrustumState.stats.entitiesInPVS = visibleCount
+                    RTXFrustumState.stats.totalEntities = #entities
+                    
+                    -- Clear the timer if we're done
+                    if isDone then
+                        if timer.Exists(self.batchProcessingTimer) then
+                            timer.Remove(self.batchProcessingTimer)
+                        end
+                        
+                        self.processingInProgress = false
+                        
+                        -- Final timing
+                        local endTime = SysTime()
+                        local totalTime = (endTime - startTime) * 1000
+                        
+                        if cv_debug:GetBool() then
+                            print(string.format("[RTX Force View Frustum] Batch processing complete: %d entities, %d in PVS (%.2f ms)",
+                                #entities, visibleCount, totalTime))
+                        end
+                    end
+                end)
+            else
+                -- If batch processing failed, fallback to standard mode
+                self:ProcessEntitiesStandard(regularEntities, forceOriginal)
+                self.processingInProgress = false
+            end
+        else
+            -- No entities to process
+            self.processingInProgress = false
+        end
+    else
+        -- Fallback to standard processing if native batch mode not available
+        local allEntities = ents.GetAll()
+        self:ProcessEntitiesStandard(allEntities, forceOriginal)
+        self.processingInProgress = false
+    end
+    
     return true
 end
 
@@ -728,13 +852,13 @@ end
 function RTXFrustumState.EntityManager:ShouldModifyEntityBounds(ent)
     if not IsValid(ent) then return false end
     
-    local className = ent:GetClass()
-    local model = ent:GetModel()
-    
     -- Check entity type cache first
     if self.entityTypeCache[ent] ~= nil then
         return self.entityTypeCache[ent]
     end
+    
+    local className = ent:GetClass()
+    local model = ent:GetModel()
     
     -- Check if this is an RTX updater
     if RTXFrustumState.rtxUpdaters[ent] or 
@@ -1561,6 +1685,9 @@ RTXFrustumState:AddHook("OnEntityCreated", "SetLargeRenderBounds", function(ent)
             -- Mark as in PVS
             RTXFrustumState.entitiesInPVS[ent] = true
             
+            -- Add to type cache
+            RTXFrustumState.EntityManager.entityTypeCache[ent] = true
+            
             if cv_debug:GetBool() then
                 print(string.format("[RTX Force View Frustum] Special entity initialized early: %s", className))
             end
@@ -1575,6 +1702,7 @@ RTXFrustumState:AddHook("OnEntityCreated", "SetLargeRenderBounds", function(ent)
            ent.lightType then
             
             RTXFrustumState.LightManager:SetupLightEntity(ent)
+            RTXFrustumState.EntityManager.entityTypeCache[ent] = true
         else
             -- Regular entity processing
             RTXFrustumState.EntityManager:ProcessEntity(ent, not cv_enabled:GetBool())
