@@ -33,14 +33,47 @@ timer.Simple(1, function()
     StaticPropsRenderer:Initialize()
 end)
 
--- Fix skybox rendering bug
-hook.Add("PreDrawSkyBox", "StaticPropsRenderer_SkyboxDetection", function()
-    StaticPropsRenderer.DrawingSkybox = true
-end)
+function StaticPropsRenderer:ToggleEnabled()
+    self.Enabled = not self.Enabled
+    
+    if self.Enabled then
+        self:AddHooks()
+    else
+        self:RemoveHooks()
+    end
+    
+    print("[StaticPropsRenderer] " .. (self.Enabled and "Enabled" or "Disabled"))
+    
+    -- Save settings
+    self:SaveSettings()
+end
 
-hook.Add("PostDrawSkyBox", "StaticPropsRenderer_SkyboxDetection", function()
-    StaticPropsRenderer.DrawingSkybox = false
-end)
+function StaticPropsRenderer:AddHooks()
+    -- Fix skybox rendering bug
+    hook.Add("PreDrawSkyBox", "StaticPropsRenderer_SkyboxDetection", function()
+        self.DrawingSkybox = true
+    end)
+
+    hook.Add("PostDrawSkyBox", "StaticPropsRenderer_SkyboxDetection", function()
+        self.DrawingSkybox = false
+    end)
+    
+    hook.Add("PostDrawOpaqueRenderables", "StaticPropsRenderer_Render", function(bDrawingDepth, bDrawingSkybox)
+        -- Skip rendering in skybox pass
+        if self.DrawingSkybox or bDrawingSkybox then return end
+        
+        -- Skip in render targets (like mirrors)
+        if render.GetRenderTarget() then return end
+        
+        self:RenderProps()
+    end)
+end
+
+function StaticPropsRenderer:RemoveHooks()
+    hook.Remove("PreDrawSkyBox", "StaticPropsRenderer_SkyboxDetection")
+    hook.Remove("PostDrawSkyBox", "StaticPropsRenderer_SkyboxDetection")
+    hook.Remove("PostDrawOpaqueRenderables", "StaticPropsRenderer_Render")
+end
 
 function StaticPropsRenderer:Initialize()
     print("[StaticPropsRenderer] Initializing...")
@@ -54,15 +87,10 @@ function StaticPropsRenderer:Initialize()
     -- Load settings
     self:LoadSettings()
     
-    hook.Add("PostDrawOpaqueRenderables", "StaticPropsRenderer_Render", function(bDrawingDepth, bDrawingSkybox)
-        -- Skip rendering in skybox pass
-        if self.DrawingSkybox or bDrawingSkybox then return end
-        
-        -- Skip in render targets (like mirrors)
-        if render.GetRenderTarget() then return end
-        
-        self:RenderProps()
-    end)
+    -- Only add hooks if enabled
+    if self.Enabled then
+        self:AddHooks()
+    end
     
     -- Add console commands
     concommand.Add("staticprops_toggle", function()
@@ -298,14 +326,6 @@ function StaticPropsRenderer:RenderProps()
         local statsText = "Rendered: " .. renderedCount .. " / Visible: " .. visibleCount .. " / Total: " .. #self.Props .. " / Grid Cells: " .. table.Count(self.PropGrid) .. " / Skybox: " .. tostring(self.DrawingSkybox)
         draw.SimpleText(statsText, "DermaDefault", ScrW() / 2, ScrH() - 20, Color(255, 255, 255), TEXT_ALIGN_CENTER)
     end
-end
-
-function StaticPropsRenderer:ToggleEnabled()
-    self.Enabled = not self.Enabled
-    print("[StaticPropsRenderer] " .. (self.Enabled and "Enabled" or "Disabled"))
-    
-    -- Save settings
-    self:SaveSettings()
 end
 
 --------------------------------------------------
