@@ -10,7 +10,6 @@ if not CLIENT then return end
 
 -- Create our global table
 StaticPropsRenderer = StaticPropsRenderer or {}
-StaticPropsRenderer.VERSION = 1.3
 StaticPropsRenderer.UI = StaticPropsRenderer.UI or {}
 StaticPropsRenderer.Enabled = true
 StaticPropsRenderer.RenderDistance = 1500 -- Default render distance if no map preset is found. // This is kept at a relatively low value as rendering all props on the map at once is expensive.
@@ -19,6 +18,8 @@ StaticPropsRenderer.Models = {}
 StaticPropsRenderer.RenderCount = 0
 StaticPropsRenderer.MaxRenderPerFrame = 5000
 StaticPropsRenderer.Debug = false
+StaticPropsRenderer.PropGrid = {}
+StaticPropsRenderer.GridSize = 512
 
 -- Wait for NikNaks to be loaded
 timer.Simple(1, function()
@@ -74,11 +75,18 @@ function StaticPropsRenderer:Initialize()
     
     -- Scan static props
     self:ScanMapProps()
-
-    -- Disable engine-level static props // Might re-enable this later as having both on can help with visual coherency 
-    RunConsoleCommand("r_drawstaticprops", "0")
+    
+    RunConsoleCommand("r_drawstaticprops", "1")
     
     print("[StaticPropsRenderer] Initialized successfully!")
+end
+
+-- Helper function for creating a grid key from a position
+function StaticPropsRenderer:GetGridKey(pos)
+    local gx = math.floor(pos.x / self.GridSize)
+    local gy = math.floor(pos.y / self.GridSize)
+    local gz = math.floor(pos.z / self.GridSize)
+    return gx .. "_" .. gy .. "_" .. gz
 end
 
 function StaticPropsRenderer:ScanMapProps()
@@ -89,6 +97,8 @@ function StaticPropsRenderer:ScanMapProps()
     -- Store model data
     self.Props = {}
     self.Models = {}
+    self.PropGrid = {} -- Clear grid before populating it
+    
     local count = 0
     local modelCount = 0
     
@@ -134,6 +144,13 @@ function StaticPropsRenderer:ScanMapProps()
         table.insert(self.Props, propData)
         self.Models[modelPath].instances = self.Models[modelPath].instances + 1
         count = count + 1
+        
+        -- Add to spatial grid
+        local key = self:GetGridKey(pos)
+        if not self.PropGrid[key] then
+            self.PropGrid[key] = {}
+        end
+        table.insert(self.PropGrid[key], propData)
     end
     
     print("[StaticPropsRenderer] Cached " .. count .. " static props with " .. modelCount .. " unique models")
@@ -142,6 +159,15 @@ function StaticPropsRenderer:ScanMapProps()
     table.sort(self.Props, function(a, b) 
         return a.model < b.model
     end)
+    
+    -- Sort props in each grid cell by model as well
+    for _, props in pairs(self.PropGrid) do
+        table.sort(props, function(a, b)
+            return a.model < b.model
+        end)
+    end
+    
+    print("[StaticPropsRenderer] Created spatial grid with " .. table.Count(self.PropGrid) .. " cells")
 end
 
 function StaticPropsRenderer:RenderProps()
@@ -150,23 +176,68 @@ function StaticPropsRenderer:RenderProps()
     -- Get player position for distance culling
     local playerPos = LocalPlayer():GetPos()
     
+    -- Pre-calculate the squared distance for optimization
+    local renderDistSq = self.RenderDistance * self.RenderDistance
+    
     -- Track current model to avoid redundant switches
     local currentModel = nil
     local renderedCount = 0
     local visibleCount = 0
     
-    -- Render props
-    for i, prop in ipairs(self.Props) do
+    -- Prepare nearby props from the spatial grid
+    local nearbyProps = {}
+    local range = math.ceil(self.RenderDistance / self.GridSize)
+    local playerGx = math.floor(playerPos.x / self.GridSize)
+    local playerGy = math.floor(playerPos.y / self.GridSize)
+    local playerGz = math.floor(playerPos.z / self.GridSize)
+    
+    -- Gather props from surrounding grid cells
+    for dx = -range, range do
+        for dy = -range, range do
+            for dz = -range, range do
+                local key = (playerGx + dx) .. "_" .. (playerGy + dy) .. "_" .. (playerGz + dz)
+                if self.PropGrid[key] then
+                    -- Check if this grid cell is potentially in range
+                    local cellCenterX = (playerGx + dx + 0.5) * self.GridSize
+                    local cellCenterY = (playerGy + dy + 0.5) * self.GridSize
+                    local cellCenterZ = (playerGz + dz + 0.5) * self.GridSize
+                    local cellCenter = Vector(cellCenterX, cellCenterY, cellCenterZ)
+                    
+                    -- Calculate diagonal (half-diagonal, really) of a grid cell 
+                    local diagonalSq = (self.GridSize * 0.5) * (self.GridSize * 0.5) * 3 -- 3D diagonal squared
+                    
+                    -- If the cell is close enough to potentially contain visible props
+                    if cellCenter:DistToSqr(playerPos) - diagonalSq <= renderDistSq then
+                        for _, prop in ipairs(self.PropGrid[key]) do
+                            table.insert(nearbyProps, prop)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Use the render model table for performance
+    local renderModel = {
+        model = nil,
+        pos = nil,
+        angle = nil,
+        skin = 0,
+        bodygroup = 0
+    }
+    
+    -- Render props from the gathered nearby props
+    for i, prop in ipairs(nearbyProps) do
         -- Skip if too far
-        local distance = prop.pos:DistToSqr(playerPos)
-        if distance > (self.RenderDistance * self.RenderDistance) then
+        local distanceSq = prop.pos:DistToSqr(playerPos)
+        if distanceSq > renderDistSq then
             continue
         end
         
         visibleCount = visibleCount + 1
         
-        -- Enforce max render count for performance
-        if visibleCount > self.MaxRenderPerFrame then
+        -- Max render count check - do it before the expensive render call
+        if renderedCount >= self.MaxRenderPerFrame then
             break
         end
         
@@ -180,13 +251,14 @@ function StaticPropsRenderer:RenderProps()
             render.DrawLine(prop.pos, groundPos, Color(0, 255, 0), true)
         end
         
-        render.Model({
-            model = prop.model,
-            pos = prop.pos,
-            angle = prop.ang,
-            skin = prop.skin or 0,
-            bodygroup = prop.bodygroups or 0
-        })
+        -- Update the reused table
+        renderModel.model = prop.model
+        renderModel.pos = prop.pos
+        renderModel.angle = prop.ang
+        renderModel.skin = prop.skin or 0
+        renderModel.bodygroup = prop.bodygroups or 0
+        
+        render.Model(renderModel)
         
         renderedCount = renderedCount + 1
     end
@@ -202,7 +274,7 @@ function StaticPropsRenderer:RenderProps()
         draw.SimpleText(text, "DermaDefault", ScrW() / 2, ScrH() - 40, Color(255, 255, 255), TEXT_ALIGN_CENTER)
         
         -- Draw render stats
-        local statsText = "Rendered: " .. renderedCount .. " / Visible: " .. visibleCount .. " / Total: " .. #self.Props
+        local statsText = "Rendered: " .. renderedCount .. " / Visible: " .. visibleCount .. " / Total: " .. #self.Props .. " / Grid Cells: " .. table.Count(self.PropGrid)
         draw.SimpleText(statsText, "DermaDefault", ScrW() / 2, ScrH() - 20, Color(255, 255, 255), TEXT_ALIGN_CENTER)
     end
 end
@@ -223,7 +295,8 @@ function StaticPropsRenderer:SaveSettings()
     local data = {
         enabled = self.Enabled,
         renderDistance = self.RenderDistance,
-        maxRenderPerFrame = self.MaxRenderPerFrame
+        maxRenderPerFrame = self.MaxRenderPerFrame,
+        gridSize = self.GridSize -- Save grid size too
     }
     
     file.CreateDir("staticpropsrenderer")
@@ -254,6 +327,9 @@ function StaticPropsRenderer:LoadSettings()
     if data.maxRenderPerFrame then
         self.MaxRenderPerFrame = data.maxRenderPerFrame
     end
+    if data.gridSize then
+        self.GridSize = data.gridSize
+    end
     
     print("[StaticPropsRenderer] Settings loaded for " .. game.GetMap())
 end
@@ -270,7 +346,7 @@ function StaticPropsRenderer:OpenUI()
     -- Create the main frame
     local frame = vgui.Create("DFrame")
     frame:SetTitle("Static Props Renderer")
-    frame:SetSize(400, 280)
+    frame:SetSize(400, 320)
     frame:Center()
     frame:MakePopup()
     self.UI.Frame = frame
@@ -294,14 +370,20 @@ function StaticPropsRenderer:OpenUI()
     statsLabel:SetPos(20, 90)
     statsLabel:SetSize(360, 20)
     
+    -- Grid info label
+    local gridLabel = vgui.Create("DLabel", frame)
+    gridLabel:SetText("Grid Cells: " .. table.Count(self.PropGrid) .. " (Size: " .. self.GridSize .. ")")
+    gridLabel:SetPos(20, 110)
+    gridLabel:SetSize(360, 20)
+    
     -- Render distance label and slider
     local distLabel = vgui.Create("DLabel", frame)
     distLabel:SetText("Render Distance: " .. self.RenderDistance)
-    distLabel:SetPos(20, 120)
+    distLabel:SetPos(20, 130)
     distLabel:SetSize(360, 20)
     
     local distSlider = vgui.Create("DNumSlider", frame)
-    distSlider:SetPos(20, 140)
+    distSlider:SetPos(20, 150)
     distSlider:SetSize(360, 30)
     distSlider:SetMin(500)
     distSlider:SetMax(50000)
@@ -313,16 +395,36 @@ function StaticPropsRenderer:OpenUI()
         distLabel:SetText("Render Distance: " .. value)
     end
     
+    -- Grid size slider
+    local gridSizeLabel = vgui.Create("DLabel", frame)
+    gridSizeLabel:SetText("Grid Cell Size: " .. self.GridSize)
+    gridSizeLabel:SetPos(20, 180)
+    gridSizeLabel:SetSize(360, 20)
+    
+    local gridSizeSlider = vgui.Create("DNumSlider", frame)
+    gridSizeSlider:SetPos(20, 200)
+    gridSizeSlider:SetSize(360, 30)
+    gridSizeSlider:SetMin(128)
+    gridSizeSlider:SetMax(2048)
+    gridSizeSlider:SetDecimals(0)
+    gridSizeSlider:SetValue(self.GridSize)
+    gridSizeSlider.OnValueChanged = function(_, value)
+        value = math.Round(value)
+        self.GridSize = value
+        gridSizeLabel:SetText("Grid Cell Size: " .. value)
+    end
+    
     -- Update stats periodically
     frame.Think = function()
         if not IsValid(frame) then return end
         statsLabel:SetText("Props Rendered: " .. self.RenderCount .. " / " .. #self.Props)
+        gridLabel:SetText("Grid Cells: " .. table.Count(self.PropGrid) .. " (Size: " .. self.GridSize .. ")")
     end
     
     -- Toggle button
     local toggleBtn = vgui.Create("DButton", frame)
     toggleBtn:SetText(self.Enabled and "Disable Renderer" or "Enable Renderer")
-    toggleBtn:SetPos(20, frame:GetTall() - 80)
+    toggleBtn:SetPos(20, frame:GetTall() - 90)
     toggleBtn:SetSize(150, 30)
     toggleBtn.DoClick = function()
         self:ToggleEnabled()
@@ -333,11 +435,11 @@ function StaticPropsRenderer:OpenUI()
     -- Max rendered props slider
     local maxPropsLabel = vgui.Create("DLabel", frame)
     maxPropsLabel:SetText("Max Props: " .. self.MaxRenderPerFrame)
-    maxPropsLabel:SetPos(200, frame:GetTall() - 100)
+    maxPropsLabel:SetPos(200, frame:GetTall() - 110)
     maxPropsLabel:SetSize(180, 20)
     
     local maxPropsSlider = vgui.Create("DNumSlider", frame)
-    maxPropsSlider:SetPos(200, frame:GetTall() - 80)
+    maxPropsSlider:SetPos(200, frame:GetTall() - 90)
     maxPropsSlider:SetSize(180, 30)
     maxPropsSlider:SetMin(1000)
     maxPropsSlider:SetMax(20000)
@@ -357,6 +459,15 @@ function StaticPropsRenderer:OpenUI()
     debugCheck:SizeToContents()
     debugCheck.OnChange = function(_, val)
         self.Debug = val
+    end
+    
+    -- Rebuild grid button
+    local rebuildGridBtn = vgui.Create("DButton", frame)
+    rebuildGridBtn:SetText("Rebuild Grid")
+    rebuildGridBtn:SetPos(frame:GetWide() - 200, frame:GetTall() - 50)
+    rebuildGridBtn:SetSize(90, 30)
+    rebuildGridBtn.DoClick = function()
+        self:ScanMapProps()
     end
     
     -- Save button
