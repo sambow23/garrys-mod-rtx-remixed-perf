@@ -20,6 +20,7 @@ StaticPropsRenderer.MaxRenderPerFrame = 5000
 StaticPropsRenderer.Debug = false
 StaticPropsRenderer.PropGrid = {}
 StaticPropsRenderer.GridSize = 512
+StaticPropsRenderer.DrawingSkybox = false
 
 -- Wait for NikNaks to be loaded
 timer.Simple(1, function()
@@ -30,6 +31,15 @@ timer.Simple(1, function()
     
     -- Initialize the system once NikNaks is available
     StaticPropsRenderer:Initialize()
+end)
+
+-- Fix skybox rendering bug
+hook.Add("PreDrawSkyBox", "StaticPropsRenderer_SkyboxDetection", function()
+    StaticPropsRenderer.DrawingSkybox = true
+end)
+
+hook.Add("PostDrawSkyBox", "StaticPropsRenderer_SkyboxDetection", function()
+    StaticPropsRenderer.DrawingSkybox = false
 end)
 
 function StaticPropsRenderer:Initialize()
@@ -44,8 +54,13 @@ function StaticPropsRenderer:Initialize()
     -- Load settings
     self:LoadSettings()
     
-    -- Add render hook
-    hook.Add("PostDrawOpaqueRenderables", "StaticPropsRenderer_Render", function()
+    hook.Add("PostDrawOpaqueRenderables", "StaticPropsRenderer_Render", function(bDrawingDepth, bDrawingSkybox)
+        -- Skip rendering in skybox pass
+        if self.DrawingSkybox or bDrawingSkybox then return end
+        
+        -- Skip in render targets (like mirrors)
+        if render.GetRenderTarget() then return end
+        
         self:RenderProps()
     end)
     
@@ -75,7 +90,7 @@ function StaticPropsRenderer:Initialize()
     
     -- Scan static props
     self:ScanMapProps()
-    
+
     RunConsoleCommand("r_drawstaticprops", "1")
     
     print("[StaticPropsRenderer] Initialized successfully!")
@@ -172,6 +187,12 @@ end
 
 function StaticPropsRenderer:RenderProps()
     if not self.Enabled then return end
+    
+    -- Skip if we're in the skybox pass
+    if self.DrawingSkybox then return end
+    
+    -- Skip if we're rendering to a render target (like mirrors)
+    if render.GetRenderTarget() then return end
     
     -- Get player position for distance culling
     local playerPos = LocalPlayer():GetPos()
@@ -274,7 +295,7 @@ function StaticPropsRenderer:RenderProps()
         draw.SimpleText(text, "DermaDefault", ScrW() / 2, ScrH() - 40, Color(255, 255, 255), TEXT_ALIGN_CENTER)
         
         -- Draw render stats
-        local statsText = "Rendered: " .. renderedCount .. " / Visible: " .. visibleCount .. " / Total: " .. #self.Props .. " / Grid Cells: " .. table.Count(self.PropGrid)
+        local statsText = "Rendered: " .. renderedCount .. " / Visible: " .. visibleCount .. " / Total: " .. #self.Props .. " / Grid Cells: " .. table.Count(self.PropGrid) .. " / Skybox: " .. tostring(self.DrawingSkybox)
         draw.SimpleText(statsText, "DermaDefault", ScrW() / 2, ScrH() - 20, Color(255, 255, 255), TEXT_ALIGN_CENTER)
     end
 end
