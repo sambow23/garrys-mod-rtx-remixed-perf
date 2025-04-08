@@ -1,4 +1,3 @@
-// rtx_light_distant.cpp
 #include "rtx_light_distant.h"
 #include <tier0/dbg.h>
 

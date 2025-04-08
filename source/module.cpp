@@ -186,8 +186,8 @@ GMOD_MODULE_CLOSE() {
         //HardwareSkinningHooks::Instance().Shutdown();
 #endif //HWSKIN_PATCHES
 
-        ModelRenderHooks::Instance().Shutdown();
-        ModelLoadHooks::Instance().Shutdown();
+       ModelRenderHooks::Instance().Shutdown();
+       ModelLoadHooks::Instance().Shutdown();
 
 #ifdef _WIN64
         if (g_remix) {

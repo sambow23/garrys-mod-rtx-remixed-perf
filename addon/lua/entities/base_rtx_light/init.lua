@@ -37,6 +37,7 @@ function ENT:Initialize()
         -- FIX: Fixed the reference from 'this' to 'self' and added parentheses for proper evaluation
         self:SetConeAngle(self.InitialProperties.coneAngle or (self:GetLightType() ~= 0 and 120 or 180))
         self:SetConeSoftness(self.InitialProperties.coneSoftness or 0.2)
+        self:SetLightRotation(self:GetAngles())
     else
         -- Default values
         self:SetLightType(0) -- Sphere by default
@@ -92,6 +93,8 @@ if SERVER then
             ent:SetConeAngle(net.ReadFloat())
         elseif property == "coneSoftness" then
             ent:SetConeSoftness(net.ReadFloat())
+        elseif property == "lightRotation" then
+            ent:SetLightRotation(net.ReadAngle())
         end
     end)
 end

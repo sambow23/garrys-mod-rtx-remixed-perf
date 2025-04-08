@@ -54,6 +54,14 @@ function ENT:CreateRTXLight()
     local g = self:GetLightG()
     local b = self:GetLightB()
     local lightType = self:GetLightType()
+    
+    -- Get rotation - fix the missing rotation variable
+    local rotation = self:GetLightRotation() or self:GetAngles()
+    
+    -- Calculate direction vectors based on rotation
+    local forward = rotation:Forward()
+    local right = rotation:Right()
+    local up = rotation:Up()
 
     -- Get light shaping properties
     local shapingEnabled = self:GetShapingEnabled()
@@ -73,7 +81,7 @@ function ENT:CreateRTXLight()
                 r, g, b,
                 self.rtxEntityID,
                 shapingEnabled,      -- Enable light shaping
-                0, 0, 1,             -- Default direction
+                forward.x, forward.y, forward.z, -- Use forward vector for direction
                 coneAngle,
                 coneSoftness
             )
@@ -82,10 +90,6 @@ function ENT:CreateRTXLight()
         local width = self:GetRectWidth()
         local height = self:GetRectHeight()
         
-        -- Get forward vector for direction
-        local ang = self:GetAngles()
-        local dir = ang:Forward()
-        
         success, handle = pcall(function()
             return CreateRTXRectLight(
                 pos.x, pos.y, pos.z,
@@ -93,9 +97,9 @@ function ENT:CreateRTXLight()
                 brightness,
                 r, g, b,
                 self.rtxEntityID,
-                dir.x, dir.y, dir.z,  -- Use entity's forward vector
-                1, 0, 0,              -- Default X axis
-                0, 1, 0,              -- Default Y axis
+                forward.x, forward.y, forward.z,  -- Direction (normal to plane)
+                right.x, right.y, right.z,        -- X axis
+                up.x, up.y, up.z,                 -- Y axis
                 shapingEnabled,
                 coneAngle,
                 coneSoftness
@@ -104,20 +108,16 @@ function ENT:CreateRTXLight()
     elseif lightType == 2 then -- Disk Light
         local size = self:GetLightSize()
         
-        -- Get forward vector for direction
-        local ang = self:GetAngles()
-        local dir = ang:Forward()
-        
         success, handle = pcall(function()
             return CreateRTXDiskLight(
                 pos.x, pos.y, pos.z,
-                size, size,            -- Using same value for both radii
+                size, size,                 -- Use size for both radii
                 brightness,
                 r, g, b,
                 self.rtxEntityID,
-                dir.x, dir.y, dir.z,   -- Use entity's forward vector
-                1, 0, 0,               -- Default X axis
-                0, 1, 0,               -- Default Y axis
+                forward.x, forward.y, forward.z,  -- Direction (normal to disk)
+                right.x, right.y, right.z,        -- X axis
+                up.x, up.y, up.z,                 -- Y axis
                 shapingEnabled,
                 coneAngle,
                 coneSoftness
@@ -125,12 +125,10 @@ function ENT:CreateRTXLight()
         end)
     elseif lightType == 3 then -- Distant Light
         local angularDiameter = self:GetAngularDiameter()
-        local ang = self:GetAngles()
-        local dir = ang:Forward()
-        
+
         success, handle = pcall(function()
             return CreateRTXDistantLight(
-                dir.x, dir.y, dir.z,  -- Use entity's forward vector
+                forward.x, forward.y, forward.z,  -- Use forward vector for direction
                 angularDiameter,
                 brightness,
                 r, g, b,
@@ -143,6 +141,7 @@ function ENT:CreateRTXLight()
         self.rtxLightHandle = handle
         self.lastUpdatePos = pos
         self.lastUpdateTime = CurTime()
+        self.lastUpdateRot = rotation  -- Store last rotation for change detection
     else
         print("[RTX Light] Failed to create light: ", tostring(handle), "\n")
     end
@@ -168,9 +167,21 @@ function ENT:Think()
         end
 
         local pos = self:GetPos()
+        local rotation = self:GetLightRotation() or self:GetAngles()
+        
+        -- Get rotation vectors
+        local forward = rotation:Forward()
+        local right = rotation:Right()
+        local up = rotation:Up()
         
         -- Check if we actually need to update
-        if not self.lastUpdatePos or pos:DistToSqr(self.lastUpdatePos) > 1 then
+        -- Include rotation change detection
+        local rotChanged = not self.lastUpdateRot or 
+                          rotation.p ~= self.lastUpdateRot.p or
+                          rotation.y ~= self.lastUpdateRot.y or
+                          rotation.r ~= self.lastUpdateRot.r
+                          
+        if not self.lastUpdatePos or pos:DistToSqr(self.lastUpdatePos) > 1 or rotChanged then
             local brightness = self:GetLightBrightness()
             local r = self:GetLightR()
             local g = self:GetLightG()
@@ -196,7 +207,7 @@ function ENT:Think()
                         brightness,
                         r, g, b,
                         shapingEnabled,
-                        0, 0, 1, -- Default direction vector
+                        forward.x, forward.y, forward.z, -- Use rotation for direction
                         coneAngle,
                         coneSoftness
                     )
@@ -207,6 +218,7 @@ function ENT:Think()
                             self.rtxLightHandle = newHandle
                         end
                         self.lastUpdatePos = pos
+                        self.lastUpdateRot = rotation
                         self.lastUpdateTime = CurTime()
                     else
                         -- If update failed, try to recreate light
@@ -217,10 +229,6 @@ function ENT:Think()
                 local width = self:GetRectWidth()
                 local height = self:GetRectHeight()
                 
-                -- Get forward vector for direction
-                local ang = self:GetAngles()
-                local dir = ang:Forward()
-                
                 success, err = pcall(function()
                     local updateSuccess, newHandle = UpdateRTXLight(
                         self.rtxLightHandle,
@@ -229,7 +237,9 @@ function ENT:Think()
                         width, height,
                         brightness,
                         r, g, b,
-                        dir.x, dir.y, dir.z, -- Direction
+                        forward.x, forward.y, forward.z, -- Direction from rotation
+                        right.x, right.y, right.z,       -- X axis from rotation
+                        up.x, up.y, up.z,                -- Y axis from rotation
                         shapingEnabled,
                         coneAngle,
                         coneSoftness
@@ -240,6 +250,7 @@ function ENT:Think()
                             self.rtxLightHandle = newHandle
                         end
                         self.lastUpdatePos = pos
+                        self.lastUpdateRot = rotation
                         self.lastUpdateTime = CurTime()
                     else
                         self:CreateRTXLight()
@@ -247,10 +258,6 @@ function ENT:Think()
                 end)
             elseif lightType == 2 then -- Disk Light
                 local size = self:GetLightSize()
-                
-                -- Get forward vector for direction
-                local ang = self:GetAngles()
-                local dir = ang:Forward()
                 
                 success, err = pcall(function()
                     local updateSuccess, newHandle = UpdateRTXLight(
@@ -260,7 +267,9 @@ function ENT:Think()
                         size, size, -- Using same value for both radii
                         brightness,
                         r, g, b,
-                        dir.x, dir.y, dir.z, -- Direction
+                        forward.x, forward.y, forward.z, -- Direction from rotation
+                        right.x, right.y, right.z,       -- X axis from rotation
+                        up.x, up.y, up.z,                -- Y axis from rotation
                         shapingEnabled,
                         coneAngle,
                         coneSoftness
@@ -271,19 +280,19 @@ function ENT:Think()
                             self.rtxLightHandle = newHandle
                         end
                         self.lastUpdatePos = pos
+                        self.lastUpdateRot = rotation
                         self.lastUpdateTime = CurTime()
                     else
                         self:CreateRTXLight()
                     end
                 end)
             elseif lightType == 3 then -- Distant Light
-                local direction = self:GetAngles():Forward()
                 local angularDiameter = self:GetAngularDiameter()
                 success, err = pcall(function()
                     local updateSuccess, newHandle = UpdateRTXLight(
                         self.rtxLightHandle,
                         3, -- Light type (3 = distant)
-                        direction.x, direction.y, direction.z,
+                        forward.x, forward.y, forward.z, -- Direction from rotation
                         angularDiameter,
                         brightness,
                         r, g, b
@@ -294,6 +303,7 @@ function ENT:Think()
                             self.rtxLightHandle = newHandle
                         end
                         self.lastUpdatePos = pos
+                        self.lastUpdateRot = rotation
                         self.lastUpdateTime = CurTime()
                     else
                         self:CreateRTXLight()
@@ -656,6 +666,174 @@ function ENT:OpenPropertyMenu()
         net.SendToServer()
         
         if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+
+    local rotationLabel = scroll:Add("DLabel")
+    rotationLabel:Dock(TOP)
+    rotationLabel:SetText("Light Rotation")
+    rotationLabel:SetDark(true)
+    rotationLabel:DockMargin(5, 15, 5, 0)
+    
+    local rotationPanel = vgui.Create("DPanel", scroll)
+    rotationPanel:Dock(TOP)
+    rotationPanel:SetTall(150)
+    rotationPanel:DockMargin(5, 5, 5, 5)
+    rotationPanel:SetPaintBackground(false)
+    
+    -- Current rotation values
+    local currentRotation = self:GetLightRotation()
+    
+    -- Pitch control
+    local pitchSlider = rotationPanel:Add("DNumSlider")
+    pitchSlider:Dock(TOP)
+    pitchSlider:SetText("Pitch")
+    pitchSlider:SetMin(-180)
+    pitchSlider:SetMax(180)
+    pitchSlider:SetDecimals(0)
+    pitchSlider:SetValue(currentRotation.p)
+    pitchSlider.OnValueChanged = function(_, value)
+        local rot = self:GetLightRotation()
+        rot.p = value
+        
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("lightRotation")
+            net.WriteAngle(rot)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:SetLightRotation(rot)
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    -- Yaw control
+    local yawSlider = rotationPanel:Add("DNumSlider")
+    yawSlider:Dock(TOP)
+    yawSlider:SetText("Yaw")
+    yawSlider:SetMin(-180)
+    yawSlider:SetMax(180)
+    yawSlider:SetDecimals(0)
+    yawSlider:SetValue(currentRotation.y)
+    yawSlider.OnValueChanged = function(_, value)
+        local rot = self:GetLightRotation()
+        rot.y = value
+        
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("lightRotation")
+            net.WriteAngle(rot)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:SetLightRotation(rot)
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    -- Roll control
+    local rollSlider = rotationPanel:Add("DNumSlider")
+    rollSlider:Dock(TOP)
+    rollSlider:SetText("Roll")
+    rollSlider:SetMin(-180)
+    rollSlider:SetMax(180)
+    rollSlider:SetDecimals(0)
+    rollSlider:SetValue(currentRotation.r)
+    rollSlider.OnValueChanged = function(_, value)
+        local rot = self:GetLightRotation()
+        rot.r = value
+        
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("lightRotation")
+            net.WriteAngle(rot)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:SetLightRotation(rot)
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    -- Helper buttons for common rotations
+    local rotationButtons = rotationPanel:Add("DPanel")
+    rotationButtons:Dock(TOP)
+    rotationButtons:SetTall(30)
+    rotationButtons:DockMargin(0, 5, 0, 0)
+    rotationButtons:SetPaintBackground(false)
+    
+    local btnUp = rotationButtons:Add("DButton")
+    btnUp:Dock(LEFT)
+    btnUp:SetText("Up")
+    btnUp:SetWide(60)
+    btnUp:DockMargin(0, 0, 5, 0)
+    btnUp.DoClick = function()
+        local rot = Angle(270, 0, 0) -- Point up
+        
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("lightRotation")
+            net.WriteAngle(rot)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:SetLightRotation(rot)
+            pitchSlider:SetValue(rot.p)
+            yawSlider:SetValue(rot.y)
+            rollSlider:SetValue(rot.r)
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    local btnDown = rotationButtons:Add("DButton")
+    btnDown:Dock(LEFT)
+    btnDown:SetText("Down")
+    btnDown:SetWide(60)
+    btnDown:DockMargin(0, 0, 5, 0)
+    btnDown.DoClick = function()
+        local rot = Angle(90, 0, 0) -- Point down
+        
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("lightRotation")
+            net.WriteAngle(rot)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:SetLightRotation(rot)
+            pitchSlider:SetValue(rot.p)
+            yawSlider:SetValue(rot.y)
+            rollSlider:SetValue(rot.r)
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    local btnForward = rotationButtons:Add("DButton")
+    btnForward:Dock(LEFT)
+    btnForward:SetText("Forward")
+    btnForward:SetWide(60)
+    btnForward.DoClick = function()
+        local rot = Angle(0, 0, 0) -- Point forward
+        
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("lightRotation")
+            net.WriteAngle(rot)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:SetLightRotation(rot)
+            pitchSlider:SetValue(rot.p)
+            yawSlider:SetValue(rot.y)
+            rollSlider:SetValue(rot.r)
             self:Think()
             self.lastUpdatePos = nil
         end

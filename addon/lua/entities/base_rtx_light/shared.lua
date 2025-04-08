@@ -17,10 +17,13 @@ function ENT:SetupDataTables()
     self:NetworkVar("Float", 3, "RectHeight")
     self:NetworkVar("Float", 4, "AngularDiameter")
     
-    -- Add light shaping properties
+    -- Light shaping properties
     self:NetworkVar("Bool", 0, "ShapingEnabled")
     self:NetworkVar("Float", 5, "ConeAngle")
     self:NetworkVar("Float", 6, "ConeSoftness")
+    
+    -- Add rotation control properties
+    self:NetworkVar("Angle", 0, "LightRotation")  -- Store rotation as Angle
 
     if SERVER then
         -- Existing notify hooks
@@ -38,6 +41,7 @@ function ENT:SetupDataTables()
         self:NetworkVarNotify("ShapingEnabled", self.OnVarChanged)
         self:NetworkVarNotify("ConeAngle", self.OnVarChanged)
         self:NetworkVarNotify("ConeSoftness", self.OnVarChanged)
+        self:NetworkVarNotify("LightRotation", self.OnVarChanged)
     end
 end
 
