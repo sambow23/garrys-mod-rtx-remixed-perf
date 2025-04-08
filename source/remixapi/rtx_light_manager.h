@@ -1,42 +1,31 @@
 #pragma once
 #include <d3d9.h>
-#include "../../public/include/remix/remix.h"
-#include "../../public/include/remix/remix_c.h"
+#include <remix/remix.h>
 #include <remix/remix_c.h>
 #include <vector>
 #include <queue>
-#include <mutex>
+#include <unordered_map>
+#include <functional>
 #include <Windows.h>
 #include "GarrysMod/Lua/Interface.h"
+#include "./rtxlights/rtx_light_base.h"
+#include "./rtxlights/rtx_light_sphere.h"
+#include "./rtxlights/rtx_light_rect.h"
+#include "./rtxlights/rtx_light_disk.h"
+#include "./rtxlights/rtx_light_distant.h"
 
 class RTXLightManager {
 public:
-    struct LightProperties {
-        float x, y, z;          
-        float size;             
-        float brightness;       
-        float r, g, b;          
-    };
-
-    struct PendingUpdate {
-        remixapi_LightHandle handle;
-        LightProperties properties;
-        bool needsUpdate;
-        bool requiresRecreation;
-    };
-
-    struct ManagedLight {
-        remixapi_LightHandle handle;
-        LightProperties properties;
-        float lastUpdateTime;
-        bool needsUpdate;
-    };
-
     static RTXLightManager& Instance();
 
-    // Light management functions
-    remixapi_LightHandle CreateLight(const LightProperties& props, uint64_t entityID);
-    bool UpdateLight(remixapi_LightHandle handle, const LightProperties& props, remixapi_LightHandle* newHandle = nullptr);
+    // Light creation functions for different types
+    remixapi_LightHandle CreateSphereLight(const RTX::SphereProperties& props, uint64_t entityID = 0);
+    remixapi_LightHandle CreateRectLight(const RTX::RectProperties& props, uint64_t entityID = 0);
+    remixapi_LightHandle CreateDiskLight(const RTX::DiskProperties& props, uint64_t entityID = 0);
+    remixapi_LightHandle CreateDistantLight(const RTX::DistantProperties& props, uint64_t entityID = 0);
+    
+    // Generic update and management functions
+    bool UpdateLight(remixapi_LightHandle handle, const void* props, int lightType, remixapi_LightHandle* newHandle = nullptr);
     bool IsValidHandle(remixapi_LightHandle handle) const;
     void DestroyLight(remixapi_LightHandle handle);
     void DrawLights();
@@ -59,18 +48,33 @@ private:
     RTXLightManager();
     ~RTXLightManager();
 
+    // Light tracking structure
+    struct ManagedLight {
+        remixapi_LightHandle handle;
+        std::shared_ptr<RTX::ILight> lightObject;
+        uint64_t entityID;
+        float lastUpdateTime;
+        bool needsUpdate;
+    };
+
+    // Update tracking
+    struct PendingUpdate {
+        remixapi_LightHandle handle;
+        std::shared_ptr<RTX::ILight> newLightObject;
+        bool needsUpdate;
+        bool requiresRecreation;
+    };
+
     // Internal helper functions
-    remixapi_LightInfoSphereEXT CreateSphereLight(const LightProperties& props);
-    remixapi_LightInfo CreateLightInfo(const remixapi_LightInfoSphereEXT& sphereLight);
-    uint64_t GenerateLightHash() const;
     void LogMessage(const char* format, ...);
+    uint64_t GenerateLightHash() const;
 
     // Member variables
     remix::Interface* m_remix;
     std::vector<ManagedLight> m_lights;
     std::vector<ManagedLight> m_lightsToDestroy;
     std::queue<PendingUpdate> m_pendingUpdates;
-    std::unordered_map<uint64_t, ManagedLight> m_lightsByEntityID;  // Track lights by entity ID
+    std::unordered_map<uint64_t, ManagedLight> m_lightsByEntityID;
     std::function<bool(uint64_t)> m_luaEntityValidator;
     mutable CRITICAL_SECTION m_lightCS;
     mutable CRITICAL_SECTION m_updateCS;

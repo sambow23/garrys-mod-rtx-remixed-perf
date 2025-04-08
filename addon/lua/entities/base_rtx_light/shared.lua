@@ -11,6 +11,10 @@ function ENT:SetupDataTables()
     self:NetworkVar("Int", 0, "LightR")
     self:NetworkVar("Int", 1, "LightG")
     self:NetworkVar("Int", 2, "LightB")
+    self:NetworkVar("Int", 3, "LightType")  -- 0 = Sphere, 1 = Rect, 2 = Disk, 3 = Distant
+    self:NetworkVar("Float", 2, "RectWidth")
+    self:NetworkVar("Float", 3, "RectHeight")
+    self:NetworkVar("Float", 4, "AngularDiameter")
 
     if SERVER then
         self:NetworkVarNotify("LightBrightness", self.OnVarChanged)
@@ -18,6 +22,10 @@ function ENT:SetupDataTables()
         self:NetworkVarNotify("LightR", self.OnVarChanged)
         self:NetworkVarNotify("LightG", self.OnVarChanged)
         self:NetworkVarNotify("LightB", self.OnVarChanged)
+        self:NetworkVarNotify("LightType", self.OnVarChanged)
+        self:NetworkVarNotify("RectWidth", self.OnVarChanged)
+        self:NetworkVarNotify("RectHeight", self.OnVarChanged)
+        self:NetworkVarNotify("AngularDiameter", self.OnVarChanged)
     end
 end
 

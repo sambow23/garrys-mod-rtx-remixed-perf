@@ -20,18 +20,28 @@ function ENT:Initialize()
     
     -- Set properties from initial values if they exist
     if self.InitialProperties then
+        self:SetLightType(self.InitialProperties.lightType or 0)
         self:SetLightBrightness(self.InitialProperties.brightness)
         self:SetLightSize(self.InitialProperties.size)
         self:SetLightR(self.InitialProperties.r)
         self:SetLightG(self.InitialProperties.g)
         self:SetLightB(self.InitialProperties.b)
+        
+        -- Type-specific properties
+        self:SetRectWidth(self.InitialProperties.rectWidth or 100)
+        self:SetRectHeight(self.InitialProperties.rectHeight or 100)
+        self:SetAngularDiameter(self.InitialProperties.angularDiameter or 0.5)
     else
         -- Default values
+        self:SetLightType(0) -- Sphere by default
         self:SetLightBrightness(100)
         self:SetLightSize(200)
         self:SetLightR(255)
         self:SetLightG(255)
         self:SetLightB(255)
+        self:SetRectWidth(100)
+        self:SetRectHeight(100)
+        self:SetAngularDiameter(0.5)
     end
     
     local phys = self:GetPhysicsObject()
@@ -57,6 +67,14 @@ if SERVER then
             ent:SetLightR(net.ReadUInt(8))
             ent:SetLightG(net.ReadUInt(8))
             ent:SetLightB(net.ReadUInt(8))
+        elseif property == "lightType" then
+            ent:SetLightType(net.ReadUInt(8))
+        elseif property == "rectWidth" then
+            ent:SetRectWidth(net.ReadFloat())
+        elseif property == "rectHeight" then
+            ent:SetRectHeight(net.ReadFloat())
+        elseif property == "angularDiameter" then
+            ent:SetAngularDiameter(net.ReadFloat())
         end
     end)
 end

@@ -48,26 +48,63 @@ function ENT:CreateRTXLight()
     end
 
     local pos = self:GetPos()
-    local size = self:GetLightSize()
     local brightness = self:GetLightBrightness()
     local r = self:GetLightR()
     local g = self:GetLightG()
     local b = self:GetLightB()
+    local lightType = self:GetLightType()
 
-    -- Create new light with entity ID
-    local success, handle = pcall(function()
-        return CreateRTXLight(
-            pos.x, 
-            pos.y, 
-            pos.z,
-            size,
-            brightness,
-            r,
-            g,
-            b,
-            self.rtxEntityID -- Pass entity ID to module
-        )
-    end)
+    -- Create the appropriate light type
+    local success, handle = false, nil
+
+    if lightType == 0 then -- Sphere Light
+        local size = self:GetLightSize()
+        success, handle = pcall(function()
+            return CreateRTXSphereLight(
+                pos.x, pos.y, pos.z,
+                size,
+                brightness,
+                r, g, b,
+                self.rtxEntityID -- Pass entity ID to module
+            )
+        end)
+    elseif lightType == 1 then -- Rect Light
+        local width = self:GetRectWidth()
+        local height = self:GetRectHeight()
+        success, handle = pcall(function()
+            return CreateRTXRectLight(
+                pos.x, pos.y, pos.z,
+                width, height,
+                brightness,
+                r, g, b,
+                self.rtxEntityID
+            )
+        end)
+    elseif lightType == 2 then -- Disk Light
+        local size = self:GetLightSize()
+        success, handle = pcall(function()
+            return CreateRTXDiskLight(
+                pos.x, pos.y, pos.z,
+                size, size, -- Using same value for both radii
+                brightness,
+                r, g, b,
+                self.rtxEntityID
+            )
+        end)
+    elseif lightType == 3 then -- Distant Light
+        local angularDiameter = self:GetAngularDiameter()
+        -- For distant light, use view direction or a default
+        local direction = self:GetAngles():Forward()
+        success, handle = pcall(function()
+            return CreateRTXDistantLight(
+                direction.x, direction.y, direction.z,
+                angularDiameter,
+                brightness,
+                r, g, b,
+                self.rtxEntityID
+            )
+        end)
+    end
 
     if success and IsValidLightHandle(handle) then
         self.rtxLightHandle = handle
@@ -101,34 +138,108 @@ function ENT:Think()
         
         -- Check if we actually need to update
         if not self.lastUpdatePos or pos:DistToSqr(self.lastUpdatePos) > 1 then
-            local brightness = self:GetLightBrightness() / 100  -- Convert percentage to 0-1
-            local size = self:GetLightSize() / 10  -- Scale down size
+            local brightness = self:GetLightBrightness()
             local r = self:GetLightR()
             local g = self:GetLightG()
             local b = self:GetLightB()
+            local lightType = self:GetLightType()
 
-            -- Protected call for update
-            local success, err = pcall(function()
-                local updateSuccess, newHandle = UpdateRTXLight(
-                    self.rtxLightHandle,
-                    pos.x, pos.y, pos.z,
-                    size,
-                    brightness,
-                    r, g, b
-                )
+            -- Protected call for update based on light type
+            local success, err = false, nil
 
-                if updateSuccess then
-                    -- Update handle if it changed after recreation
-                    if newHandle and IsValidLightHandle(newHandle) and newHandle ~= self.rtxLightHandle then
-                        self.rtxLightHandle = newHandle
+            if lightType == 0 then -- Sphere Light
+                local size = self:GetLightSize()
+                success, err = pcall(function()
+                    local updateSuccess, newHandle = UpdateRTXLight(
+                        self.rtxLightHandle,
+                        0, -- Light type (0 = sphere)
+                        pos.x, pos.y, pos.z,
+                        size,
+                        brightness,
+                        r, g, b
+                    )
+
+                    if updateSuccess then
+                        -- Update handle if it changed after recreation
+                        if newHandle and IsValidLightHandle(newHandle) and newHandle ~= self.rtxLightHandle then
+                            self.rtxLightHandle = newHandle
+                        end
+                        self.lastUpdatePos = pos
+                        self.lastUpdateTime = CurTime()
+                    else
+                        -- If update failed, try to recreate light
+                        self:CreateRTXLight()
                     end
-                    self.lastUpdatePos = pos
-                    self.lastUpdateTime = CurTime()
-                else
-                    -- If update failed, try to recreate light
-                    self:CreateRTXLight()
-                end
-            end)
+                end)
+            elseif lightType == 1 then -- Rect Light
+                local width = self:GetRectWidth()
+                local height = self:GetRectHeight()
+                success, err = pcall(function()
+                    local updateSuccess, newHandle = UpdateRTXLight(
+                        self.rtxLightHandle,
+                        1, -- Light type (1 = rect)
+                        pos.x, pos.y, pos.z,
+                        width, height,
+                        brightness,
+                        r, g, b
+                    )
+
+                    if updateSuccess then
+                        if newHandle and IsValidLightHandle(newHandle) and newHandle ~= self.rtxLightHandle then
+                            self.rtxLightHandle = newHandle
+                        end
+                        self.lastUpdatePos = pos
+                        self.lastUpdateTime = CurTime()
+                    else
+                        self:CreateRTXLight()
+                    end
+                end)
+            elseif lightType == 2 then -- Disk Light
+                local size = self:GetLightSize()
+                success, err = pcall(function()
+                    local updateSuccess, newHandle = UpdateRTXLight(
+                        self.rtxLightHandle,
+                        2, -- Light type (2 = disk)
+                        pos.x, pos.y, pos.z,
+                        size, size, -- Using same value for both radii
+                        brightness,
+                        r, g, b
+                    )
+
+                    if updateSuccess then
+                        if newHandle and IsValidLightHandle(newHandle) and newHandle ~= self.rtxLightHandle then
+                            self.rtxLightHandle = newHandle
+                        end
+                        self.lastUpdatePos = pos
+                        self.lastUpdateTime = CurTime()
+                    else
+                        self:CreateRTXLight()
+                    end
+                end)
+            elseif lightType == 3 then -- Distant Light
+                local direction = self:GetAngles():Forward()
+                local angularDiameter = self:GetAngularDiameter()
+                success, err = pcall(function()
+                    local updateSuccess, newHandle = UpdateRTXLight(
+                        self.rtxLightHandle,
+                        3, -- Light type (3 = distant)
+                        direction.x, direction.y, direction.z,
+                        angularDiameter,
+                        brightness,
+                        r, g, b
+                    )
+
+                    if updateSuccess then
+                        if newHandle and IsValidLightHandle(newHandle) and newHandle ~= self.rtxLightHandle then
+                            self.rtxLightHandle = newHandle
+                        end
+                        self.lastUpdatePos = pos
+                        self.lastUpdateTime = CurTime()
+                    else
+                        self:CreateRTXLight()
+                    end
+                end)
+            end
 
             if not success then
                 print("[RTX Light] Update failed: ", err)
@@ -192,7 +303,7 @@ function ENT:OpenPropertyMenu()
     end
 
     local frame = vgui.Create("DFrame")
-    frame:SetSize(300, 400)
+    frame:SetSize(300, 550)
     frame:SetTitle("RTX Light Properties")
     frame:MakePopup()
     frame:Center()
@@ -200,7 +311,23 @@ function ENT:OpenPropertyMenu()
     local scroll = vgui.Create("DScrollPanel", frame)
     scroll:Dock(FILL)
     
-    -- Brightness Slider
+    -- Light Type Selector
+    local lightTypeLabel = scroll:Add("DLabel")
+    lightTypeLabel:Dock(TOP)
+    lightTypeLabel:SetText("Light Type")
+    lightTypeLabel:SetDark(true)
+    lightTypeLabel:DockMargin(5, 5, 5, 0)
+    
+    local lightTypeCombo = scroll:Add("DComboBox")
+    lightTypeCombo:Dock(TOP)
+    lightTypeCombo:DockMargin(5, 0, 5, 10)
+    lightTypeCombo:AddChoice("Sphere Light", 0)
+    lightTypeCombo:AddChoice("Rectangle Light", 1)
+    lightTypeCombo:AddChoice("Disk Light", 2)
+    lightTypeCombo:AddChoice("Distant Light", 3)
+    lightTypeCombo:ChooseOptionID(self:GetLightType() + 1)
+    
+    -- Common properties
     local brightnessSlider = scroll:Add("DNumSlider")
     brightnessSlider:Dock(TOP)
     brightnessSlider:SetText("Brightness")
@@ -209,30 +336,30 @@ function ENT:OpenPropertyMenu()
     brightnessSlider:SetDecimals(0)
     brightnessSlider:SetValue(self:GetLightBrightness())
     brightnessSlider.OnValueChanged = function(_, value)
-        -- Send to server
         net.Start("RTXLight_UpdateProperty")
             net.WriteEntity(self)
             net.WriteString("brightness")
             net.WriteFloat(value)
         net.SendToServer()
         
-        -- Force immediate local update
         if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
-            local pos = self:GetPos()
-            local size = self:GetLightSize() / 10
-            local brightness = value / 100
-            local r = self:GetLightR()
-            local g = self:GetLightG()
-            local b = self:GetLightB()
-            
-            -- Call UpdateRTXLight directly, without pcall
-            self:Think()  -- Use the existing Think function's update logic
-            self.lastUpdatePos = nil  -- Force an update
+            self:Think()
+            self.lastUpdatePos = nil
         end
     end
     
-    -- Size Slider
-    local sizeSlider = scroll:Add("DNumSlider")
+    -- Light type specific controls
+    local lightType = self:GetLightType()
+    
+    -- Sphere Light panel
+    local spherePanel = vgui.Create("DPanel", scroll)
+    spherePanel:Dock(TOP)
+    spherePanel:SetTall(50)
+    spherePanel:DockMargin(5, 5, 5, 5)
+    spherePanel:SetPaintBackground(false)
+    spherePanel:SetVisible(lightType == 0)
+    
+    local sizeSlider = spherePanel:Add("DNumSlider")
     sizeSlider:Dock(TOP)
     sizeSlider:SetText("Size")
     sizeSlider:SetMin(1)
@@ -246,10 +373,113 @@ function ENT:OpenPropertyMenu()
             net.WriteFloat(value)
         net.SendToServer()
         
-        -- Force immediate local update
         if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
-            self:Think()  -- Use the existing Think function's update logic
-            self.lastUpdatePos = nil  -- Force an update
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    -- Rectangle Light panel
+    local rectPanel = vgui.Create("DPanel", scroll)
+    rectPanel:Dock(TOP)
+    rectPanel:SetTall(100)
+    rectPanel:DockMargin(5, 5, 5, 5)
+    rectPanel:SetPaintBackground(false)
+    rectPanel:SetVisible(lightType == 1)
+    
+    local widthSlider = rectPanel:Add("DNumSlider")
+    widthSlider:Dock(TOP)
+    widthSlider:SetText("Width")
+    widthSlider:SetMin(1)
+    widthSlider:SetMax(1000)
+    widthSlider:SetDecimals(0)
+    widthSlider:SetValue(self:GetRectWidth())
+    widthSlider.OnValueChanged = function(_, value)
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("rectWidth")
+            net.WriteFloat(value)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    local heightSlider = rectPanel:Add("DNumSlider")
+    heightSlider:Dock(TOP)
+    heightSlider:SetText("Height")
+    heightSlider:SetMin(1)
+    heightSlider:SetMax(1000)
+    heightSlider:SetDecimals(0)
+    heightSlider:SetValue(self:GetRectHeight())
+    heightSlider.OnValueChanged = function(_, value)
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("rectHeight")
+            net.WriteFloat(value)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    -- Disk Light panel
+    local diskPanel = vgui.Create("DPanel", scroll)
+    diskPanel:Dock(TOP)
+    diskPanel:SetTall(50)
+    diskPanel:DockMargin(5, 5, 5, 5)
+    diskPanel:SetPaintBackground(false)
+    diskPanel:SetVisible(lightType == 2)
+    
+    local diskSizeSlider = diskPanel:Add("DNumSlider")
+    diskSizeSlider:Dock(TOP)
+    diskSizeSlider:SetText("Radius")
+    diskSizeSlider:SetMin(1)
+    diskSizeSlider:SetMax(1000)
+    diskSizeSlider:SetDecimals(0)
+    diskSizeSlider:SetValue(self:GetLightSize())
+    diskSizeSlider.OnValueChanged = function(_, value)
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("size")
+            net.WriteFloat(value)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    -- Distant Light panel
+    local distantPanel = vgui.Create("DPanel", scroll)
+    distantPanel:Dock(TOP)
+    distantPanel:SetTall(50)
+    distantPanel:DockMargin(5, 5, 5, 5)
+    distantPanel:SetPaintBackground(false)
+    distantPanel:SetVisible(lightType == 3)
+    
+    local angularSlider = distantPanel:Add("DNumSlider")
+    angularSlider:Dock(TOP)
+    angularSlider:SetText("Angular Diameter")
+    angularSlider:SetMin(0.1)
+    angularSlider:SetMax(10)
+    angularSlider:SetDecimals(1)
+    angularSlider:SetValue(self:GetAngularDiameter())
+    angularSlider.OnValueChanged = function(_, value)
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("angularDiameter")
+            net.WriteFloat(value)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:Think()
+            self.lastUpdatePos = nil
         end
     end
     
@@ -269,10 +499,28 @@ function ENT:OpenPropertyMenu()
             net.WriteUInt(color.b, 8)
         net.SendToServer()
         
-        -- Force immediate local update
         if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
-            self:Think()  -- Use the existing Think function's update logic
-            self.lastUpdatePos = nil  -- Force an update
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    -- Light type visibility control
+    lightTypeCombo.OnSelect = function(_, _, _, data)
+        spherePanel:SetVisible(data == 0)
+        rectPanel:SetVisible(data == 1)
+        diskPanel:SetVisible(data == 2)
+        distantPanel:SetVisible(data == 3)
+        
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("lightType")
+            net.WriteUInt(data, 8)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:Think()
+            self.lastUpdatePos = nil
         end
     end
     
