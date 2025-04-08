@@ -1,3 +1,6 @@
+// cursed but it fixes compile errors for x32
+#ifdef _WIN64
+
 #include "rtx_light_manager.h"
 #include <tier0/dbg.h>
 #include <algorithm>
@@ -764,3 +767,4 @@ void RTXLightManager::InitializeLuaBindings(GarrysMod::Lua::ILuaBase* LUA) {
     LUA->PushCFunction(DrawRTXLights);
     LUA->SetField(-2, "DrawRTXLights");
 }
+#endif // _WIN64
