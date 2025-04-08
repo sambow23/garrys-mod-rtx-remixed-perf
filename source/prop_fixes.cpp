@@ -252,15 +252,37 @@ void ModelRenderHooks::Initialize() {
 	}
 }
 
-void ModelRenderHooks::Shutdown() { 
-	// Existing shutdown code  
-	R_StudioSetupSkinAndLighting_hook.Disable();
-	R_StudioDrawDynamicMesh_hook.Disable();
-#ifdef _WIN64
-	//g_MemoryPatcher.DisablePatch("ForceHardwareSkinning2");
-	//g_MemoryPatcher.DisablePatch("ForceStaticModel1");
-#endif
+// Old Shutdown Code
 
-	// Log shutdown completion
-	Msg("[Prop Fixes] Shutdown complete\n");
+// void ModelRenderHooks::Shutdown() { 
+// 	// Existing shutdown code  
+// 	R_StudioSetupSkinAndLighting_hook.Disable();
+// 	R_StudioDrawDynamicMesh_hook.Disable();
+// #ifdef _WIN64
+// 	//g_MemoryPatcher.DisablePatch("ForceHardwareSkinning2");
+// 	//g_MemoryPatcher.DisablePatch("ForceStaticModel1");
+// #endif
+
+// 	// Log shutdown completion
+// 	Msg("[Prop Fixes] Shutdown complete\n");
+// }
+
+void ModelRenderHooks::Shutdown() { 
+    try {
+        // Safely disable hooks
+        if (R_StudioSetupSkinAndLighting_hook.IsEnabled())
+            R_StudioSetupSkinAndLighting_hook.Disable();
+        
+        if (R_StudioDrawDynamicMesh_hook.IsEnabled())
+            R_StudioDrawDynamicMesh_hook.Disable();
+        
+        // Reset interface pointers
+        g_pStudioRender = nullptr;
+        pModelInfo = nullptr;
+        
+        Msg("[Prop Fixes] Shutdown complete\n");
+    }
+    catch (...) {
+        Error("[Prop Fixes] Exception during shutdown\n");
+    }
 }

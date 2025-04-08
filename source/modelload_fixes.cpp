@@ -464,9 +464,19 @@ void ModelLoadHooks::Initialize() {
 
 
 void ModelLoadHooks::Shutdown() {
-    // Existing shutdown code  
-    IFileSystem_OpenEx_hook.Disable();
-
-    // Log shutdown completion
-    Msg("[RTX Remix Fixes 2 - Model Load Fixes] Shutdown complete\n");
+    try {
+        // Safely disable hooks
+        if (IFileSystem_OpenEx_hook.IsEnabled())
+            IFileSystem_OpenEx_hook.Disable();
+        
+        // Clean up interface pointers
+        g_pFileSystem = nullptr;
+        g_pMDLCache = nullptr;
+        engineClient = nullptr;
+        
+        Msg("[RTX Remix Fixes 2 - Model Load Fixes] Shutdown complete\n");
+    }
+    catch (...) {
+        Error("[RTX Remix Fixes 2 - Model Load Fixes] Exception during shutdown\n");
+    }
 }
