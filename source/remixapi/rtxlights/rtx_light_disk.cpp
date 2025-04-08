@@ -1,4 +1,3 @@
-// rtx_light_disk.cpp
 #include "rtx_light_disk.h"
 #include <tier0/dbg.h>
 
@@ -32,20 +31,67 @@ namespace RTX {
             remix::LightInfoDiskEXT diskLight;
             diskLight.position = { m_properties.x, m_properties.y, m_properties.z };
             
-            // Set axes
-            diskLight.xAxis = { m_properties.xAxisX, m_properties.xAxisY, m_properties.xAxisZ };
-            diskLight.yAxis = { m_properties.yAxisX, m_properties.yAxisY, m_properties.yAxisZ };
-            diskLight.direction = { m_properties.dirX, m_properties.dirY, m_properties.dirZ };
+            // Ensure axes are properly normalized and orthogonal
+            // Direction should be perpendicular to both axes
+            float dirNorm = std::sqrt(
+                m_properties.dirX * m_properties.dirX + 
+                m_properties.dirY * m_properties.dirY + 
+                m_properties.dirZ * m_properties.dirZ
+            );
+            
+            // If direction vector is zero, use a default
+            if (dirNorm < 0.001f) {
+                diskLight.direction = { 0.0f, 0.0f, 1.0f };
+            } else {
+                diskLight.direction = { 
+                    m_properties.dirX / dirNorm, 
+                    m_properties.dirY / dirNorm, 
+                    m_properties.dirZ / dirNorm 
+                };
+            }
+            
+            // For X-axis: use a vector perpendicular to direction
+            // If direction is along Z, use X-axis as (1,0,0)
+            if (std::abs(diskLight.direction.z) > 0.9f) {
+                diskLight.xAxis = { 1.0f, 0.0f, 0.0f };
+            } else {
+                // Cross product of direction and up vector
+                float upX = 0.0f, upY = 1.0f, upZ = 0.0f;
+                float xAxisX = upY * diskLight.direction.z - upZ * diskLight.direction.y;
+                float xAxisY = upZ * diskLight.direction.x - upX * diskLight.direction.z;
+                float xAxisZ = upX * diskLight.direction.y - upY * diskLight.direction.x;
+                
+                float xNorm = std::sqrt(xAxisX * xAxisX + xAxisY * xAxisY + xAxisZ * xAxisZ);
+                diskLight.xAxis = { 
+                    xAxisX / xNorm, 
+                    xAxisY / xNorm, 
+                    xAxisZ / xNorm 
+                };
+            }
+            
+            // Y-axis is cross product of direction and x-axis
+            float yAxisX = diskLight.direction.y * diskLight.xAxis.z - diskLight.direction.z * diskLight.xAxis.y;
+            float yAxisY = diskLight.direction.z * diskLight.xAxis.x - diskLight.direction.x * diskLight.xAxis.z;
+            float yAxisZ = diskLight.direction.x * diskLight.xAxis.y - diskLight.direction.y * diskLight.xAxis.x;
+            
+            float yNorm = std::sqrt(yAxisX * yAxisX + yAxisY * yAxisY + yAxisZ * yAxisZ);
+            diskLight.yAxis = { 
+                yAxisX / yNorm, 
+                yAxisY / yNorm, 
+                yAxisZ / yNorm 
+            };
             
             // Set radii
             diskLight.xRadius = m_properties.xRadius;
             diskLight.yRadius = m_properties.yRadius;
             
-            // Apply shaping if enabled
+            // Apply shaping if enabled (use wider angle)
             if (m_properties.enableShaping) {
                 remix::LightInfoLightShaping shaping;
-                shaping.direction = { m_properties.dirX, m_properties.dirY, m_properties.dirZ };
-                shaping.coneAngleDegrees = m_properties.shapingConeAngle;
+                shaping.direction = diskLight.direction;
+                
+                // Use a sensible default cone angle if the provided one is too small
+                shaping.coneAngleDegrees = m_properties.shapingConeAngle < 1.0f ? 120.0f : m_properties.shapingConeAngle;
                 shaping.coneSoftness = m_properties.shapingConeSoftness;
                 shaping.focusExponent = 0.0f;
                 
@@ -54,6 +100,9 @@ namespace RTX {
             } else {
                 diskLight.shaping_hasvalue = false;
             }
+            
+            // Set volumetric radiance scale
+            diskLight.volumetricRadianceScale = 1.0f;
             
             // Create the light info
             remix::LightInfo lightInfo;

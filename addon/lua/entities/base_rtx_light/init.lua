@@ -31,6 +31,12 @@ function ENT:Initialize()
         self:SetRectWidth(self.InitialProperties.rectWidth or 100)
         self:SetRectHeight(self.InitialProperties.rectHeight or 100)
         self:SetAngularDiameter(self.InitialProperties.angularDiameter or 0.5)
+
+        -- Light shaping properties
+        self:SetShapingEnabled(self.InitialProperties.shapingEnabled or true)
+        -- FIX: Fixed the reference from 'this' to 'self' and added parentheses for proper evaluation
+        self:SetConeAngle(self.InitialProperties.coneAngle or (self:GetLightType() ~= 0 and 120 or 180))
+        self:SetConeSoftness(self.InitialProperties.coneSoftness or 0.2)
     else
         -- Default values
         self:SetLightType(0) -- Sphere by default
@@ -42,6 +48,11 @@ function ENT:Initialize()
         self:SetRectWidth(100)
         self:SetRectHeight(100)
         self:SetAngularDiameter(0.5)
+
+        -- Default light shaping
+        self:SetShapingEnabled(true)
+        self:SetConeAngle(120)
+        self:SetConeSoftness(0.2)
     end
     
     local phys = self:GetPhysicsObject()
@@ -75,6 +86,12 @@ if SERVER then
             ent:SetRectHeight(net.ReadFloat())
         elseif property == "angularDiameter" then
             ent:SetAngularDiameter(net.ReadFloat())
+        elseif property == "shapingEnabled" then
+            ent:SetShapingEnabled(net.ReadBool())
+        elseif property == "coneAngle" then
+            ent:SetConeAngle(net.ReadFloat())
+        elseif property == "coneSoftness" then
+            ent:SetConeSoftness(net.ReadFloat())
         end
     end)
 end

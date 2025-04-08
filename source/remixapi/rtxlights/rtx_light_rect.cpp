@@ -1,4 +1,3 @@
-// rtx_light_rect.cpp
 #include "rtx_light_rect.h"
 #include <tier0/dbg.h>
 
@@ -32,20 +31,67 @@ namespace RTX {
             remix::LightInfoRectEXT rectLight;
             rectLight.position = { m_properties.x, m_properties.y, m_properties.z };
             
-            // Set axes
-            rectLight.xAxis = { m_properties.xAxisX, m_properties.xAxisY, m_properties.xAxisZ };
-            rectLight.yAxis = { m_properties.yAxisX, m_properties.yAxisY, m_properties.yAxisZ };
-            rectLight.direction = { m_properties.dirX, m_properties.dirY, m_properties.dirZ };
+            // Ensure axes are properly normalized and orthogonal
+            // Direction should be perpendicular to both axes
+            float dirNorm = std::sqrt(
+                m_properties.dirX * m_properties.dirX + 
+                m_properties.dirY * m_properties.dirY + 
+                m_properties.dirZ * m_properties.dirZ
+            );
+            
+            // If direction vector is zero, use a default
+            if (dirNorm < 0.001f) {
+                rectLight.direction = { 0.0f, 0.0f, 1.0f };
+            } else {
+                rectLight.direction = { 
+                    m_properties.dirX / dirNorm, 
+                    m_properties.dirY / dirNorm, 
+                    m_properties.dirZ / dirNorm 
+                };
+            }
+            
+            // For X-axis: use a vector perpendicular to direction
+            // If direction is along Z, use X-axis as (1,0,0)
+            if (std::abs(rectLight.direction.z) > 0.9f) {
+                rectLight.xAxis = { 1.0f, 0.0f, 0.0f };
+            } else {
+                // Cross product of direction and up vector
+                float upX = 0.0f, upY = 1.0f, upZ = 0.0f;
+                float xAxisX = upY * rectLight.direction.z - upZ * rectLight.direction.y;
+                float xAxisY = upZ * rectLight.direction.x - upX * rectLight.direction.z;
+                float xAxisZ = upX * rectLight.direction.y - upY * rectLight.direction.x;
+                
+                float xNorm = std::sqrt(xAxisX * xAxisX + xAxisY * xAxisY + xAxisZ * xAxisZ);
+                rectLight.xAxis = { 
+                    xAxisX / xNorm, 
+                    xAxisY / xNorm, 
+                    xAxisZ / xNorm 
+                };
+            }
+            
+            // Y-axis is cross product of direction and x-axis
+            float yAxisX = rectLight.direction.y * rectLight.xAxis.z - rectLight.direction.z * rectLight.xAxis.y;
+            float yAxisY = rectLight.direction.z * rectLight.xAxis.x - rectLight.direction.x * rectLight.xAxis.z;
+            float yAxisZ = rectLight.direction.x * rectLight.xAxis.y - rectLight.direction.y * rectLight.xAxis.x;
+            
+            float yNorm = std::sqrt(yAxisX * yAxisX + yAxisY * yAxisY + yAxisZ * yAxisZ);
+            rectLight.yAxis = { 
+                yAxisX / yNorm, 
+                yAxisY / yNorm, 
+                yAxisZ / yNorm 
+            };
             
             // Set dimensions
             rectLight.xSize = m_properties.xSize;
             rectLight.ySize = m_properties.ySize;
             
-            // Apply shaping if enabled
+            // Apply shaping if enabled (use wider angle)
             if (m_properties.enableShaping) {
                 remix::LightInfoLightShaping shaping;
-                shaping.direction = { m_properties.dirX, m_properties.dirY, m_properties.dirZ };
-                shaping.coneAngleDegrees = m_properties.shapingConeAngle;
+                shaping.direction = rectLight.direction;
+                
+                // Use a sensible default cone angle if the provided one is too small
+                shaping.coneAngleDegrees = m_properties.shapingConeAngle < 1.0f ? 120.0f : m_properties.shapingConeAngle;
                 shaping.coneSoftness = m_properties.shapingConeSoftness;
                 shaping.focusExponent = 0.0f;
                 
@@ -54,6 +100,9 @@ namespace RTX {
             } else {
                 rectLight.shaping_hasvalue = false;
             }
+            
+            // Set volumetric radiance scale
+            rectLight.volumetricRadianceScale = 1.0f;
             
             // Create the light info
             remix::LightInfo lightInfo;

@@ -47,12 +47,18 @@ function ENT:CreateRTXLight()
         self.rtxLightHandle = nil
     end
 
+    -- Get shared properties
     local pos = self:GetPos()
     local brightness = self:GetLightBrightness()
     local r = self:GetLightR()
     local g = self:GetLightG()
     local b = self:GetLightB()
     local lightType = self:GetLightType()
+
+    -- Get light shaping properties
+    local shapingEnabled = self:GetShapingEnabled()
+    local coneAngle = self:GetConeAngle()
+    local coneSoftness = self:GetConeSoftness()
 
     -- Create the appropriate light type
     local success, handle = false, nil
@@ -65,39 +71,66 @@ function ENT:CreateRTXLight()
                 size,
                 brightness,
                 r, g, b,
-                self.rtxEntityID -- Pass entity ID to module
+                self.rtxEntityID,
+                shapingEnabled,      -- Enable light shaping
+                0, 0, 1,             -- Default direction
+                coneAngle,
+                coneSoftness
             )
         end)
     elseif lightType == 1 then -- Rect Light
         local width = self:GetRectWidth()
         local height = self:GetRectHeight()
+        
+        -- Get forward vector for direction
+        local ang = self:GetAngles()
+        local dir = ang:Forward()
+        
         success, handle = pcall(function()
             return CreateRTXRectLight(
                 pos.x, pos.y, pos.z,
                 width, height,
                 brightness,
                 r, g, b,
-                self.rtxEntityID
+                self.rtxEntityID,
+                dir.x, dir.y, dir.z,  -- Use entity's forward vector
+                1, 0, 0,              -- Default X axis
+                0, 1, 0,              -- Default Y axis
+                shapingEnabled,
+                coneAngle,
+                coneSoftness
             )
         end)
     elseif lightType == 2 then -- Disk Light
         local size = self:GetLightSize()
+        
+        -- Get forward vector for direction
+        local ang = self:GetAngles()
+        local dir = ang:Forward()
+        
         success, handle = pcall(function()
             return CreateRTXDiskLight(
                 pos.x, pos.y, pos.z,
-                size, size, -- Using same value for both radii
+                size, size,            -- Using same value for both radii
                 brightness,
                 r, g, b,
-                self.rtxEntityID
+                self.rtxEntityID,
+                dir.x, dir.y, dir.z,   -- Use entity's forward vector
+                1, 0, 0,               -- Default X axis
+                0, 1, 0,               -- Default Y axis
+                shapingEnabled,
+                coneAngle,
+                coneSoftness
             )
         end)
     elseif lightType == 3 then -- Distant Light
         local angularDiameter = self:GetAngularDiameter()
-        -- For distant light, use view direction or a default
-        local direction = self:GetAngles():Forward()
+        local ang = self:GetAngles()
+        local dir = ang:Forward()
+        
         success, handle = pcall(function()
             return CreateRTXDistantLight(
-                direction.x, direction.y, direction.z,
+                dir.x, dir.y, dir.z,  -- Use entity's forward vector
                 angularDiameter,
                 brightness,
                 r, g, b,
@@ -111,7 +144,7 @@ function ENT:CreateRTXLight()
         self.lastUpdatePos = pos
         self.lastUpdateTime = CurTime()
     else
-        ErrorNoHalt("[RTX Light] Failed to create light: ", tostring(handle), "\n")
+        print("[RTX Light] Failed to create light: ", tostring(handle), "\n")
     end
 end
 
@@ -143,6 +176,11 @@ function ENT:Think()
             local g = self:GetLightG()
             local b = self:GetLightB()
             local lightType = self:GetLightType()
+            
+            -- Get shaping properties
+            local shapingEnabled = self:GetShapingEnabled()
+            local coneAngle = self:GetConeAngle()
+            local coneSoftness = self:GetConeSoftness()
 
             -- Protected call for update based on light type
             local success, err = false, nil
@@ -156,7 +194,11 @@ function ENT:Think()
                         pos.x, pos.y, pos.z,
                         size,
                         brightness,
-                        r, g, b
+                        r, g, b,
+                        shapingEnabled,
+                        0, 0, 1, -- Default direction vector
+                        coneAngle,
+                        coneSoftness
                     )
 
                     if updateSuccess then
@@ -174,6 +216,11 @@ function ENT:Think()
             elseif lightType == 1 then -- Rect Light
                 local width = self:GetRectWidth()
                 local height = self:GetRectHeight()
+                
+                -- Get forward vector for direction
+                local ang = self:GetAngles()
+                local dir = ang:Forward()
+                
                 success, err = pcall(function()
                     local updateSuccess, newHandle = UpdateRTXLight(
                         self.rtxLightHandle,
@@ -181,7 +228,11 @@ function ENT:Think()
                         pos.x, pos.y, pos.z,
                         width, height,
                         brightness,
-                        r, g, b
+                        r, g, b,
+                        dir.x, dir.y, dir.z, -- Direction
+                        shapingEnabled,
+                        coneAngle,
+                        coneSoftness
                     )
 
                     if updateSuccess then
@@ -196,6 +247,11 @@ function ENT:Think()
                 end)
             elseif lightType == 2 then -- Disk Light
                 local size = self:GetLightSize()
+                
+                -- Get forward vector for direction
+                local ang = self:GetAngles()
+                local dir = ang:Forward()
+                
                 success, err = pcall(function()
                     local updateSuccess, newHandle = UpdateRTXLight(
                         self.rtxLightHandle,
@@ -203,7 +259,11 @@ function ENT:Think()
                         pos.x, pos.y, pos.z,
                         size, size, -- Using same value for both radii
                         brightness,
-                        r, g, b
+                        r, g, b,
+                        dir.x, dir.y, dir.z, -- Direction
+                        shapingEnabled,
+                        coneAngle,
+                        coneSoftness
                     )
 
                     if updateSuccess then
@@ -303,7 +363,7 @@ function ENT:OpenPropertyMenu()
     end
 
     local frame = vgui.Create("DFrame")
-    frame:SetSize(300, 550)
+    frame:SetSize(300, 650)  -- Made taller to accommodate new controls
     frame:SetTitle("RTX Light Properties")
     frame:MakePopup()
     frame:Center()
@@ -483,7 +543,84 @@ function ENT:OpenPropertyMenu()
         end
     end
     
+    -- Light shaping controls - new section
+    local shapingLabel = scroll:Add("DLabel")
+    shapingLabel:Dock(TOP)
+    shapingLabel:SetText("Light Shaping")
+    shapingLabel:SetDark(true)
+    shapingLabel:DockMargin(5, 15, 5, 0)
+    
+    local shapingPanel = vgui.Create("DPanel", scroll)
+    shapingPanel:Dock(TOP)
+    shapingPanel:SetTall(120)
+    shapingPanel:DockMargin(5, 5, 5, 5)
+    shapingPanel:SetPaintBackground(false)
+    
+    local shapingCheckbox = shapingPanel:Add("DCheckBoxLabel")
+    shapingCheckbox:Dock(TOP)
+    shapingCheckbox:SetText("Enable Light Shaping")
+    shapingCheckbox:SetValue(self:GetShapingEnabled())
+    shapingCheckbox:DockMargin(0, 5, 0, 10)
+    shapingCheckbox.OnChange = function(_, value)
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("shapingEnabled")
+            net.WriteBool(value)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    local coneAngleSlider = shapingPanel:Add("DNumSlider")
+    coneAngleSlider:Dock(TOP)
+    coneAngleSlider:SetText("Cone Angle")
+    coneAngleSlider:SetMin(1)
+    coneAngleSlider:SetMax(180)
+    coneAngleSlider:SetDecimals(0)
+    coneAngleSlider:SetValue(self:GetConeAngle())
+    coneAngleSlider.OnValueChanged = function(_, value)
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("coneAngle")
+            net.WriteFloat(value)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
+    local coneSoftnessSlider = shapingPanel:Add("DNumSlider")
+    coneSoftnessSlider:Dock(TOP)
+    coneSoftnessSlider:SetText("Cone Softness")
+    coneSoftnessSlider:SetMin(0)
+    coneSoftnessSlider:SetMax(1)
+    coneSoftnessSlider:SetDecimals(2)
+    coneSoftnessSlider:SetValue(self:GetConeSoftness())
+    coneSoftnessSlider.OnValueChanged = function(_, value)
+        net.Start("RTXLight_UpdateProperty")
+            net.WriteEntity(self)
+            net.WriteString("coneSoftness")
+            net.WriteFloat(value)
+        net.SendToServer()
+        
+        if IsValid(self) and IsValidLightHandle(self.rtxLightHandle) then
+            self:Think()
+            self.lastUpdatePos = nil
+        end
+    end
+    
     -- Color Mixer
+    local colorLabel = scroll:Add("DLabel")
+    colorLabel:Dock(TOP)
+    colorLabel:SetText("Light Color")
+    colorLabel:SetDark(true)
+    colorLabel:DockMargin(5, 15, 5, 0)
+    
     local colorMixer = scroll:Add("DColorMixer")
     colorMixer:Dock(TOP)
     colorMixer:SetTall(200)

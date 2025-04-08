@@ -1,5 +1,3 @@
-// rtx_light_disk.h
-
 #pragma once
 #include "rtx_light_base.h"
 

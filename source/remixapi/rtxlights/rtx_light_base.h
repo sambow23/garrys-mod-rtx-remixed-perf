@@ -1,5 +1,3 @@
-// rtx_light_base.h
-
 #pragma once
 #include <remix/remix_c.h>
 #include <remix/remix.h>

@@ -1,4 +1,3 @@
-// rtx_light_lua_bindings.cpp
 #ifdef _WIN64
 
 #include "rtx_light_manager.h"
@@ -379,6 +378,32 @@ LUA_FUNCTION(UpdateRTXLight) {
                 float g = LUA->CheckNumber(9);
                 float b = LUA->CheckNumber(10);
                 
+                // Get shaping parameters if provided
+                bool enableShaping = false;
+                float dirX = 0.0f, dirY = 0.0f, dirZ = 1.0f;
+                float coneAngle = 120.0f;
+                float coneSoftness = 0.2f;
+                
+                if (LUA->IsType(11, Type::BOOL)) {
+                    enableShaping = LUA->GetBool(11);
+                    
+                    if (LUA->IsType(12, Type::NUMBER) && 
+                        LUA->IsType(13, Type::NUMBER) && 
+                        LUA->IsType(14, Type::NUMBER)) {
+                        dirX = LUA->GetNumber(12);
+                        dirY = LUA->GetNumber(13);
+                        dirZ = LUA->GetNumber(14);
+                    }
+                    
+                    if (LUA->IsType(15, Type::NUMBER)) {
+                        coneAngle = LUA->GetNumber(15);
+                    }
+                    
+                    if (LUA->IsType(16, Type::NUMBER)) {
+                        coneSoftness = LUA->GetNumber(16);
+                    }
+                }
+                
                 RTX::SphereProperties props;
                 props.x = x;
                 props.y = y;
@@ -388,26 +413,12 @@ LUA_FUNCTION(UpdateRTXLight) {
                 props.r = r / 255.0f;
                 props.g = g / 255.0f;
                 props.b = b / 255.0f;
-                
-                // Optional shaping
-                if (LUA->IsType(11, Type::BOOL)) {
-                    props.enableShaping = LUA->GetBool(11);
-                    
-                    if (props.enableShaping && LUA->IsType(12, Type::NUMBER) && 
-                        LUA->IsType(13, Type::NUMBER) && LUA->IsType(14, Type::NUMBER)) {
-                        props.shapingDirection[0] = LUA->GetNumber(12);
-                        props.shapingDirection[1] = LUA->GetNumber(13);
-                        props.shapingDirection[2] = LUA->GetNumber(14);
-                        
-                        if (LUA->IsType(15, Type::NUMBER)) {
-                            props.shapingConeAngle = LUA->GetNumber(15);
-                        }
-                        
-                        if (LUA->IsType(16, Type::NUMBER)) {
-                            props.shapingConeSoftness = LUA->GetNumber(16);
-                        }
-                    }
-                }
+                props.enableShaping = enableShaping;
+                props.shapingDirection[0] = dirX;
+                props.shapingDirection[1] = dirY;
+                props.shapingDirection[2] = dirZ;
+                props.shapingConeAngle = coneAngle;
+                props.shapingConeSoftness = coneSoftness;
                 
                 success = RTXLightManager::Instance().UpdateLight(handle, &props, lightType, &newHandle);
                 break;
