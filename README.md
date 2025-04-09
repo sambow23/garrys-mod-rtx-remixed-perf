@@ -50,7 +50,7 @@
 - Maps that don't extensively use PVS will have poor performance
 
 ### Addons
-- High vram usage with a lot of addons (most likely from ARC9 or TFA precaching textures on map load)
+- High vram usage from addons like ARC9 or TFA as they precache textures on map load
 - Tactical RP scopes become invisible when using ADS
 
 ## Recommended Resources and Addons
