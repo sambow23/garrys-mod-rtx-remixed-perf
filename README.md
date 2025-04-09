@@ -58,8 +58,6 @@
 - Tactical RP scopes become invisible when using ADS
 
 ## Recommended Resources and Addons
-[Garry's Mod RTX Launcher and Installer](https://github.com/Xenthio/RTXLauncher)
-
 [HDRI Editor](https://github.com/sambow23/hdri_cube/blob/main/README.md)
 
 [Garry's Mod RTX 32-bit installer by Skurtyyskirts](https://github.com/skurtyyskirts/GmodRTX)
