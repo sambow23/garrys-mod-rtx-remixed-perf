@@ -60,8 +60,6 @@
 ## Recommended Resources and Addons
 [HDRI Editor](https://github.com/sambow23/hdri_cube/blob/main/README.md)
 
-[Garry's Mod RTX 32-bit installer by Skurtyyskirts](https://github.com/skurtyyskirts/GmodRTX)
-
 ## Credits
 * [@vlazed](https://github.com/vlazed/) for [toggle-cursor](https://github.com/vlazed/toggle-cursor)
 * Yosuke Nathan on the RTX Remix Showcase server for the gmod rtx logo
