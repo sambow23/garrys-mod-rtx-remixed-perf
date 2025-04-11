@@ -352,4 +352,22 @@ concommand.Add("rtx_spr_reload", function()
     timer.Simple(0.1, CacheMapStaticProps)
 end)
 
+-- HDRI stuffs
+hook.Add("OnEntityCreated", "HDRICubeEditor_CheckForEditor", function(ent)
+    if IsValid(ent) and ent:GetClass() == "hdri_cube_editor" then
+        timer.Simple(0.1, function()
+            if IsValid(ent) then
+                local size = 32768
+                local boundsMin = Vector(-size, -size, -size)
+                local boundsMax = Vector(size, size, size)
+                ent:SetRenderBounds(boundsMin, boundsMax)
+                print("[Static Render] Set render bounds for newly created hdri_cube_editor to", size)
+            end
+        end)
+    end
+end)
+
+-- Disable engine props
+RunConsoleCommand("r_drawstaticprops", "0")
+
 print("[Custom Static Renderer] Loaded.")
