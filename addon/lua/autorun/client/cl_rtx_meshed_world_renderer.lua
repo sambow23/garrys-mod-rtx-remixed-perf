@@ -11,7 +11,14 @@ local CONVARS = {
     DEBUG = CreateClientConVar("rtx_mwr_enable_debug", "0", true, false, "Shows debug info for mesh rendering"),
     CHUNK_SIZE = CreateClientConVar("rtx_mwr_chunk_size", "65536", true, false, "Size of chunks for mesh combining"),
     CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode"),
-    SHOW_3DSKY_WARNING = CreateClientConVar("rtx_mwr_show_3dsky_warning", "1", true, false, "Show warning when enabling r_3dsky")
+    SHOW_3DSKY_WARNING = CreateClientConVar("rtx_mwr_show_3dsky_warning", "1", true, false, "Show warning when enabling r_3dsky"),
+    RENDER_BRUSH_ENTITIES = CreateClientConVar("rtx_mwr_render_brush_entities", "1", true, false, "Renders specified brush entities with the custom renderer")
+}
+
+local BRUSH_ENTITY_CLASSES = {
+    ["func_brush"] = true,       -- Standard brush entity
+    ["func_detail"] = true,      -- Detail brushes that shouldn't be skipped
+    -- Add more brush entity classes as needed
 }
 
 -- Local Variables and Caches
@@ -170,19 +177,30 @@ local function ValidateVertex(pos)
     return RTXMath.IsWithinBounds(pos, negLimits, mapLimits)
 end
 
-local function IsBrushEntity(face)
-    if not face then return false end
+local function ShouldSkipBrushEntity(face)
+    if not face then return true end
     
-    -- First check if it's a brush model
-    if face.__bmodel and face.__bmodel > 0 then
-        return true -- Any non-zero bmodel index indicates it's a brush entity
+    -- If brush entity rendering is disabled, skip all brush entities
+    if not CONVARS.RENDER_BRUSH_ENTITIES:GetBool() then
+        if face.__bmodel and face.__bmodel > 0 then
+            return true
+        end
     end
     
-    -- Secondary check for brush entities using parent entity
+    -- Check parent entity class against our list
     local parent = face.__parent
     if parent and isentity(parent) and parent:GetClass() then
-        -- If the face has a valid parent entity, it's likely a brush entity
-        return true
+        local class = parent:GetClass()
+        
+        -- If it's in our list, don't skip it
+        if BRUSH_ENTITY_CLASSES[class] then
+            return false
+        end
+        
+        -- Otherwise, if it's a brush entity (with bmodel), skip it
+        if face.__bmodel and face.__bmodel > 0 then
+            return true
+        end
     end
     
     return false
@@ -343,12 +361,12 @@ local function BuildMapMeshes()
     
         for _, face in pairs(leafFaces) do
             if not face or 
-               face:IsDisplacement() or
-               IsBrushEntity(face) or
-               not face:ShouldRender() or 
-               IsSkyboxFace(face) or
-               not IsFaceInMapBounds(face) then -- Add this new check
-                continue 
+            face:IsDisplacement() or
+            ShouldSkipBrushEntity(face) or
+            not face:ShouldRender() or 
+            IsSkyboxFace(face) or
+            not IsFaceInMapBounds(face) then
+             continue 
             end
             
             local vertices = face:GetVertexs()
