@@ -35,7 +35,7 @@ local function GetCachedMaterial(matName)
     return mat
 end
 
--- Get mesh data directly using our own extraction logic
+-- Get mesh data directly using GetModelMeshes
 local function GetModelMeshes(modelPath)
     -- Load the model if not already loaded
     if not util.IsModelLoaded(modelPath) then
@@ -59,36 +59,51 @@ local function ProcessStaticProp(propData)
         model = modelPath,
         origin = propData.Origin,
         angles = propData.Angles,
-        skin = propData.Skin or 0
+        skin = propData.Skin or 0,
+        color = propData.DiffuseModulation or Color(255, 255, 255)
     }
     
     -- Check if we already cached this model's mesh
-    if not meshCache[modelPath] then
-        -- First try util.GetModelMeshes
+    local cacheKey = modelPath .. "_skin" .. prop.skin
+    if not meshCache[cacheKey] then
+        -- Get the mesh data
         local meshData = GetModelMeshes(modelPath)
         
         if not meshData or #meshData == 0 then
             DebugPrint("Failed to get mesh data for:", modelPath)
             -- Store an empty entry to avoid repeatedly trying to process it
-            meshCache[modelPath] = {
-                mesh = nil,
+            meshCache[cacheKey] = {
+                meshes = nil,
                 error = true
             }
             return nil
         end
         
-        -- Combine all mesh groups into a single set of vertices
-        local vertices = {}
+        -- Process mesh groups and maintain their material relationships
+        local processedMeshes = {}
         local mins = Vector(math.huge, math.huge, math.huge)
         local maxs = Vector(-math.huge, -math.huge, -math.huge)
         
         -- Process each mesh group
         for _, group in ipairs(meshData) do
-            if group.triangles then
+            if group.triangles and #group.triangles > 0 then
+                local material = group.material or "models/debug/debugwhite"
+                
+                -- Create or get cached material
+                local mat = GetCachedMaterial(material)
+                
+                -- Create mesh for this group
+                local mesh = Mesh()
+                mesh:BuildFromTriangles(group.triangles)
+                
+                -- Add to processed meshes
+                table.insert(processedMeshes, {
+                    mesh = mesh,
+                    material = mat
+                })
+                
+                -- Update bounds
                 for _, vert in ipairs(group.triangles) do
-                    table.insert(vertices, vert)
-                    
-                    -- Calculate bounds
                     if vert.pos.x < mins.x then mins.x = vert.pos.x end
                     if vert.pos.y < mins.y then mins.y = vert.pos.y end
                     if vert.pos.z < mins.z then mins.z = vert.pos.z end
@@ -99,33 +114,29 @@ local function ProcessStaticProp(propData)
             end
         end
         
-        if #vertices > 0 then
-            -- Build an IMesh from the vertex data
-            local mesh = Mesh()
-            mesh:BuildFromTriangles(vertices)
-            
+        if #processedMeshes > 0 then
             -- Store in the cache
-            meshCache[modelPath] = {
-                mesh = mesh,
+            meshCache[cacheKey] = {
+                meshes = processedMeshes,
                 mins = mins,
                 maxs = maxs
             }
             
-            DebugPrint("Cached mesh for model:", modelPath, "#vertices:", #vertices)
+            DebugPrint("Cached mesh for model:", modelPath, "#mesh groups:", #processedMeshes)
         else
-            DebugPrint("No vertices found for model:", modelPath)
-            meshCache[modelPath] = {
-                mesh = nil,
+            DebugPrint("No valid mesh groups found for model:", modelPath)
+            meshCache[cacheKey] = {
+                meshes = nil,
                 error = true
             }
             return nil
         end
-    elseif meshCache[modelPath].error then
+    elseif meshCache[cacheKey].error then
         return nil  -- Skip previously failed models
     end
     
     -- Link to the cached mesh data
-    prop.cachedMesh = meshCache[modelPath]
+    prop.cachedMesh = meshCache[cacheKey]
     return prop
 end
 
@@ -230,8 +241,12 @@ hook.Add("ShutDown", "CustomStaticRender_Cleanup", function()
     
     -- Clean up meshes
     for modelPath, meshData in pairs(meshCache) do
-        if meshData.mesh then
-            meshData.mesh:Destroy()
+        if meshData.meshes then
+            for _, meshInfo in ipairs(meshData.meshes) do
+                if meshInfo.mesh then
+                    meshInfo.mesh:Destroy()
+                end
+            end
         end
     end
     
@@ -245,7 +260,6 @@ end)
 
 -- Render the static props
 hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(bDrawingDepth, bDrawingSkybox)
-    
     if not convar_Enable:GetBool() or not isDataReady or isCachingInProgress then
         return
     end
@@ -277,7 +291,7 @@ hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(b
     -- Render each static prop mesh
     for _, prop in ipairs(cachedStaticProps) do
         local meshData = prop.cachedMesh
-        if not meshData or not meshData.mesh then
+        if not meshData or not meshData.meshes then
             skippedProps = skippedProps + 1
             continue
         end
@@ -287,13 +301,23 @@ hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(b
         matrix:Translate(prop.origin)
         matrix:Rotate(prop.angles)
         
-        -- Set material
-        render.SetMaterial(GetCachedMaterial("models/debug/debugwhite")) -- Default material
+        -- Apply color modulation if present
+        if prop.color then
+            render.SetColorModulation(prop.color.r/255, prop.color.g/255, prop.color.b/255)
+        end
         
-        -- Apply the transformation and draw the mesh
+        -- Draw each mesh group with its proper material
         cam.PushModelMatrix(matrix)
-        meshData.mesh:Draw()
+        for _, meshInfo in ipairs(meshData.meshes) do
+            if meshInfo.mesh and meshInfo.material then
+                render.SetMaterial(meshInfo.material)
+                meshInfo.mesh:Draw()
+            end
+        end
         cam.PopModelMatrix()
+        
+        -- Reset color modulation
+        render.SetColorModulation(1, 1, 1)
         
         renderedProps = renderedProps + 1
     end
@@ -312,8 +336,12 @@ concommand.Add("rtx_spr_reload", function()
     
     -- Clean up meshes
     for modelPath, meshData in pairs(meshCache) do
-        if meshData.mesh then
-            meshData.mesh:Destroy()
+        if meshData.meshes then
+            for _, meshInfo in ipairs(meshData.meshes) do
+                if meshInfo.mesh then
+                    meshInfo.mesh:Destroy()
+                end
+            end
         end
     end
     
