@@ -2,494 +2,326 @@
 -- Re-Renders all static props to bypass engine culling 
 -- Author: CR
 
--- Notes:
--- 1. This is replacing FVF, but that being said, we most likely need to set render bounds for specific entities that are not static props. As I believe there is no way to make them not cull otherwise, hopefully I'm wrong.
+local convar_Enable = CreateClientConVar("rtx_spr_enable", "0", true, false, "Enable custom rendering of static props")
+local convar_Debug = CreateClientConVar("rtx_spr_debug", "0", true, false, "Enable debug prints for static prop renderer")
 
-if not (BRANCH == "x86-64" or BRANCH == "chromium") then return end
-if not CLIENT then return end
+-- Global state
+local isDataReady = false
+local isCachingInProgress = false
+local cachedStaticProps = {}
+local materialsCache = {}
+local meshCache = {}  -- Maps model path to IMesh objects
+local lastDebugFrame = 0
 
--- Create our global table
-StaticPropsRenderer = StaticPropsRenderer or {}
-StaticPropsRenderer.UI = StaticPropsRenderer.UI or {}
-StaticPropsRenderer.Enabled = true
-StaticPropsRenderer.RenderDistance = 1500 -- Default render distance if no map preset is found. // This is kept at a relatively low value as rendering all props on the map at once is expensive.
-StaticPropsRenderer.Props = {}
-StaticPropsRenderer.Models = {}
-StaticPropsRenderer.RenderCount = 0
-StaticPropsRenderer.MaxRenderPerFrame = 5000
-StaticPropsRenderer.Debug = false
-StaticPropsRenderer.PropGrid = {}
-StaticPropsRenderer.GridSize = 512
-
--- Wait for NikNaks to be loaded
-timer.Simple(1, function()
-    if not NikNaks then
-        print("[StaticPropsRenderer] Error: NikNaks library not found!")
-        return
+-- Debug helper function
+local function DebugPrint(...)
+    if convar_Debug:GetBool() then
+        print("[Static Render Debug]", ...)
     end
-    
-    -- Initialize the system once NikNaks is available
-    StaticPropsRenderer:Initialize()
-end)
-
-function StaticPropsRenderer:Initialize()
-    print("[StaticPropsRenderer] Initializing...")
-    
-    -- Check if we have a valid BSP object
-    if not NikNaks.CurrentMap then
-        print("[StaticPropsRenderer] Error: No valid map BSP data found!")
-        return
-    end
-    
-    -- Load settings
-    self:LoadSettings()
-    
-    -- Add render hook
-    hook.Add("PostDrawOpaqueRenderables", "StaticPropsRenderer_Render", function()
-        self:RenderProps()
-    end)
-    
-    -- Add console commands
-    concommand.Add("staticprops_toggle", function()
-        self:ToggleEnabled()
-    end)
-    
-    concommand.Add("staticprops_ui", function()
-        self:OpenUI()
-    end)
-    
-    concommand.Add("staticprops_debug", function()
-        self.Debug = not self.Debug
-        print("[StaticPropsRenderer] Debug mode: " .. (self.Debug and "Enabled" or "Disabled"))
-    end)
-    
-    -- Add chat command handler
-    hook.Add("OnPlayerChat", "StaticPropsRenderer_ChatCommand", function(ply, text)
-        if ply ~= LocalPlayer() then return end
-        
-        if text == "!staticprops" or text == "/staticprops" then
-            self:OpenUI()
-            return true
-        end
-    end)
-    
-    -- Scan static props
-    self:ScanMapProps()
-    
-    RunConsoleCommand("r_drawstaticprops", "1")
-    
-    print("[StaticPropsRenderer] Initialized successfully!")
 end
 
--- Helper function for creating a grid key from a position
-function StaticPropsRenderer:GetGridKey(pos)
-    local gx = math.floor(pos.x / self.GridSize)
-    local gy = math.floor(pos.y / self.GridSize)
-    local gz = math.floor(pos.z / self.GridSize)
-    return gx .. "_" .. gy .. "_" .. gz
+-- Material cache helper
+local function GetCachedMaterial(matName)
+    if not matName or matName == "" then
+        matName = "debug/debugwhite"
+    end
+    
+    if materialsCache[matName] then
+        return materialsCache[matName]
+    end
+    
+    local mat = Material(matName)
+    materialsCache[matName] = mat
+    return mat
 end
 
-function StaticPropsRenderer:ScanMapProps()
-    local staticProps = NikNaks.CurrentMap:GetStaticProps()
+-- Get mesh data directly using our own extraction logic
+local function GetModelMeshes(modelPath)
+    -- Load the model if not already loaded
+    if not util.IsModelLoaded(modelPath) then
+        util.PrecacheModel(modelPath)
+    end
     
-    print("[StaticPropsRenderer] Scanning static props...")
+    -- Try to get mesh data directly
+    return util.GetModelMeshes(modelPath)
+end
+
+-- Process a static prop and prepare rendering data
+local function ProcessStaticProp(propData)
+    local modelPath = propData.PropType
+    if not modelPath or modelPath == "" then
+        DebugPrint("Static prop has no model path")
+        return nil
+    end
     
-    -- Store model data
-    self.Props = {}
-    self.Models = {}
-    self.PropGrid = {} -- Clear grid before populating it
+    -- Create the prop data structure
+    local prop = {
+        model = modelPath,
+        origin = propData.Origin,
+        angles = propData.Angles,
+        skin = propData.Skin or 0
+    }
     
-    local count = 0
-    local modelCount = 0
-    
-    for _, prop in pairs(staticProps) do
-        local modelPath = prop:GetModel()
+    -- Check if we already cached this model's mesh
+    if not meshCache[modelPath] then
+        -- First try util.GetModelMeshes
+        local meshData = GetModelMeshes(modelPath)
         
-        -- Skip invalid models
-        if not modelPath or modelPath == "" then
-            continue
-        end
-        
-        local pos = prop:GetPos()
-        local ang = prop:GetAngles()
-        
-        -- Skip props at origin (likely invalid)
-        if pos.x == 0 and pos.y == 0 and pos.z == 0 then
-            continue
-        end
-        
-        -- Track model
-        if not self.Models[modelPath] then
-            -- Precache model
-            util.PrecacheModel(modelPath)
-            
-            self.Models[modelPath] = {
-                path = modelPath,
-                instances = 0
+        if not meshData or #meshData == 0 then
+            DebugPrint("Failed to get mesh data for:", modelPath)
+            -- Store an empty entry to avoid repeatedly trying to process it
+            meshCache[modelPath] = {
+                mesh = nil,
+                error = true
             }
-            modelCount = modelCount + 1
+            return nil
         end
         
-        -- Create prop render data
-        local propData = {
-            pos = pos,
-            ang = ang,
-            model = modelPath,
-            skin = prop:GetSkin() or 0,
-            bodygroups = 0, -- Default
-            color = Color(255, 255, 255),
-            scale = prop:GetScale() or 1
-        }
+        -- Combine all mesh groups into a single set of vertices
+        local vertices = {}
+        local mins = Vector(math.huge, math.huge, math.huge)
+        local maxs = Vector(-math.huge, -math.huge, -math.huge)
         
-        table.insert(self.Props, propData)
-        self.Models[modelPath].instances = self.Models[modelPath].instances + 1
-        count = count + 1
-        
-        -- Add to spatial grid
-        local key = self:GetGridKey(pos)
-        if not self.PropGrid[key] then
-            self.PropGrid[key] = {}
-        end
-        table.insert(self.PropGrid[key], propData)
-    end
-    
-    print("[StaticPropsRenderer] Cached " .. count .. " static props with " .. modelCount .. " unique models")
-    
-    -- Sort props by model to minimize model switching during render
-    table.sort(self.Props, function(a, b) 
-        return a.model < b.model
-    end)
-    
-    -- Sort props in each grid cell by model as well
-    for _, props in pairs(self.PropGrid) do
-        table.sort(props, function(a, b)
-            return a.model < b.model
-        end)
-    end
-    
-    print("[StaticPropsRenderer] Created spatial grid with " .. table.Count(self.PropGrid) .. " cells")
-end
-
-function StaticPropsRenderer:RenderProps()
-    if not self.Enabled then return end
-    
-    -- Get player position for distance culling
-    local playerPos = LocalPlayer():GetPos()
-    
-    -- Pre-calculate the squared distance for optimization
-    local renderDistSq = self.RenderDistance * self.RenderDistance
-    
-    -- Track current model to avoid redundant switches
-    local currentModel = nil
-    local renderedCount = 0
-    local visibleCount = 0
-    
-    -- Prepare nearby props from the spatial grid
-    local nearbyProps = {}
-    local range = math.ceil(self.RenderDistance / self.GridSize)
-    local playerGx = math.floor(playerPos.x / self.GridSize)
-    local playerGy = math.floor(playerPos.y / self.GridSize)
-    local playerGz = math.floor(playerPos.z / self.GridSize)
-    
-    -- Gather props from surrounding grid cells
-    for dx = -range, range do
-        for dy = -range, range do
-            for dz = -range, range do
-                local key = (playerGx + dx) .. "_" .. (playerGy + dy) .. "_" .. (playerGz + dz)
-                if self.PropGrid[key] then
-                    -- Check if this grid cell is potentially in range
-                    local cellCenterX = (playerGx + dx + 0.5) * self.GridSize
-                    local cellCenterY = (playerGy + dy + 0.5) * self.GridSize
-                    local cellCenterZ = (playerGz + dz + 0.5) * self.GridSize
-                    local cellCenter = Vector(cellCenterX, cellCenterY, cellCenterZ)
+        -- Process each mesh group
+        for _, group in ipairs(meshData) do
+            if group.triangles then
+                for _, vert in ipairs(group.triangles) do
+                    table.insert(vertices, vert)
                     
-                    -- Calculate diagonal (half-diagonal, really) of a grid cell 
-                    local diagonalSq = (self.GridSize * 0.5) * (self.GridSize * 0.5) * 3 -- 3D diagonal squared
-                    
-                    -- If the cell is close enough to potentially contain visible props
-                    if cellCenter:DistToSqr(playerPos) - diagonalSq <= renderDistSq then
-                        for _, prop in ipairs(self.PropGrid[key]) do
-                            table.insert(nearbyProps, prop)
-                        end
-                    end
+                    -- Calculate bounds
+                    if vert.pos.x < mins.x then mins.x = vert.pos.x end
+                    if vert.pos.y < mins.y then mins.y = vert.pos.y end
+                    if vert.pos.z < mins.z then mins.z = vert.pos.z end
+                    if vert.pos.x > maxs.x then maxs.x = vert.pos.x end
+                    if vert.pos.y > maxs.y then maxs.y = vert.pos.y end
+                    if vert.pos.z > maxs.z then maxs.z = vert.pos.z end
                 end
             end
         end
+        
+        if #vertices > 0 then
+            -- Build an IMesh from the vertex data
+            local mesh = Mesh()
+            mesh:BuildFromTriangles(vertices)
+            
+            -- Store in the cache
+            meshCache[modelPath] = {
+                mesh = mesh,
+                mins = mins,
+                maxs = maxs
+            }
+            
+            DebugPrint("Cached mesh for model:", modelPath, "#vertices:", #vertices)
+        else
+            DebugPrint("No vertices found for model:", modelPath)
+            meshCache[modelPath] = {
+                mesh = nil,
+                error = true
+            }
+            return nil
+        end
+    elseif meshCache[modelPath].error then
+        return nil  -- Skip previously failed models
     end
     
-    -- Use the render model table for performance
-    local renderModel = {
-        model = nil,
-        pos = nil,
-        angle = nil,
-        skin = 0,
-        bodygroup = 0
-    }
+    -- Link to the cached mesh data
+    prop.cachedMesh = meshCache[modelPath]
+    return prop
+end
+
+-- Cache static props from NikNaks data
+local function CacheMapStaticProps()
+    if isCachingInProgress then return end
     
-    -- Render props from the gathered nearby props
-    for i, prop in ipairs(nearbyProps) do
-        -- Skip if too far
-        local distanceSq = prop.pos:DistToSqr(playerPos)
-        if distanceSq > renderDistSq then
+    DebugPrint("Checking NikNaks availability...")
+    
+    if not NikNaks then
+        DebugPrint("NikNaks module not found!")
+        timer.Simple(1, CacheMapStaticProps)
+        return
+    end
+    
+    if not NikNaks.CurrentMap then
+        DebugPrint("NikNaks.CurrentMap not available yet.")
+        timer.Simple(1, CacheMapStaticProps)
+        return
+    end
+    
+    if not NikNaks.CurrentMap.GetStaticProps then
+        DebugPrint("NikNaks.CurrentMap.GetStaticProps function doesn't exist!")
+        DebugPrint("Available functions:", table.concat(table.GetKeys(NikNaks.CurrentMap), ", "))
+        timer.Simple(1, CacheMapStaticProps)
+        return
+    end
+    
+    isCachingInProgress = true
+    print("[Static Render] Starting static prop data caching...")
+    
+    -- Clear previous caches
+    table.Empty(cachedStaticProps)
+    
+    -- Get static props data from NikNaks
+    local staticPropsRaw = NikNaks.CurrentMap:GetStaticProps()
+    if not staticPropsRaw or type(staticPropsRaw) ~= "table" then
+        print("[Static Render] GetStaticProps() returned invalid data:", staticPropsRaw)
+        isCachingInProgress = false
+        isDataReady = true -- Mark as ready to prevent retries
+        return
+    end
+    
+    -- Debug output
+    print("[Static Render] Retrieved", #staticPropsRaw, "static props")
+    
+    -- Process in batches
+    local processedSoFar = 0
+    local skippedSoFar = 0
+    
+    -- Process a batch of props (to avoid freezing the game)
+    local function ProcessBatch(startIndex, batchSize)
+        local endIndex = math.min(startIndex + batchSize - 1, #staticPropsRaw)
+        local processed = 0
+        local skipped = 0
+        
+        for i = startIndex, endIndex do
+            local propData = staticPropsRaw[i]
+            local prop = ProcessStaticProp(propData)
+            
+            if prop then
+                table.insert(cachedStaticProps, prop)
+                processed = processed + 1
+            else
+                skipped = skipped + 1
+            end
+        end
+        
+        processedSoFar = processedSoFar + processed
+        skippedSoFar = skippedSoFar + skipped
+        
+        DebugPrint(string.format("Processed batch %d-%d: %d processed, %d skipped", 
+                                 startIndex, endIndex, processed, skipped))
+        
+        -- If there are more props to process, schedule the next batch
+        if endIndex < #staticPropsRaw then
+            timer.Simple(0.05, function()
+                ProcessBatch(endIndex + 1, batchSize)
+            end)
+        else
+            -- All done
+            isDataReady = true
+            isCachingInProgress = false
+            print(string.format("[Static Render] Caching complete. %d static props processed, %d skipped.", 
+                               processedSoFar, skippedSoFar))
+        end
+    end
+    
+    -- Start processing in batches of 100
+    ProcessBatch(1, 100)
+end
+
+-- Hook to initiate caching when the map is ready
+hook.Add("InitPostEntity", "CustomStaticRender_InitCache", function()
+    -- Delay slightly to ensure NikNaks has loaded its data
+    timer.Simple(3, CacheMapStaticProps)
+end)
+
+-- Clean up caches on disconnect/map change
+hook.Add("ShutDown", "CustomStaticRender_Cleanup", function()
+    print("[Static Render] Cleaning up caches.")
+    
+    -- Clean up meshes
+    for modelPath, meshData in pairs(meshCache) do
+        if meshData.mesh then
+            meshData.mesh:Destroy()
+        end
+    end
+    
+    table.Empty(cachedStaticProps)
+    table.Empty(materialsCache)
+    table.Empty(meshCache)
+    
+    isDataReady = false
+    isCachingInProgress = false
+end)
+
+-- Render the static props
+hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(bDrawingDepth, bDrawingSkybox)
+    
+    if not convar_Enable:GetBool() or not isDataReady or isCachingInProgress then
+        return
+    end
+    
+    if #cachedStaticProps == 0 then
+        if convar_Debug:GetBool() then
+            local frameCount = FrameNumber()
+            if lastDebugFrame ~= frameCount then
+                DebugPrint("No cached props to render")
+                lastDebugFrame = frameCount
+            end
+        end
+        return
+    end
+    
+    local renderedProps = 0
+    local skippedProps = 0
+    
+    -- Debug stats only calculated once per frame
+    local shouldDebug = convar_Debug:GetBool()
+    local frameCount = FrameNumber()
+    local isNewFrame = lastDebugFrame ~= frameCount
+    
+    if shouldDebug and isNewFrame then
+        DebugPrint("Attempting to render", #cachedStaticProps, "props")
+        lastDebugFrame = frameCount
+    end
+    
+    -- Render each static prop mesh
+    for _, prop in ipairs(cachedStaticProps) do
+        local meshData = prop.cachedMesh
+        if not meshData or not meshData.mesh then
+            skippedProps = skippedProps + 1
             continue
         end
         
-        visibleCount = visibleCount + 1
+        -- Set up transformation matrix
+        local matrix = Matrix()
+        matrix:Translate(prop.origin)
+        matrix:Rotate(prop.angles)
         
-        -- Max render count check - do it before the expensive render call
-        if renderedCount >= self.MaxRenderPerFrame then
-            break
-        end
+        -- Set material
+        render.SetMaterial(GetCachedMaterial("models/debug/debugwhite")) -- Default material
         
-        -- Draw the model directly
-        if self.Debug then
-            -- Draw a debug box for positioning visualization
-            render.DrawWireframeBox(prop.pos, prop.ang, Vector(-5, -5, -5), Vector(5, 5, 5), Color(255, 0, 0), true)
-            
-            -- Draw a line from prop to ground for position reference
-            local groundPos = Vector(prop.pos.x, prop.pos.y, prop.pos.z - 1000)
-            render.DrawLine(prop.pos, groundPos, Color(0, 255, 0), true)
-        end
+        -- Apply the transformation and draw the mesh
+        cam.PushModelMatrix(matrix)
+        meshData.mesh:Draw()
+        cam.PopModelMatrix()
         
-        -- Update the reused table
-        renderModel.model = prop.model
-        renderModel.pos = prop.pos
-        renderModel.angle = prop.ang
-        renderModel.skin = prop.skin or 0
-        renderModel.bodygroup = prop.bodygroups or 0
-        
-        render.Model(renderModel)
-        
-        renderedCount = renderedCount + 1
+        renderedProps = renderedProps + 1
     end
     
-    -- Store render stats
-    self.RenderCount = renderedCount
-    
-    -- Debug information
-    if self.Debug then
-        -- Draw current location
-        local pos = LocalPlayer():GetPos()
-        local text = "Player Position: " .. math.floor(pos.x) .. ", " .. math.floor(pos.y) .. ", " .. math.floor(pos.z)
-        draw.SimpleText(text, "DermaDefault", ScrW() / 2, ScrH() - 40, Color(255, 255, 255), TEXT_ALIGN_CENTER)
-        
-        -- Draw render stats
-        local statsText = "Rendered: " .. renderedCount .. " / Visible: " .. visibleCount .. " / Total: " .. #self.Props .. " / Grid Cells: " .. table.Count(self.PropGrid)
-        draw.SimpleText(statsText, "DermaDefault", ScrW() / 2, ScrH() - 20, Color(255, 255, 255), TEXT_ALIGN_CENTER)
+    -- Debug output
+    if shouldDebug and isNewFrame and renderedProps > 0 then
+        DebugPrint("Rendered", renderedProps, "props,", skippedProps, "skipped")
     end
-end
-
-function StaticPropsRenderer:ToggleEnabled()
-    self.Enabled = not self.Enabled
-    print("[StaticPropsRenderer] " .. (self.Enabled and "Enabled" or "Disabled"))
-    
-    -- Save settings
-    self:SaveSettings()
-end
-
---------------------------------------------------
--- Settings
---------------------------------------------------
-
-function StaticPropsRenderer:SaveSettings()
-    local data = {
-        enabled = self.Enabled,
-        renderDistance = self.RenderDistance,
-        maxRenderPerFrame = self.MaxRenderPerFrame,
-        gridSize = self.GridSize -- Save grid size too
-    }
-    
-    file.CreateDir("staticpropsrenderer")
-    file.Write("staticpropsrenderer/" .. game.GetMap() .. ".json", util.TableToJSON(data))
-    
-    print("[StaticPropsRenderer] Settings saved for " .. game.GetMap())
-end
-
-function StaticPropsRenderer:LoadSettings()
-    if not file.Exists("staticpropsrenderer/" .. game.GetMap() .. ".json", "DATA") then
-        print("[StaticPropsRenderer] No saved settings found for " .. game.GetMap())
-        self.Enabled = true
-        return
-    end
-    
-    local data = util.JSONToTable(file.Read("staticpropsrenderer/" .. game.GetMap() .. ".json", "DATA"))
-    
-    if not data then
-        print("[StaticPropsRenderer] Error reading settings file")
-        self.Enabled = true
-        return
-    end
-    
-    self.Enabled = data.enabled
-    if data.renderDistance then
-        self.RenderDistance = data.renderDistance
-    end
-    if data.maxRenderPerFrame then
-        self.MaxRenderPerFrame = data.maxRenderPerFrame
-    end
-    if data.gridSize then
-        self.GridSize = data.gridSize
-    end
-    
-    print("[StaticPropsRenderer] Settings loaded for " .. game.GetMap())
-end
-
---------------------------------------------------
--- Basic UI
---------------------------------------------------
-
-function StaticPropsRenderer:OpenUI()
-    if IsValid(self.UI.Frame) then
-        self.UI.Frame:Remove()
-    end
-    
-    -- Create the main frame
-    local frame = vgui.Create("DFrame")
-    frame:SetTitle("Static Props Renderer")
-    frame:SetSize(400, 320)
-    frame:Center()
-    frame:MakePopup()
-    self.UI.Frame = frame
-    
-    -- Add header
-    local headerLabel = vgui.Create("DLabel", frame)
-    headerLabel:SetText("Static Props Custom Renderer")
-    headerLabel:SetFont("DermaLarge")
-    headerLabel:SetPos(20, 30)
-    headerLabel:SizeToContents()
-    
-    -- Status label
-    local statusLabel = vgui.Create("DLabel", frame)
-    statusLabel:SetText("Status: " .. (self.Enabled and "Enabled" or "Disabled"))
-    statusLabel:SetPos(20, 70)
-    statusLabel:SetSize(360, 20)
-    
-    -- Stats label
-    local statsLabel = vgui.Create("DLabel", frame)
-    statsLabel:SetText("Props Rendered: " .. self.RenderCount .. " / " .. #self.Props)
-    statsLabel:SetPos(20, 90)
-    statsLabel:SetSize(360, 20)
-    
-    -- Grid info label
-    local gridLabel = vgui.Create("DLabel", frame)
-    gridLabel:SetText("Grid Cells: " .. table.Count(self.PropGrid) .. " (Size: " .. self.GridSize .. ")")
-    gridLabel:SetPos(20, 110)
-    gridLabel:SetSize(360, 20)
-    
-    -- Render distance label and slider
-    local distLabel = vgui.Create("DLabel", frame)
-    distLabel:SetText("Render Distance: " .. self.RenderDistance)
-    distLabel:SetPos(20, 130)
-    distLabel:SetSize(360, 20)
-    
-    local distSlider = vgui.Create("DNumSlider", frame)
-    distSlider:SetPos(20, 150)
-    distSlider:SetSize(360, 30)
-    distSlider:SetMin(500)
-    distSlider:SetMax(50000)
-    distSlider:SetDecimals(0)
-    distSlider:SetValue(self.RenderDistance)
-    distSlider.OnValueChanged = function(_, value)
-        value = math.Round(value)
-        self.RenderDistance = value
-        distLabel:SetText("Render Distance: " .. value)
-    end
-    
-    -- Grid size slider
-    local gridSizeLabel = vgui.Create("DLabel", frame)
-    gridSizeLabel:SetText("Grid Cell Size: " .. self.GridSize)
-    gridSizeLabel:SetPos(20, 180)
-    gridSizeLabel:SetSize(360, 20)
-    
-    local gridSizeSlider = vgui.Create("DNumSlider", frame)
-    gridSizeSlider:SetPos(20, 200)
-    gridSizeSlider:SetSize(360, 30)
-    gridSizeSlider:SetMin(128)
-    gridSizeSlider:SetMax(2048)
-    gridSizeSlider:SetDecimals(0)
-    gridSizeSlider:SetValue(self.GridSize)
-    gridSizeSlider.OnValueChanged = function(_, value)
-        value = math.Round(value)
-        self.GridSize = value
-        gridSizeLabel:SetText("Grid Cell Size: " .. value)
-    end
-    
-    -- Update stats periodically
-    frame.Think = function()
-        if not IsValid(frame) then return end
-        statsLabel:SetText("Props Rendered: " .. self.RenderCount .. " / " .. #self.Props)
-        gridLabel:SetText("Grid Cells: " .. table.Count(self.PropGrid) .. " (Size: " .. self.GridSize .. ")")
-    end
-    
-    -- Toggle button
-    local toggleBtn = vgui.Create("DButton", frame)
-    toggleBtn:SetText(self.Enabled and "Disable Renderer" or "Enable Renderer")
-    toggleBtn:SetPos(20, frame:GetTall() - 90)
-    toggleBtn:SetSize(150, 30)
-    toggleBtn.DoClick = function()
-        self:ToggleEnabled()
-        toggleBtn:SetText(self.Enabled and "Disable Renderer" or "Enable Renderer")
-        statusLabel:SetText("Status: " .. (self.Enabled and "Enabled" or "Disabled"))
-    end
-    
-    -- Max rendered props slider
-    local maxPropsLabel = vgui.Create("DLabel", frame)
-    maxPropsLabel:SetText("Max Props: " .. self.MaxRenderPerFrame)
-    maxPropsLabel:SetPos(200, frame:GetTall() - 110)
-    maxPropsLabel:SetSize(180, 20)
-    
-    local maxPropsSlider = vgui.Create("DNumSlider", frame)
-    maxPropsSlider:SetPos(200, frame:GetTall() - 90)
-    maxPropsSlider:SetSize(180, 30)
-    maxPropsSlider:SetMin(1000)
-    maxPropsSlider:SetMax(20000)
-    maxPropsSlider:SetDecimals(0)
-    maxPropsSlider:SetValue(self.MaxRenderPerFrame)
-    maxPropsSlider.OnValueChanged = function(_, value)
-        value = math.Round(value)
-        self.MaxRenderPerFrame = value
-        maxPropsLabel:SetText("Max Props: " .. value)
-    end
-    
-    -- Debug mode checkbox
-    local debugCheck = vgui.Create("DCheckBoxLabel", frame)
-    debugCheck:SetPos(20, frame:GetTall() - 50)
-    debugCheck:SetText("Debug Mode")
-    debugCheck:SetValue(self.Debug)
-    debugCheck:SizeToContents()
-    debugCheck.OnChange = function(_, val)
-        self.Debug = val
-    end
-    
-    -- Rebuild grid button
-    local rebuildGridBtn = vgui.Create("DButton", frame)
-    rebuildGridBtn:SetText("Rebuild Grid")
-    rebuildGridBtn:SetPos(frame:GetWide() - 200, frame:GetTall() - 50)
-    rebuildGridBtn:SetSize(90, 30)
-    rebuildGridBtn.DoClick = function()
-        self:ScanMapProps()
-    end
-    
-    -- Save button
-    local saveBtn = vgui.Create("DButton", frame)
-    saveBtn:SetText("Save Settings")
-    saveBtn:SetPos(frame:GetWide() - 110, frame:GetTall() - 50)
-    saveBtn:SetSize(90, 30)
-    saveBtn.DoClick = function()
-        self:SaveSettings()
-        frame:Close()
-    end
-end
-
--- Command to open the UI from console
-concommand.Add("staticprops_ui", function()
-    StaticPropsRenderer:OpenUI()
 end)
 
--- Print help message when addon loads
-hook.Add("InitPostEntity", "StaticPropsRenderer_HelpMessage", function()
-    timer.Simple(5, function()
-        print("[StaticPropsRenderer] Addon loaded! Type '!staticprops' in chat or 'staticprops_ui' in console to open the UI")
-        print("[StaticPropsRenderer] Debug mode available with 'staticprops_debug' console command")
-    end)
+-- Add reload command
+concommand.Add("rtx_spr_reload", function()
+    print("[Static Render] Manually reloading cache...")
+    isDataReady = false
+    isCachingInProgress = false
+    
+    -- Clean up meshes
+    for modelPath, meshData in pairs(meshCache) do
+        if meshData.mesh then
+            meshData.mesh:Destroy()
+        end
+    end
+    
+    table.Empty(cachedStaticProps)
+    table.Empty(materialsCache)
+    table.Empty(meshCache)
+    
+    timer.Simple(0.1, CacheMapStaticProps)
 end)
+
+print("[Custom Static Renderer] Loaded.")
