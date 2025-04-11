@@ -352,19 +352,104 @@ concommand.Add("rtx_spr_reload", function()
     timer.Simple(0.1, CacheMapStaticProps)
 end)
 
--- HDRI stuffs
-hook.Add("OnEntityCreated", "HDRICubeEditor_CheckForEditor", function(ent)
-    if IsValid(ent) and ent:GetClass() == "hdri_cube_editor" then
+-- Render Bounds stuff
+local function SetProperLightBounds(ent)
+    if not IsValid(ent) then return end
+    
+    local size = 256 -- Default for regular lights
+    
+    -- Check for specific light types
+    if ent.lightType == "light_environment" then
+        size = 32768 -- Environment lights need much larger bounds
+    end
+    
+    local boundsMin = Vector(-size, -size, -size)
+    local boundsMax = Vector(size, size, size)
+    ent:SetRenderBounds(boundsMin, boundsMax)
+    
+    if convar_Debug:GetBool() then
+        print("[Static Render] Set render bounds for " 
+            .. ent:GetClass() 
+            .. (ent.lightType and (" (" .. ent.lightType .. ")") or "")
+            .. " to", size)
+    end
+    
+    return size
+end
+
+-- HDRI and light bounds setup (on entity creation)
+hook.Add("OnEntityCreated", "RTXRenderer_SetEntityBounds", function(ent)
+    if not IsValid(ent) then return end
+    
+    -- Skip if not a relevant entity
+    if ent:GetClass() ~= "rtx_lightupdater" and ent:GetClass() ~= "hdri_cube_editor" then return end
+    
+    -- For HDRI editor, set bounds immediately
+    if ent:GetClass() == "hdri_cube_editor" then
         timer.Simple(0.1, function()
             if IsValid(ent) then
-                local size = 32768
-                local boundsMin = Vector(-size, -size, -size)
-                local boundsMax = Vector(size, size, size)
+                local boundsMin = Vector(-32768, -32768, -32768)
+                local boundsMax = Vector(32768, 32768, 32768)
                 ent:SetRenderBounds(boundsMin, boundsMax)
-                print("[Static Render] Set render bounds for newly created hdri_cube_editor to", size)
+                
+                if convar_Debug:GetBool() then
+                    print("[Static Render] Set render bounds for hdri_cube_editor to 32768")
+                end
             end
         end)
+        return
     end
+    
+    -- For light updaters, wait a bit to ensure lightType is set
+    timer.Simple(0.2, function()
+        if IsValid(ent) then
+            SetProperLightBounds(ent)
+        end
+    end)
+end)
+
+-- Process all existing light updaters
+local function UpdateAllLightBounds()
+    local updaters = ents.FindByClass("rtx_lightupdater")
+    local countsByType = {}
+    
+    for _, ent in ipairs(updaters) do
+        local size = SetProperLightBounds(ent)
+        local lightType = ent.lightType or "unknown"
+        
+        countsByType[lightType] = (countsByType[lightType] or 0) + 1
+    end
+    
+    -- Log summary
+    if convar_Debug:GetBool() then
+        print("[Static Render] Updated bounds for " .. #updaters .. " light updaters:")
+        for lightType, count in pairs(countsByType) do
+            print("  - " .. lightType .. ": " .. count)
+        end
+    end
+end
+
+-- Run after map load and periodically
+hook.Add("InitPostEntity", "RTXRenderer_InitLightBounds", function()
+    -- Wait for lights to be created
+    timer.Simple(2, function()
+        print("[Static Render] Running initial light bounds update...")
+        UpdateAllLightBounds()
+        
+        -- Set up periodic check
+        timer.Create("RTXRenderer_LightBoundsRefresh", 30, 0, function()
+            if convar_Debug:GetBool() then
+                print("[Static Render] Running periodic light bounds refresh...")
+            end
+            UpdateAllLightBounds()
+        end)
+    end)
+end)
+
+-- Add console command to manually update bounds
+concommand.Add("rtx_update_light_bounds", function()
+    print("[Static Render] Manually updating light render bounds...")
+    UpdateAllLightBounds()
 end)
 
 -- Disable engine props
