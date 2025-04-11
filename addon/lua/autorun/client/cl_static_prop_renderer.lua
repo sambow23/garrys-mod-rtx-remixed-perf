@@ -2,8 +2,9 @@
 -- Re-Renders all static props to bypass engine culling 
 -- Author: CR
 
-local convar_Enable = CreateClientConVar("rtx_spr_enable", "0", true, false, "Enable custom rendering of static props")
+local convar_Enable = CreateClientConVar("rtx_spr_enable", "1", true, false, "Enable custom rendering of static props")
 local convar_Debug = CreateClientConVar("rtx_spr_debug", "0", true, false, "Enable debug prints for static prop renderer")
+local convar_RenderDistance = CreateClientConVar("rtx_spr_distance", "10000", true, false, "Maximum distance to render static props (0 = no limit)")
 
 -- Global state
 local isDataReady = false
@@ -277,6 +278,13 @@ hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(b
     
     local renderedProps = 0
     local skippedProps = 0
+    local distanceSkipped = 0
+    
+    -- Get player position for distance check
+    local playerPos = LocalPlayer():GetPos()
+    local maxDistance = convar_RenderDistance:GetFloat()
+    local useDistanceLimit = (maxDistance > 0)
+    local maxDistanceSqr = maxDistance * maxDistance
     
     -- Debug stats only calculated once per frame
     local shouldDebug = convar_Debug:GetBool()
@@ -284,7 +292,8 @@ hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(b
     local isNewFrame = lastDebugFrame ~= frameCount
     
     if shouldDebug and isNewFrame then
-        DebugPrint("Attempting to render", #cachedStaticProps, "props")
+        DebugPrint("Attempting to render", #cachedStaticProps, "props", 
+                  useDistanceLimit and ("with distance limit " .. maxDistance) or "with no distance limit")
         lastDebugFrame = frameCount
     end
     
@@ -294,6 +303,15 @@ hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(b
         if not meshData or not meshData.meshes then
             skippedProps = skippedProps + 1
             continue
+        end
+        
+        -- Check distance if distance limit is enabled
+        if useDistanceLimit then
+            local distSqr = playerPos:DistToSqr(prop.origin)
+            if distSqr > maxDistanceSqr then
+                distanceSkipped = distanceSkipped + 1
+                continue
+            end
         end
         
         -- Set up transformation matrix
@@ -323,8 +341,13 @@ hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(b
     end
     
     -- Debug output
-    if shouldDebug and isNewFrame and renderedProps > 0 then
-        DebugPrint("Rendered", renderedProps, "props,", skippedProps, "skipped")
+    if shouldDebug and isNewFrame then
+        if useDistanceLimit then
+            DebugPrint("Rendered", renderedProps, "props,", skippedProps, "skipped due to errors,", 
+                      distanceSkipped, "skipped due to distance")
+        else
+            DebugPrint("Rendered", renderedProps, "props,", skippedProps, "skipped")
+        end
     end
 end)
 
@@ -350,106 +373,6 @@ concommand.Add("rtx_spr_reload", function()
     table.Empty(meshCache)
     
     timer.Simple(0.1, CacheMapStaticProps)
-end)
-
--- Render Bounds stuff
-local function SetProperLightBounds(ent)
-    if not IsValid(ent) then return end
-    
-    local size = 256 -- Default for regular lights
-    
-    -- Check for specific light types
-    if ent.lightType == "light_environment" then
-        size = 32768 -- Environment lights need much larger bounds
-    end
-    
-    local boundsMin = Vector(-size, -size, -size)
-    local boundsMax = Vector(size, size, size)
-    ent:SetRenderBounds(boundsMin, boundsMax)
-    
-    if convar_Debug:GetBool() then
-        print("[Static Render] Set render bounds for " 
-            .. ent:GetClass() 
-            .. (ent.lightType and (" (" .. ent.lightType .. ")") or "")
-            .. " to", size)
-    end
-    
-    return size
-end
-
--- HDRI and light bounds setup (on entity creation)
-hook.Add("OnEntityCreated", "RTXRenderer_SetEntityBounds", function(ent)
-    if not IsValid(ent) then return end
-    
-    -- Skip if not a relevant entity
-    if ent:GetClass() ~= "rtx_lightupdater" and ent:GetClass() ~= "hdri_cube_editor" then return end
-    
-    -- For HDRI editor, set bounds immediately
-    if ent:GetClass() == "hdri_cube_editor" then
-        timer.Simple(0.1, function()
-            if IsValid(ent) then
-                local boundsMin = Vector(-32768, -32768, -32768)
-                local boundsMax = Vector(32768, 32768, 32768)
-                ent:SetRenderBounds(boundsMin, boundsMax)
-                
-                if convar_Debug:GetBool() then
-                    print("[Static Render] Set render bounds for hdri_cube_editor to 32768")
-                end
-            end
-        end)
-        return
-    end
-    
-    -- For light updaters, wait a bit to ensure lightType is set
-    timer.Simple(0.2, function()
-        if IsValid(ent) then
-            SetProperLightBounds(ent)
-        end
-    end)
-end)
-
--- Process all existing light updaters
-local function UpdateAllLightBounds()
-    local updaters = ents.FindByClass("rtx_lightupdater")
-    local countsByType = {}
-    
-    for _, ent in ipairs(updaters) do
-        local size = SetProperLightBounds(ent)
-        local lightType = ent.lightType or "unknown"
-        
-        countsByType[lightType] = (countsByType[lightType] or 0) + 1
-    end
-    
-    -- Log summary
-    if convar_Debug:GetBool() then
-        print("[Static Render] Updated bounds for " .. #updaters .. " light updaters:")
-        for lightType, count in pairs(countsByType) do
-            print("  - " .. lightType .. ": " .. count)
-        end
-    end
-end
-
--- Run after map load and periodically
-hook.Add("InitPostEntity", "RTXRenderer_InitLightBounds", function()
-    -- Wait for lights to be created
-    timer.Simple(2, function()
-        print("[Static Render] Running initial light bounds update...")
-        UpdateAllLightBounds()
-        
-        -- Set up periodic check
-        timer.Create("RTXRenderer_LightBoundsRefresh", 30, 0, function()
-            if convar_Debug:GetBool() then
-                print("[Static Render] Running periodic light bounds refresh...")
-            end
-            UpdateAllLightBounds()
-        end)
-    end)
-end)
-
--- Add console command to manually update bounds
-concommand.Add("rtx_update_light_bounds", function()
-    print("[Static Render] Manually updating light render bounds...")
-    UpdateAllLightBounds()
 end)
 
 -- Disable engine props
