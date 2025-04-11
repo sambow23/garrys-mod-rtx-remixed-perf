@@ -9,6 +9,9 @@ local creation_batch_size = CreateClientConVar("light2rtx_batch_size", "1", true
 local creation_batch_delay = CreateClientConVar("light2rtx_batch_delay", "0.0", true, false, "Delay between batches in seconds")
 local pos_jitter = CreateClientConVar("light2rtx_position_jitter", "1", true, false, "Add a small random offset to light positions to prevent conflicts")
 local pos_jitter_amount = CreateClientConVar("light2rtx_position_jitter_amount", "0.1", true, false, "Amount of random position offset")
+local rect_rotation_x = CreateClientConVar("light2rtx_rect_rotation_x", "0", true, false, "X rotation offset for rectangle and disk lights")
+local rect_rotation_y = CreateClientConVar("light2rtx_rect_rotation_y", "0", true, false, "Y rotation offset for rectangle and disk lights")
+local rect_rotation_z = CreateClientConVar("light2rtx_rect_rotation_z", "0", true, false, "Z rotation offset for rectangle and disk lights")
 
 -- Track created entities so we can clean them up
 local createdLights = {}
@@ -25,8 +28,8 @@ local lightClasses = {
 -- Mapping from Source light types to RTX light types
 local rtxLightTypes = {
     ["light"] = 0, -- Sphere light
-    ["light_dynamic"] = 2, -- Sphere light
-    ["light_spot"] = 2, -- Disk light
+    ["light_dynamic"] = 0, -- Sphere light
+    ["light_spot"] = 0, -- Disk light
 }
 
 -- Visual models to use for different light types
@@ -85,7 +88,7 @@ local function getLightProperties(entity)
         angularDiameter = 0.5,
         coneAngle = 120,
         coneSoftness = 0.2,
-        shapingEnabled = true
+        shapingEnabled = false
     }
     
     -- Extract color information from the _light property if available
@@ -270,6 +273,7 @@ local function createRTXLightEntity(pos, color, brightness, size, lightType, lig
     ent:SetLightR(color.r)
     ent:SetLightG(color.g)
     ent:SetLightB(color.b)
+    ent:SetPos(pos)
     
     -- Set light-type specific properties
     if lightProps then
@@ -288,6 +292,22 @@ local function createRTXLightEntity(pos, color, brightness, size, lightType, lig
         ent:SetShapingEnabled(lightProps.shapingEnabled)
         ent:SetConeAngle(lightProps.coneAngle)
         ent:SetConeSoftness(lightProps.coneSoftness)
+    end
+
+    if lightType == 1 or lightType == 2 then -- Rectangle (1) or Disk (2) lights
+        local baseAngles = angles or Angle(0, 0, 0)
+        
+        -- Apply additional rotation from CVars
+        baseAngles.x = baseAngles.x + rect_rotation_x:GetFloat()
+        baseAngles.y = baseAngles.y + rect_rotation_y:GetFloat()
+        baseAngles.z = baseAngles.z + rect_rotation_z:GetFloat()
+        
+        ent:SetAngles(baseAngles)
+        
+        DebugPrint(string.format("Applied rotation to light: %d,%d,%d", 
+            baseAngles.x, baseAngles.y, baseAngles.z))
+    elseif angles then
+        ent:SetAngles(angles)
     end
     
     -- Link to visual prop if one exists
