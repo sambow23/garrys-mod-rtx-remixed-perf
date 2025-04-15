@@ -18,37 +18,106 @@ IVModelInfo* pModelInfo = nullptr;
 static StudioRenderConfig_t s_StudioRenderConfig;
 
 Define_method_Hook(IMaterial*, R_StudioSetupSkinAndLighting, void*, IMatRenderContext* pRenderContext, int index, IMaterial** ppMaterials, int materialFlags,
-	IClientRenderable* pClientRenderable, void* pColorMeshes, int &lighting)
+    IClientRenderable* pClientRenderable, void* pColorMeshes, int &lighting)
 { 
-	//IMaterial* pMaterial = ppMaterials[index];
-	IMaterial* pMaterial = R_StudioSetupSkinAndLighting_trampoline()(_this, pRenderContext, index, ppMaterials, materialFlags, pClientRenderable, pColorMeshes, lighting);
+    // Get the material from the trampoline function first
+    IMaterial* pMaterial = R_StudioSetupSkinAndLighting_trampoline()(_this, pRenderContext, index, ppMaterials, materialFlags, pClientRenderable, pColorMeshes, lighting);
 
 #ifdef _WIN64
-	if (GlobalConvars::r_forcehwlight && GlobalConvars::r_forcehwlight->GetBool()) {
-		lighting = 0; // LIGHTING_HARDWARE 
-	}
+    // Handle global convar override if it exists
+    if (GlobalConvars::r_forcehwlight && GlobalConvars::r_forcehwlight->GetBool()) {
+        lighting = 0; // LIGHTING_HARDWARE 
+        return pMaterial;
+    }
 #endif
-	// only force LIGHTING_HARDWARE to anything that isn't a ragdoll or has flexes
-	
-	// this crashes if an entity is deleted while being rendered, so we need to check if it's valid
-	if (pClientRenderable && pClientRenderable->GetIClientUnknown() && pClientRenderable->GetIClientUnknown()->GetBaseEntity())
-	{
-		auto mdl = pClientRenderable->GetModel();
-		if (!mdl) mdl = pClientRenderable->GetIClientUnknown()->GetBaseEntity()->GetModel();
-		if (mdl && pModelInfo)
-		{
-			auto pStudioHdr = pModelInfo->GetStudiomodel(mdl);
-			if (pStudioHdr && !(pStudioHdr->numbones > 1)) {
-				lighting = 0; // LIGHTING_HARDWARE 
-			}
-		}
-	}
+
+    // Only force LIGHTING_HARDWARE to anything that isn't a ragdoll or has flexes
+    // Enhanced validation to prevent crashes with invalid pointers
+    if (pClientRenderable) {
+        // First check if the pointer is somewhat valid before dereferencing vtable
+        bool validPtr = false;
+        
+        __try {
+            // Basic pointer validation - check if address is in reasonable range
+            if (((uintptr_t)pClientRenderable > 0x10000) && 
+                ((uintptr_t)pClientRenderable < 0x7FFFFFFFFFFF) && 
+                ((uintptr_t)pClientRenderable & 0x7) == 0) {  // Aligned pointer check
+                    
+                void** vtable = *(void***)pClientRenderable;
+                if (vtable && ((uintptr_t)vtable > 0x10000) && 
+                    ((uintptr_t)vtable < 0x7FFFFFFFFFFF)) {
+                    // It's at least a valid-looking pointer with a valid-looking vtable
+                    validPtr = true;
+                }
+            }
+        }
+        __except(EXCEPTION_EXECUTE_HANDLER) {
+            // If any access violation happens, the pointer was bad
+            validPtr = false;
+        }
+        
+        // Only proceed with vtable calls if the pointer looks valid
+        if (validPtr) {
+            IClientUnknown* unknown = nullptr;
+            
+            __try {
+                unknown = pClientRenderable->GetIClientUnknown();
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER) {
+                unknown = nullptr;
+            }
+            
+            if (unknown) {
+                C_BaseEntity* baseEntity = nullptr;
+                
+                __try {
+                    baseEntity = unknown->GetBaseEntity();
+                }
+                __except(EXCEPTION_EXECUTE_HANDLER) {
+                    baseEntity = nullptr;
+                }
+                
+                if (baseEntity) {
+                    // Use const model_t* to match the return type of GetModel()
+                    const model_t* mdl = nullptr;
+                    
+                    __try {
+                        mdl = pClientRenderable->GetModel();
+                        if (!mdl && baseEntity) {
+                            mdl = baseEntity->GetModel();
+                        }
+                    }
+                    __except(EXCEPTION_EXECUTE_HANDLER) {
+                        mdl = nullptr;
+                    }
+                    
+                    if (mdl && pModelInfo) {
+                        // Handle const correctly
+                        const studiohdr_t* pStudioHdr = nullptr;
+                        
+                        __try {
+                            pStudioHdr = pModelInfo->GetStudiomodel(mdl);
+                        }
+                        __except(EXCEPTION_EXECUTE_HANDLER) {
+                            pStudioHdr = nullptr;
+                        }
+                        
+                        // Check for simple models (not ragdolls or complex animations)
+                        if (pStudioHdr && !(pStudioHdr->numbones > 1)) {
+                            lighting = 0; // LIGHTING_HARDWARE 
+                        }
+                    }
+                }
+            }
+        }
+    }
 
 #ifdef HWSKIN_PATCHES
-	lighting = 0; // LIGHTING_HARDWARE 
+    // Always force hardware lighting when specifically enabled by define
+    lighting = 0; // LIGHTING_HARDWARE 
 #endif
 
-	return pMaterial;
+    return pMaterial;
 }
 
 Define_method_Hook(int*, R_StudioDrawDynamicMesh, void*, IMatRenderContext* pRenderContext, mstudiomesh_t* pmesh,
