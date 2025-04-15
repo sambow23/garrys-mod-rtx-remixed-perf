@@ -114,22 +114,13 @@ local function MaterialFixups()
 
     -- Fix GUI materials
     local function FixupGUIMaterial(mat)
-        -- Skip if the material isn't valid
-        if type(mat) == "number" or not mat.SetTexture then
-            print("[RTX Remix Fixes 2] - Skipping invalid GUI material")
-            return
-        end
-        
-        local blankmat = Material("rtx/guiwhite")
-        -- Check if the blank material is valid too
-        if type(blankmat) == "number" or not blankmat.GetTexture then
-            print("[RTX Remix Fixes 2] - Missing rtx/guiwhite material, skipping GUI material fixup")
-            return
-        end
-        
-        local baseTexture = blankmat:GetTexture("$basetexture")
-        if baseTexture then
-            mat:SetTexture("$basetexture", baseTexture)
+        -- Check if mat is a valid material object
+        if not isstring(mat) and not isnumber(mat) and mat.SetTexture then
+            local blankmat = Material("rtx/guiwhite")
+            -- Make sure blankmat is also valid
+            if not isstring(blankmat) and not isnumber(blankmat) and blankmat.GetTexture then
+                mat:SetTexture("$basetexture", blankmat:GetTexture("$basetexture"))
+            end
         end
     end
 
@@ -149,48 +140,48 @@ local function MaterialFixups()
 end
 
 -- Entity management
--- local function DrawFix(self, flags)
---     if cv_experimental_manuallight:GetBool() then return end
---     render.SuppressEngineLighting(cv_disablevertexlighting:GetBool())
+local function DrawFix(self, flags)
+    if cv_experimental_manuallight:GetBool() then return end
+    render.SuppressEngineLighting(cv_disablevertexlighting:GetBool())
 
---     -- Handle material overrides
---     if self:GetMaterial() ~= "" then
---         render.MaterialOverride(Material(self:GetMaterial()))
---     end
+    -- Handle material overrides
+    if self:GetMaterial() ~= "" then
+        render.MaterialOverride(Material(self:GetMaterial()))
+    end
 
---     -- Handle submaterials
---     for k, _ in pairs(self:GetMaterials()) do
---         if self:GetSubMaterial(k - 1) ~= "" then
---             render.MaterialOverrideByIndex(k - 1, Material(self:GetSubMaterial(k - 1)))
---         end
---     end
+    -- Handle submaterials
+    for k, _ in pairs(self:GetMaterials()) do
+        if self:GetSubMaterial(k - 1) ~= "" then
+            render.MaterialOverrideByIndex(k - 1, Material(self:GetSubMaterial(k - 1)))
+        end
+    end
 
---     -- Draw the model with static lighting
---     self:DrawModel(flags + STUDIO_STATIC_LIGHTING)
---     render.MaterialOverride(nil)
---     render.SuppressEngineLighting(false)
--- end
+    -- Draw the model with static lighting
+    self:DrawModel(flags + STUDIO_STATIC_LIGHTING)
+    render.MaterialOverride(nil)
+    render.SuppressEngineLighting(false)
+end
 
--- local function FixupEntity(ent)
---     if IsValid(ent) and ent:GetClass() ~= "procedural_shard" then
---         ent.RenderOverride = DrawFix
---     end
--- end
+local function FixupEntity(ent)
+    if IsValid(ent) and ent:GetClass() ~= "procedural_shard" then
+        ent.RenderOverride = DrawFix
+    end
+end
 
--- local function FixupEntities()
---     for _, ent in pairs(ents.GetAll()) do
---         FixupEntity(ent)
---     end
--- end
+local function FixupEntities()
+    for _, ent in pairs(ents.GetAll()) do
+        FixupEntity(ent)
+    end
+end
 
 -- RTX initialization
 local function RTXLoad()
     print("[RTX Remix Fixes 2] - Initializing Client")
 
     -- Set up console commands
-    --RunConsoleCommand("r_radiosity", "0")
+    RunConsoleCommand("r_radiosity", "0")
     RunConsoleCommand("r_PhysPropStaticLighting", "1")
-    --RunConsoleCommand("r_colorstaticprops", "0")
+    RunConsoleCommand("r_colorstaticprops", "0")
     RunConsoleCommand("r_lightinterp", "0")
     RunConsoleCommand("mat_fullbright", cv_experimental_manuallight:GetBool() and "1" or "0")
 
@@ -208,7 +199,7 @@ local function RTXLoad()
     end
 
     -- Initialize systems
-    -- FixupEntities()
+    FixupEntities()
     halo.Add = function() end
 
     if cv_fixmaterials:GetBool() then
@@ -238,7 +229,8 @@ end
 hook.Add("InitPostEntity", "RTXReady", RTXLoad)
 hook.Add("PreRender", "RTXPreRender", PreRender)
 hook.Add("PreDrawOpaqueRenderables", "RTXPreRenderOpaque", PreRender)
-hook.Add("PreDrawTranslucentRenderables", "RTXPreRenderTranslucent", PreRender) 
+hook.Add("PreDrawTranslucentRenderables", "RTXPreRenderTranslucent", PreRender)
+hook.Add("OnEntityCreated", "RTXEntityFixups", FixupEntity)
 
 -- Console commands
 concommand.Add("rtx_fixnow", RTXLoad)
