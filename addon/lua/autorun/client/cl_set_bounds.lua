@@ -11,7 +11,7 @@ local patternToClassMap = {}
 -- Entity limits and distances
 local entityTypeLimits = {
     ["prop_physics"] = 300,  -- Only set bounds for 100 physics props
-    ["npc_.*"] = 50,  -- Limit for all NPCs
+    ["npc_.*"] = 10,  -- Limit for all NPCs
 }
 
 -- Entities we're setting bounds for
@@ -41,7 +41,7 @@ end
 local function SetProperLightBounds(ent)
     if not IsValid(ent) then return end
     
-    local size = 256 -- Default for regular lights
+    local size = 512 -- Default for regular lights
     
     -- Check for specific light types
     if ent.lightType == "light_environment" then
