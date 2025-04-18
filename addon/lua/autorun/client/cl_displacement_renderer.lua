@@ -142,6 +142,7 @@ concommand.Add("disp_reload", function()
     LoadDisplacements()
 end)
 
+
 -- Warning message when loading
 hook.Add("HUDPaint", "DisplacementRendererLoading", function()
     if not hasLoaded and loadProgress > 0 then
