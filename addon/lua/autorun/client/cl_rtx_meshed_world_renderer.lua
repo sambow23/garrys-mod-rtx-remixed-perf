@@ -10,8 +10,7 @@ local CONVARS = {
     ENABLED = CreateClientConVar("rtx_mwr_enable", "1", true, false, "Forces custom mesh rendering of map"),
     DEBUG = CreateClientConVar("rtx_mwr_enable_debug", "0", true, false, "Shows debug info for mesh rendering"),
     CHUNK_SIZE = CreateClientConVar("rtx_mwr_chunk_size", "65536", true, false, "Size of chunks for mesh combining"),
-    CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode"),
-    SHOW_3DSKY_WARNING = CreateClientConVar("rtx_mwr_show_3dsky_warning", "1", true, false, "Show warning when enabling r_3dsky")
+    SHOW_3DSKY_WARNING = CreateClientConVar("rtx_mwr_show_3dsky_warning", "1", true, false, "Show warning when enabling r_3dsky"),
 }
 
 -- Local Variables and Caches
@@ -36,6 +35,7 @@ local mapBounds = {
     max = Vector(0, 0, 0),
     initialized = false
 }
+local ignoreTexture = Material("rtx/ignore")
 
 -- Get native functions
 local MeshRenderer = MeshRenderer or {}
@@ -570,6 +570,12 @@ local function EnableCustomRendering()
     if isEnabled then return end
     isEnabled = true
 
+    hook.Add("RenderScene", "RTXWorldMaterialOverride", function()
+        if not bDrawingSkybox then
+            render.WorldMaterialOverride(ignoreTexture)
+        end
+    end)
+
     hook.Add("PreDrawWorld", "RTXHideWorld", function()
         if render.GetRenderTarget() then return end
         if bDrawingSkybox then return end
@@ -600,10 +606,14 @@ local function DisableCustomRendering()
     if not isEnabled then return end
     isEnabled = false
 
+    hook.Remove("RenderScene", "RTXWorldMaterialOverride")
     hook.Remove("PreDrawWorld", "RTXHideWorld")
     hook.Remove("PostDrawWorld", "RTXHideWorld")
     hook.Remove("PreDrawOpaqueRenderables", "RTXCustomWorld")
     hook.Remove("PreDrawTranslucentRenderables", "RTXCustomWorld")
+    
+    -- Make sure the world material override is cleared when disabling
+    render.WorldMaterialOverride()
 end
 
 -- Initialization and Cleanup
@@ -669,11 +679,6 @@ cvars.AddChangeCallback("rtx_mwr_enable", function(_, _, new)
     end
 end)
 
-cvars.AddChangeCallback("rtx_mwr_capture_mode", function(_, _, new)
-    -- Invert the value: if capture_mode is 1, r_drawworld should be 0 and vice versa
-    RunConsoleCommand("r_drawworld", new == "1" and "0" or "1")
-end)
-
 cvars.AddChangeCallback("r_3dsky", function(_, _, newValue)
     if newValue == "1" then
         Show3DSkyWarning()
@@ -685,25 +690,6 @@ hook.Add("InitPostEntity", "RTXCheck3DSky", function()
         if GetConVar("r_3dsky"):GetBool() then
             Show3DSkyWarning()
         end
-    end)
-end)
-
--- Menu
-hook.Add("PopulateToolMenu", "RTXCustomWorldMenu", function()
-    spawnmenu.AddToolMenuOption("Utilities", "User", "rtx_mwr_MWR", "#RTX - Meshed World Renderer", "", "", function(panel)
-        panel:ClearControls()
-        
-        panel:CheckBox("Enable Custom World Rendering", "rtx_mwr_enable")
-        panel:ControlHelp("Renders world faces using chunked meshes")
-
-        panel:CheckBox("Enable Custom Displacement Rendering", "rtx_cdr_enable")
-        panel:ControlHelp("Renders world displacements using chunked meshes")
-        panel:ControlHelp("(EXTREMELY BUGGY, USE AT YOUR OWN RISK)")
-
-        panel:CheckBox("Remix Capture Mode", "rtx_mwr_capture_mode")
-        panel:ControlHelp("Enable this if you're taking a capture with RTX Remix")
-        
-        panel:CheckBox("Show Debug Info", "rtx_mwr_enable_debug")
     end)
 end)
 
