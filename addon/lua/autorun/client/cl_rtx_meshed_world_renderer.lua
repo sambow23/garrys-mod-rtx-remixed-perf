@@ -600,6 +600,9 @@ local function EnableCustomRendering()
         if render.GetRenderTarget() then return end
         RenderCustomWorld(true)
     end)
+
+    RunConsoleCommand("rtx_cdr_enable", "1")
+    RunConsoleCommand("r_DrawDisp", "0")
 end
 
 local function DisableCustomRendering()
@@ -614,6 +617,8 @@ local function DisableCustomRendering()
     
     -- Make sure the world material override is cleared when disabling
     render.WorldMaterialOverride()
+    RunConsoleCommand("rtx_cdr_enable", "0")
+    RunConsoleCommand("r_DrawDisp", "1")
 end
 
 -- Initialization and Cleanup
