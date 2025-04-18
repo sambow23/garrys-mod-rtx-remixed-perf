@@ -81,23 +81,6 @@ concommand.Add("rtx_cleanup", function()
 end)
 
 -- Add to menu
-hook.Add("PopulateToolMenu", "RTXCustomWorldMenu", function()
-    spawnmenu.AddToolMenuOption("Utilities", "User", "RTX_ForceRender", "#RTX Custom World", "", "", function(panel)
-        -- ... existing controls ...
-        
-        panel:Help("\nCleanup Settings")
-        
-        panel:CheckBox("Show Cleanup Debug Messages", "rtx_debug_cleanup")
-        panel:ControlHelp("Show detailed messages during RTX resource cleanup")
-        
-        local cleanupBtn = panel:Button("Force RTX Cleanup")
-        cleanupBtn.DoClick = function()
-            CleanupRTX()
-            surface.PlaySound("buttons/button14.wav")
-        end
-    end)
-end)
-
 hook.Add("PreCleanupMap", "RTXCleanupMapChange", function()
     DebugMsg("Pre-cleanup map detected")
     CleanupRTX()
