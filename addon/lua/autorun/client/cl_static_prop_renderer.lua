@@ -13,6 +13,9 @@ local cachedStaticProps = {}
 local materialsCache = {}
 local meshCache = {}  -- Maps model path to IMesh objects
 local lastDebugFrame = 0
+local bDrawingSkybox = false
+local skyboxProps = {}
+local worldProps = {}
 
 -- Debug helper function
 local function DebugPrint(...)
@@ -63,6 +66,21 @@ local function ProcessStaticProp(propData)
         skin = propData.Skin or 0,
         color = propData.DiffuseModulation or Color(255, 255, 255)
     }
+
+    -- Check if this is a skybox prop
+    local isSkyboxProp = false
+    if NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap:HasSkyBox() then
+        local skyPos = NikNaks.CurrentMap:GetSkyBoxPos()
+        local skyMinBounds, skyMaxBounds = NikNaks.CurrentMap:GetSkyboxSize()
+        
+        -- Check if the prop is within skybox bounds
+        if skyMinBounds and skyMaxBounds and propData.Origin then
+            isSkyboxProp = propData.Origin:WithinAABox(skyMinBounds, skyMaxBounds)
+        end
+    end
+    
+    -- Store this information in the prop data
+    prop.isSkybox = isSkyboxProp
     
     -- Check if we already cached this model's mesh
     local cacheKey = modelPath .. "_skin" .. prop.skin
@@ -139,6 +157,23 @@ local function ProcessStaticProp(propData)
     -- Link to the cached mesh data
     prop.cachedMesh = meshCache[cacheKey]
     return prop
+end
+
+-- Separate skybox props from world props
+local function SeparateSkyboxProps()
+    skyboxProps = {}
+    worldProps = {}
+    
+    for _, prop in ipairs(cachedStaticProps) do
+        if prop.isSkybox then
+            table.insert(skyboxProps, prop)
+        else
+            table.insert(worldProps, prop)
+        end
+    end
+    
+    print(string.format("[Static Render] Separated props: %d world props, %d skybox props", 
+                        #worldProps, #skyboxProps))
 end
 
 -- Cache static props from NikNaks data
@@ -219,6 +254,7 @@ local function CacheMapStaticProps()
             end)
         else
             -- All done
+            SeparateSkyboxProps() -- Separate skybox props from world props
             isDataReady = true
             isCachingInProgress = false
             print(string.format("[Static Render] Caching complete. %d static props processed, %d skipped.", 
@@ -229,6 +265,15 @@ local function CacheMapStaticProps()
     -- Start processing in batches of 100
     ProcessBatch(1, 100)
 end
+
+-- Skybox detection hooks
+hook.Add("PreDrawSkyBox", "RTXStaticPropsSkyboxDetection", function()
+    bDrawingSkybox = true
+end)
+
+hook.Add("PostDrawSkyBox", "RTXStaticPropsSkyboxDetection", function()
+    bDrawingSkybox = false
+end)
 
 -- Hook to initiate caching when the map is ready
 hook.Add("InitPostEntity", "CustomStaticRender_InitCache", function()
@@ -252,6 +297,8 @@ hook.Add("ShutDown", "CustomStaticRender_Cleanup", function()
     end
     
     table.Empty(cachedStaticProps)
+    table.Empty(skyboxProps)
+    table.Empty(worldProps)
     table.Empty(materialsCache)
     table.Empty(meshCache)
     
@@ -260,16 +307,18 @@ hook.Add("ShutDown", "CustomStaticRender_Cleanup", function()
 end)
 
 -- Render the static props
-hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(bDrawingDepth, bDrawingSkybox)
+hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(bDrawingDepth, bDrawingSkybox_param)
     if not convar_Enable:GetBool() or not isDataReady or isCachingInProgress then
         return
     end
     
-    if #cachedStaticProps == 0 then
+    -- Choose which prop list to render based on skybox state
+    local propsToRender = bDrawingSkybox and skyboxProps or worldProps
+    
+    if #propsToRender == 0 then
         if convar_Debug:GetBool() then
             local frameCount = FrameNumber()
             if lastDebugFrame ~= frameCount then
-                DebugPrint("No cached props to render")
                 lastDebugFrame = frameCount
             end
         end
@@ -292,13 +341,13 @@ hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(b
     local isNewFrame = lastDebugFrame ~= frameCount
     
     if shouldDebug and isNewFrame then
-        DebugPrint("Attempting to render", #cachedStaticProps, "props", 
+        DebugPrint("Attempting to render", #propsToRender, "props in " .. (bDrawingSkybox and "skybox" or "world"), 
                   useDistanceLimit and ("with distance limit " .. maxDistance) or "with no distance limit")
         lastDebugFrame = frameCount
     end
     
     -- Render each static prop mesh
-    for _, prop in ipairs(cachedStaticProps) do
+    for _, prop in ipairs(propsToRender) do
         local meshData = prop.cachedMesh
         if not meshData or not meshData.meshes then
             skippedProps = skippedProps + 1
@@ -343,10 +392,12 @@ hook.Add("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(b
     -- Debug output
     if shouldDebug and isNewFrame then
         if useDistanceLimit then
-            DebugPrint("Rendered", renderedProps, "props,", skippedProps, "skipped due to errors,", 
+            DebugPrint("Rendered", renderedProps, "props in " .. (bDrawingSkybox and "skybox" or "world"),
+                      skippedProps, "skipped due to errors,", 
                       distanceSkipped, "skipped due to distance")
         else
-            DebugPrint("Rendered", renderedProps, "props,", skippedProps, "skipped")
+            DebugPrint("Rendered", renderedProps, "props in " .. (bDrawingSkybox and "skybox" or "world"),
+                      skippedProps, "skipped")
         end
     end
 end)
@@ -369,6 +420,8 @@ concommand.Add("rtx_spr_reload", function()
     end
     
     table.Empty(cachedStaticProps)
+    table.Empty(skyboxProps)
+    table.Empty(worldProps)
     table.Empty(materialsCache)
     table.Empty(meshCache)
     
