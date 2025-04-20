@@ -153,9 +153,6 @@ GMOD_MODULE_OPEN() {
         #ifdef _WIN64
             RemixAPI::Initialize(LUA);
             RTXLightManager::InitializeLuaBindings(LUA);
-            RTXMath::Initialize(LUA);
-            EntityManager::Initialize(LUA);
-            MeshRenderer::Initialize(LUA);
         #endif // _WIN64    
 
         LUA->Pop();
@@ -173,7 +170,6 @@ GMOD_MODULE_CLOSE() {
         Msg("[RTX Remix Fixes 2 - Binary Module] Shutting down module...\n");
 
 #ifdef _WIN64
-        //CullingHooks::Instance().Shutdown();
         RTXLightManager::Instance().Shutdown();
 #endif // _WIN64
 
