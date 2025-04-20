@@ -137,11 +137,6 @@ GMOD_MODULE_OPEN() {
             g_remix->SetConfigVariable("rtx.fallbackLightMode", "0");
             Msg("[RTX Remix Fixes 2 - Binary Module] Remix configuration set\n");
         }
-
-#ifdef CULLING_PATCHES
-        //GlobalConvars::InitialiseConVars();     // Disabling for now until we get the full set of culling patches for x64.
-        //CullingHooks::Instance().Initialize();  // Disabling for now until we get the full set of culling patches for x64.
-#endif //CULLING_PATCHES
 #endif //_WIN64
 
 #ifdef HWSKIN_PATCHES
