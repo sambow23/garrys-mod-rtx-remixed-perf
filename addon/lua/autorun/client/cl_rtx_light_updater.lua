@@ -1,4 +1,3 @@
-if (BRANCH == "x86-64" or BRANCH == "chromium") then return end
 if not CLIENT then return end
 require("niknaks")
 local lights
@@ -27,6 +26,7 @@ local function MovetoPositions()
 		lights = NikNaks.CurrentMap:FindByClass( "light" )
 		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_spot" ))
 		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_environment" ))
+		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_dynamic" ))
 	end
 
 	if (model == nil) then
