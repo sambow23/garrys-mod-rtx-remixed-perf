@@ -6,17 +6,9 @@ local cv_pseudoweapon = CreateClientConVar("rtx_pseudoweapon", 1, true, false)
 local cv_disablevertexlighting = CreateClientConVar("rtx_disablevertexlighting", 0, true, false)
 local cv_disablevertexlighting_old = CreateClientConVar("rtx_disablevertexlighting_old", 0, true, false)
 local cv_fixmaterials = CreateClientConVar("rtx_fixmaterials", 1, true, false)
-local cv_lightupdater = CreateClientConVar("rtx_lightupdater_x64", 1, true, false)
 local cv_experimental_manuallight = CreateClientConVar("rtx_experimental_manuallight", 0, true, false)
 local cv_experimental_mightcrash_combinedlightingmode = CreateClientConVar("rtx_experimental_mightcrash_combinedlightingmode", 0, false, false)
 local cv_disable_when_unsupported = CreateClientConVar("rtx_disable_when_unsupported", 1, false, false)
-
--- We don't want the user manually setting what lightupdater to use
-if BRANCH and (BRANCH == "x86-64" or BRANCH == "chromium") then
-    cv_lightupdater:SetInt(1) -- Client is x64, set to 1
-else
-    cv_lightupdater:SetInt(0) -- Client is not x64, set to 0
-end
 
 -- Light system cache
 local lastLightUpdate = 0
@@ -31,28 +23,6 @@ local function TableConcat(t1, t2)
         t1[#t1 + 1] = t2[i]
     end
     return t1
-end
-
--- Light management
-local function DoCustomLights()
-    render.ResetModelLighting(0, 0, 0)
-
-    -- Update light cache periodically
-    local currentTime = RealTime()
-    if currentTime - lastLightUpdate > LIGHT_UPDATE_INTERVAL then
-        -- Get all lights
-        local lights = NikNaks.CurrentMap:FindByClass("light")
-        TableConcat(lights, NikNaks.CurrentMap:FindByClass("light_spot"))
-        TableConcat(lights, NikNaks.CurrentMap:FindByClass("light_environment"))
-        
-        -- Update the C++ light cache
-        EntityManager.UpdateLightCache(lights)
-        lastLightUpdate = currentTime
-    end
-
-    -- Get 4 random lights from our cached collection
-    local randomLights = EntityManager.GetRandomLights(4)
-    render.SetLocalModelLights(randomLights)
 end
 
 -- Material management
@@ -192,11 +162,6 @@ local function RTXLoad()
     local flashlightent = ents.CreateClientside("rtx_flashlight_ent")
     flashlightent:SetOwner(LocalPlayer())
     flashlightent:Spawn()
-
-    if cv_lightupdater:GetBool() then
-        local lightManager = ents.CreateClientside("rtx_lightupdatermanager_x64")
-        lightManager:Spawn()
-    end
 
     -- Initialize systems
     FixupEntities()
