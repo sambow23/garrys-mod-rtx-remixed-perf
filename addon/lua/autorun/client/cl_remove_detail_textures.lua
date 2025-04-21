@@ -48,6 +48,8 @@ local function ProcessMaterial(matName)
         return false 
     end
     
+    local modified = false
+    
     -- Check if this material has detail textures
     local detailTexture = mat:GetString("$detail")
     if detailTexture and detailTexture ~= "" then
@@ -56,14 +58,49 @@ local function ProcessMaterial(matName)
         
         -- Replace the detail texture with our error texture
         mat:SetTexture("$detail", replacementTexture)
+        modified = true
+    end
+    
+    -- Check for $envmapmask
+    local envmapmask = mat:GetString("$envmapmask")
+    if envmapmask and envmapmask ~= "" then
+        if runningFromCommand or debug_mode:GetBool() then
+        end
         
+        -- Replace the envmapmask with our error texture
+        mat:SetTexture("$envmapmask", replacementTexture)
+        modified = true
+    end
+    
+    -- Check for $envmap
+    local envmap = mat:GetString("$envmap")
+    if envmap and envmap ~= "" then
+        if runningFromCommand or debug_mode:GetBool() then
+        end
+        
+        -- Replace the envmap with our error texture
+        mat:SetTexture("$envmap", replacementTexture)
+        modified = true
+    end
+    
+    -- Check for $detailscale
+    local detailscale = mat:GetVector("$detailscale")
+    if detailscale then
+        if runningFromCommand or debug_mode:GetBool() then
+        end
+        
+        -- Set detailscale to [0 0 0]
+        mat:SetVector("$detailscale", Vector(0, 0, 0))
+        modified = true
+    end
+    
+    -- Update counters
+    materialsProcessed = materialsProcessed + 1
+    if modified then
         detailTexturesRemoved = detailTexturesRemoved + 1
-        materialsProcessed = materialsProcessed + 1
         modifiedMaterials[matName] = true
         return true
     else
-        -- Mark as processed even if it doesn't have a detail texture
-        materialsProcessed = materialsProcessed + 1
         modifiedMaterials[matName] = false
     end
     
