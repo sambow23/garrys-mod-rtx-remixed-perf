@@ -1,4 +1,4 @@
-"SpriteCard"
+"unlitgeneric"
 {
 	$basetexture "particle/fire_particle_8/fire_particle_8"
 	//$RAMPTEXTURE "particle/fireGradient"

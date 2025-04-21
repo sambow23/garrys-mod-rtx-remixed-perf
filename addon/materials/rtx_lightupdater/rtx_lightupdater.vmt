@@ -1,0 +1,6 @@
+"VertexlitGeneric"
+{
+	"$basetexture" "rtx_lightupdater/rtx_lightupdater"
+	"$surfaceprop" "metal"
+                "$model" 1
+}
