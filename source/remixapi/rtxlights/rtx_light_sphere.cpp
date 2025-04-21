@@ -1,3 +1,4 @@
+#ifdef _WIN64
 #include "rtx_light_sphere.h"
 #include <tier0/dbg.h>
 
@@ -140,3 +141,4 @@ namespace RTX {
     }
 
 } // namespace RTX
+#endif

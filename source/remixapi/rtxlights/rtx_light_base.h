@@ -1,3 +1,4 @@
+#ifdef _WIN64
 #pragma once
 #include <remix/remix_c.h>
 #include <remix/remix.h>
@@ -26,3 +27,4 @@ namespace RTX {
         virtual std::string GetTypeName() const = 0;
     };
 }
+#endif

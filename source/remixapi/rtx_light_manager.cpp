@@ -17,8 +17,10 @@ RTXLightManager& RTXLightManager::Instance() {
     return instance;
 }
 
-RTXLightManager::RTXLightManager() 
+RTXLightManager::RTXLightManager()
+#ifdef _WIN64
     : m_remix(nullptr)
+#endif
     , m_initialized(false)
     , m_isFrameActive(false) {
     InitializeCriticalSection(&m_lightCS);

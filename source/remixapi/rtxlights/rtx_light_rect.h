@@ -1,4 +1,4 @@
-// rtx_light_rect.h
+#ifdef _WIN64
 
 #pragma once
 #include "rtx_light_base.h"
@@ -53,3 +53,4 @@ namespace RTX {
         static uint64_t GenerateID();
     };
 }
+#endif

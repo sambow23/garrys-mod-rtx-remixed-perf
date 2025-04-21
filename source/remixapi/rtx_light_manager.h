@@ -1,18 +1,19 @@
+#ifdef _WIN64
 #pragma once
 #include <d3d9.h>
 #include <remix/remix.h>
 #include <remix/remix_c.h>
+#include "./rtxlights/rtx_light_base.h"
+#include "./rtxlights/rtx_light_sphere.h"
+#include "./rtxlights/rtx_light_rect.h"
+#include "./rtxlights/rtx_light_disk.h"
+#include "./rtxlights/rtx_light_distant.h"
 #include <vector>
 #include <queue>
 #include <unordered_map>
 #include <functional>
 #include <Windows.h>
 #include "GarrysMod/Lua/Interface.h"
-#include "./rtxlights/rtx_light_base.h"
-#include "./rtxlights/rtx_light_sphere.h"
-#include "./rtxlights/rtx_light_rect.h"
-#include "./rtxlights/rtx_light_disk.h"
-#include "./rtxlights/rtx_light_distant.h"
 
 class RTXLightManager {
 public:
@@ -42,6 +43,7 @@ public:
     void Initialize(remix::Interface* remixInterface);
     void Shutdown();
     void CleanupInvalidLights();
+
     static void InitializeLuaBindings(GarrysMod::Lua::ILuaBase* LUA);
 
 private:
@@ -85,3 +87,5 @@ private:
     RTXLightManager(const RTXLightManager&) = delete;
     RTXLightManager& operator=(const RTXLightManager&) = delete;
 };
+
+#endif

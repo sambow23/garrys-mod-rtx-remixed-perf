@@ -1,10 +1,9 @@
+#ifdef _WIN64
 #include "remixapi.h"
 #include <tier0/dbg.h>
 
 // External global variables
-#ifdef _WIN64
 extern remix::Interface* g_remix;
-#endif
 extern IDirect3DDevice9Ex* g_d3dDevice;
 IDirect3DDevice9Ex* g_d3dDevice = nullptr;
 
@@ -221,3 +220,4 @@ void RemixAPI::Initialize(GarrysMod::Lua::ILuaBase* LUA) {
     LUA->PushCFunction(SetIgnoreGameDirectionalLights);
     LUA->SetField(-2, "SetIgnoreGameDirectionalLights");
 }
+#endif
