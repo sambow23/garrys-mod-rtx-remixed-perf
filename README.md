@@ -55,5 +55,5 @@
 * Yosuke Nathan on the RTX Remix Showcase server for the gmod rtx logo
 * Everyone on the RTX Remix Showcase server
 * NVIDIA for RTX Remix
-* [BlueAmulet](https://github.com/BlueAmulet) for [SourceRTXTweaks](https://github.com/BlueAmulet/SourceRTXTweaks)  (We use this for game binary patching; Major thank you to BlueAmulet for their hard work)
+* [BlueAmulet](https://github.com/BlueAmulet) for [SourceRTXTweaks](https://github.com/BlueAmulet/SourceRTXTweaks)
 * [0xNULLderef](https://github.com/0xNULLderef) and [Wolƒe Strider Shoσter](https://github.com/wolfestridershooter) for additional x64 patches (culling and HDR map lighting)
