@@ -29,6 +29,8 @@
 
 * (Addon) [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860)
    - Consumes a lot of vram, most likely precaching
+* (Addon) [CS:GO Weapons](https://steamcommunity.com/sharedfiles/filedetails/?id=2193997180)
+   - Makes game freeze up on `Starting lua...` when loading into a map
 
 ## Known issues
 ### Vanilla
