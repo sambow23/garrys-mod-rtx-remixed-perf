@@ -12,10 +12,6 @@
     * Allows HL2 RTX mesh replacements to load correctly
 
 ## Installation
-> [!WARNING]  
-> It's recommended to use the 32-bit version of Garry's Mod instead of 64-bit due to unfinished engine patches and various other bugs.
-> 64-bit should only be used for addons that only work there or to test new features from this repo.
-
 1. Subscribe to [NikNaks](https://steamcommunity.com/sharedfiles/filedetails/?id=2861839844) on the Steam Workshop.
 2. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
 3. Put `RTXLauncher.exe` in an empty folder, run it as an Administrator.
