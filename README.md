@@ -14,9 +14,9 @@
 ## Installation
 1. Subscribe to [NikNaks](https://steamcommunity.com/sharedfiles/filedetails/?id=2861839844) on the Steam Workshop.
 2. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
-3. Put `RTXLauncher.exe` in an empty folder, run it as an Administrator.
+3. Put `RTXLauncher.exe` in an empty folder, run it as an **Administrator**.
 4. Select `Run Quick Install` on the main screen and follow the prompts when asked.
-5. Profit.
+5. Once it's finished, press `Launch Game` at the bottom of the launcher.
 
 ## Incompatible Addons
 * (Map) [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) (Breaks other shader-skybox maps)
