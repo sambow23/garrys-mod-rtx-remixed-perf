@@ -6,9 +6,9 @@ if not NikNaks then
     require("niknaks") 
 end
 
-local enable_addon = CreateConVar("dtexture_remover_enabled", "1", FCVAR_ARCHIVE, "Enable/disable the Detail Texture Remover addon")
-local apply_delay = CreateConVar("dtexture_remover_delay", "0", FCVAR_ARCHIVE, "Delay before initial removal (seconds)")
-local debug_mode = CreateConVar("dtexture_remover_debug", "0", FCVAR_ARCHIVE, "Enable debugging output")
+local enable_addon = CreateConVar("rtx_rdt_enabled", "1", FCVAR_ARCHIVE, "Enable/disable the Detail Texture Remover addon")
+local apply_delay = CreateConVar("rtx_rdt_delay", "0", FCVAR_ARCHIVE, "Delay before initial removal (seconds)")
+local debug_mode = CreateConVar("rtx_rdt_debug", "0", FCVAR_ARCHIVE, "Enable debugging output")
 
 -- The replacement texture - using the error texture
 local replacementTexture = "rtx/ignore"
@@ -340,7 +340,7 @@ local function StopContinuousChecking()
 end
 
 -- Function to handle when the enable cvar changes
-cvars.AddChangeCallback("dtexture_remover_enabled", function(_, _, new)
+cvars.AddChangeCallback("rtx_rdt_enabled", function(_, _, new)
     if new == "1" then
         StartContinuousChecking()
     else
@@ -384,7 +384,7 @@ hook.Add("ShutDown", "CleanupDetailTextureRemover", function()
 end)
 
 -- Add command to manually trigger detail texture removal
-concommand.Add("remove_detail_textures", function()
+concommand.Add("rtx_rdt_remove", function()
     local oldCount = detailTexturesRemoved
     RemoveDetailTextures(true, true)
     local newCount = detailTexturesRemoved - oldCount
