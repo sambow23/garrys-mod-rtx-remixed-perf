@@ -93,7 +93,7 @@ LUA_FUNCTION(SetRemixUIState) {
             return 1;
         }
 
-        if (!LUA->IsType(1, Type::NUMBER)) {
+        if (!LUA->IsType(1, GarrysMod::Lua::Type::Number)) {
             LUA->ThrowError("Expected number argument for UI state");
             return 0;
         }
@@ -181,7 +181,7 @@ LUA_FUNCTION(SetIgnoreGameDirectionalLights) {
             return 1;
         }
 
-        if (!LUA->IsType(1, Type::BOOL)) {
+        if (!LUA->IsType(1, GarrysMod::Lua::Type::Bool)) {
             LUA->ThrowError("Expected boolean argument for IgnoreGameDirectionalLights state");
             return 0;
         }
@@ -204,6 +204,37 @@ LUA_FUNCTION(SetIgnoreGameDirectionalLights) {
     }
 }
 
+LUA_FUNCTION(SetEnableRaytracing) {
+    try {
+        #ifdef _WIN64
+        if (!g_remix) {
+            LUA->PushBool(false);
+            return 1;
+        }
+
+        if (!LUA->IsType(1, GarrysMod::Lua::Type::Bool)) {
+            LUA->ThrowError("Expected boolean argument for EnableRaytracing state");
+            return 0;
+        }
+
+        bool shouldEnable = LUA->GetBool(1);
+        const char* value = shouldEnable ? "1" : "0";
+        
+        bool result = g_remix->SetConfigVariable("rtx.enableRaytracing", value);
+        
+        Msg("[RTX Remix Fixes 2 - Binary Module] Setting rtx.enableRaytracing to %s\n", value);
+        
+        LUA->PushBool(result);
+        #endif
+        return 1;
+    }
+    catch (...) {
+        Error("[RTX Remix Fixes 2 - Binary Module] Exception in SetEnableRaytracing\n");
+        LUA->PushBool(false);
+        return 1;
+    }
+}
+
 void RemixAPI::Initialize(GarrysMod::Lua::ILuaBase* LUA) {
     LUA->PushCFunction(GetRemixUIState);
     LUA->SetField(-2, "GetRemixUIState");
@@ -219,5 +250,8 @@ void RemixAPI::Initialize(GarrysMod::Lua::ILuaBase* LUA) {
 
     LUA->PushCFunction(SetIgnoreGameDirectionalLights);
     LUA->SetField(-2, "SetIgnoreGameDirectionalLights");
+
+    LUA->PushCFunction(SetEnableRaytracing);
+    LUA->SetField(-2, "SetEnableRaytracing");
 }
 #endif
