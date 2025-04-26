@@ -107,8 +107,8 @@ local function ProcessMaterial(matName)
     return false
 end
 
--- Function to process materials from BSP faces
-local function ProcessBSPMaterials()
+-- Function to process materials from BSP faces - basic version for continuous checking
+local function ProcessBSPMaterialsBasic()
     -- Skip if NikNaks is not available or current map isn't loaded
     if not NikNaks or not NikNaks.CurrentMap then
         if runningFromCommand then
@@ -135,12 +135,67 @@ local function ProcessBSPMaterials()
         end
     end
     
-    -- Process static props for more materials
+    -- Simple processing for static props
     for _, prop in pairs(bsp:GetStaticProps()) do
         local modelPath = prop:GetModel()
         if modelPath then
-            -- Use NikNaks model processing functions
             ProcessMaterial(modelPath)
+        end
+    end
+end
+
+-- Function to process materials from BSP faces - thorough version for initial scan
+local function ProcessBSPMaterialsThorough()
+    -- Skip if NikNaks is not available or current map isn't loaded
+    if not NikNaks or not NikNaks.CurrentMap then
+        if runningFromCommand then
+            error("NikNaks or CurrentMap not available - cannot process BSP materials")
+        end
+        return
+    end
+    
+    -- Get the current map
+    local bsp = NikNaks.CurrentMap
+    
+    -- Process textures from map
+    for _, texture in ipairs(bsp:GetTextures()) do
+        if texture then
+            ProcessMaterial(texture)
+        end
+    end
+    
+    -- Process faces to get additional materials
+    for _, face in pairs(bsp:GetFaces()) do
+        local texture = face:GetTexture()
+        if texture then
+            ProcessMaterial(texture)
+        end
+    end
+    
+    -- Thorough processing for static props
+    for _, prop in pairs(bsp:GetStaticProps()) do
+        local modelPath = prop:GetModel()
+        if modelPath then
+            -- Get the model path
+            local fullModelPath = prop.PropType
+            
+            -- Process the model itself
+            ProcessMaterial(fullModelPath)
+            
+            -- Now get and process all materials associated with this model using NikNaks
+            if NikNaks.ModelMaterials then
+                local materials = NikNaks.ModelMaterials(fullModelPath)
+                if materials then
+                    for _, mat in ipairs(materials) do
+                        if mat and not mat:IsError() then
+                            local matName = mat:GetName()
+                            if matName and matName ~= "" then
+                                ProcessMaterial(matName)
+                            end
+                        end
+                    end
+                end
+            end
         end
     end
 end
@@ -149,25 +204,25 @@ end
 local function ProcessLoadedEntities()
     -- Process entities in the world
     for _, ent in ipairs(ents.GetAll()) do
-        if not IsValid(ent) then continue end
-        
-        -- Process entity's materials
-        if ent:GetMaterials() then
-            for _, matName in ipairs(ent:GetMaterials()) do
-                ProcessMaterial(matName)
+        if IsValid(ent) then
+            -- Process entity's materials
+            if ent:GetMaterials() then
+                for _, matName in ipairs(ent:GetMaterials()) do
+                    ProcessMaterial(matName)
+                end
             end
-        end
-        
-        -- Process model
-        local modelName = ent:GetModel()
-        if modelName then
-            ProcessMaterial(modelName)
+
+            -- Process model
+            local modelName = ent:GetModel()
+            if modelName then
+                ProcessMaterial(modelName)
+            end
         end
     end
 end
 
 -- Main function to remove detail textures - can be called repeatedly
-local function RemoveDetailTextures(showOutput)
+local function RemoveDetailTextures(showOutput, useThorough)
     if not enable_addon:GetBool() then return 0 end
     
     -- Save previous counts to calculate new replacements
@@ -179,11 +234,16 @@ local function RemoveDetailTextures(showOutput)
     
     local startTime = SysTime()
     if runningFromCommand or debug_mode:GetBool() then
+        DebugPrint("Starting detail texture removal...")
     end
     
-    -- Process BSP materials
+    -- Process BSP materials - using appropriate method
     if NikNaks and NikNaks.CurrentMap then
-        ProcessBSPMaterials()
+        if useThorough then
+            ProcessBSPMaterialsThorough()
+        else
+            ProcessBSPMaterialsBasic()
+        end
     else
         if runningFromCommand then
             error("NikNaks or CurrentMap not available - cannot process detail textures")
@@ -207,21 +267,69 @@ local function RemoveDetailTextures(showOutput)
     -- Only report when new textures are found or when explicitly requested
     if newRemoved > 0 then
         if showOutput or debug_mode:GetBool() then
+            DebugPrint("Removed " .. newRemoved .. " detail textures in " .. processingTime .. "ms")
         end
     elseif showOutput then
+        DebugPrint("No new detail textures found. Checked " .. newProcessed .. " materials in " .. processingTime .. "ms")
     end
     
     return newRemoved
 end
 
--- Start the continuous checking timer
+-- Function to force reapply to already processed materials
+local function ForceReapply()
+    local count = 0
+    -- Go through all materials we've already identified
+    for matName, hadDetail in pairs(modifiedMaterials) do
+        if hadDetail then
+            local mat = Material(matName)
+            if mat and not mat:IsError() then
+                -- Reapply our replacements
+                mat:SetTexture("$detail", replacementTexture)
+                
+                -- Check for $envmapmask
+                local envmapmask = mat:GetString("$envmapmask")
+                if envmapmask and envmapmask ~= "" then
+                    mat:SetTexture("$envmapmask", replacementTexture)
+                end
+                
+                -- Check for $envmap
+                local envmap = mat:GetString("$envmap")
+                if envmap and envmap ~= "" then
+                    mat:SetTexture("$envmap", replacementTexture)
+                end
+                
+                -- Check for $detailscale
+                local detailscale = mat:GetVector("$detailscale")
+                if detailscale then
+                    mat:SetVector("$detailscale", Vector(0, 0, 0))
+                end
+                
+                count = count + 1
+            end
+        end
+    end
+    
+    return count
+end
+
+-- Add command to force reapply texture replacements
+concommand.Add("force_reapply_dtexture", function()
+    local count = ForceReapply()
+    print("Force reapplied texture replacements to " .. count .. " materials")
+    notification.AddLegacy("Reapplied replacements to " .. count .. " materials", NOTIFY_GENERIC, 3)
+end)
+
+-- Modify the continuous checking timer to use the basic method
 local function StartContinuousChecking()
     if timer.Exists(TIMER_NAME) then 
         timer.Remove(TIMER_NAME)
     end
     
-    -- Create a timer that runs every 2 seconds
-    timer.Create(TIMER_NAME, 2, 0, function() RemoveDetailTextures(false) end)
+    -- Create a timer that runs every 2 seconds using the basic method
+    timer.Create(TIMER_NAME, 2, 0, function() 
+        RemoveDetailTextures(false, false) -- Use basic method
+    end)
 end
 
 -- Stop the continuous checking
@@ -253,13 +361,13 @@ hook.Add("InitPostEntity", "RemoveDetailTexturesOnMapLoad", function()
                         error("[RTX Remix Fixes 2 - RDT] NikNaks or CurrentMap not available after waiting")
                         return
                     end
-                    local found = RemoveDetailTextures(true)
+                    local found = RemoveDetailTextures(true, true) -- Use thorough method for initial scan
                     StartContinuousChecking()
                 end)
                 return
             end
             
-            local found = RemoveDetailTextures(true)
+            local found = RemoveDetailTextures(true, true) -- Use thorough method for initial scan
             
             -- Start continuous checking after initial scan
             StartContinuousChecking()
@@ -278,10 +386,9 @@ end)
 -- Add command to manually trigger detail texture removal
 concommand.Add("remove_detail_textures", function()
     local oldCount = detailTexturesRemoved
-    RemoveDetailTextures(true) -- Force showing output when using command
+    RemoveDetailTextures(true, true)
     local newCount = detailTexturesRemoved - oldCount
     
-    -- Don't need to duplicate the console output here since RemoveDetailTextures() will already output with showOutput=true
     notification.AddLegacy("Replaced " .. newCount .. " new detail textures", NOTIFY_GENERIC, 3)
 end)
 
