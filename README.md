@@ -12,15 +12,11 @@
     * Allows HL2 RTX mesh replacements to load correctly
 
 ## Installation
-> [!WARNING]  
-> It's recommended to use the 32-bit version of Garry's Mod instead of 64-bit due to unfinished engine patches and various other bugs.
-> 64-bit should only be used for addons that only work there or to test new features from this repo.
-
 1. Subscribe to [NikNaks](https://steamcommunity.com/sharedfiles/filedetails/?id=2861839844) on the Steam Workshop.
 2. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
-3. Put `RTXLauncher.exe` in an empty folder, run it as an Administrator.
+3. Put `RTXLauncher.exe` in an empty folder, run it as an **Administrator**.
 4. Select `Run Quick Install` on the main screen and follow the prompts when asked.
-5. Profit.
+5. Once it's finished, press `Launch Game` at the bottom of the launcher.
 
 ## Incompatible Addons
 * (Map) [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) (Breaks other shader-skybox maps)
@@ -33,6 +29,8 @@
 
 * (Addon) [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860)
    - Consumes a lot of vram, most likely precaching
+* (Addon) [CS:GO Weapons](https://steamcommunity.com/sharedfiles/filedetails/?id=2193997180)
+   - Makes game freeze up on `Starting lua...` when loading into a map
 
 ## Known issues
 ### Vanilla
