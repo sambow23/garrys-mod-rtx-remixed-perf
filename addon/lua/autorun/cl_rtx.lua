@@ -203,3 +203,100 @@ concommand.Add("rtx_fixmaterials_fixnow", MaterialFixups)
 concommand.Add("rtx_force_no_fullbright", function()
     render.SetLightingMode(0)
 end)
+
+-- Toggle RT -- 
+local isRaytracingDisabledBySpawnmenu = false
+local spawnIconTimerName = "RTXFixes_ReenableRaytracingTimer"
+
+-- Hook into SpawniconGenerated: Disable RT while icons are generating
+hook.Add("SpawniconGenerated", "RTXFixes_HandleSpawniconGenerated", function(lastmodel, imagename, modelsleft)
+    print(string.format("[RTX Remix Fixes 2] SpawniconGenerated hook called. Models left: %s, isRaytracingDisabledBySpawnmenu = %s", tostring(modelsleft), tostring(isRaytracingDisabledBySpawnmenu)))
+    
+    -- First, always cancel any pending timers to re-enable RT
+    if timer.Exists(spawnIconTimerName) then
+        timer.Remove(spawnIconTimerName)
+        print("[RTX Remix Fixes 2] Cancelled timer to re-enable RT (new icons are being generated)")
+    end
+
+    -- Disable RT if it hasn't already been disabled by us
+    if not isRaytracingDisabledBySpawnmenu then
+        print("[RTX Remix Fixes 2] SpawniconGenerated hook: Disabling RT for icon generation...")
+        local success, err = pcall(SetEnableRaytracing, false)
+        if success then
+            print("[RTX Remix Fixes 2] SpawniconGenerated hook: SetEnableRaytracing(false) call succeeded.")
+            isRaytracingDisabledBySpawnmenu = true
+        else
+            print("[RTX Remix Fixes 2] SpawniconGenerated hook: Warning: Failed to disable raytracing. Error: " .. tostring(err))
+        end
+    end
+
+    -- Start a timer to re-enable RT after a delay (similar to how the progress UI works)
+    -- This will get constantly reset as long as icons are being generated
+    timer.Create(spawnIconTimerName, 3, 1, function()
+        if isRaytracingDisabledBySpawnmenu then
+            print("[RTX Remix Fixes 2] Timer: Re-enabling RT after icon generation completed...")
+            local success, err = pcall(SetEnableRaytracing, true)
+            if success then
+                print("[RTX Remix Fixes 2] Timer: SetEnableRaytracing(true) call succeeded.")
+                isRaytracingDisabledBySpawnmenu = false
+            else
+                print("[RTX Remix Fixes 2] Timer: Warning: Failed to re-enable raytracing. Error: " .. tostring(err))
+                -- Even if the call fails, reset the flag
+                isRaytracingDisabledBySpawnmenu = false
+            end
+        else
+            print("[RTX Remix Fixes 2] Timer: Skipped enabling RT (was not disabled by us).")
+        end
+    end)
+end)
+
+hook.Remove("FinishToolMode", "RTXFixes_EnableRTOnFinishToolMode")
+
+print("[RTX Remix Fixes 2] Spawnicon RT toggle hooks initialized (Using SpawniconGenerated + timer).")
+
+-- Test Toggle Command --
+local currentRaytracingState = true -- Assume it starts enabled (default)
+
+local function ToggleRaytracingCommand()
+    currentRaytracingState = not currentRaytracingState -- Flip the state
+    print("[RTX Remix Fixes 2] Toggling raytracing via command. Setting enabled to: " .. tostring(currentRaytracingState))
+    local success, err = pcall(SetEnableRaytracing, currentRaytracingState) -- Call directly using pcall
+    if success then
+        print("[RTX Remix Fixes 2] Successfully called SetEnableRaytracing.")
+    else
+        print("[RTX Remix Fixes 2] Warning: Failed to toggle raytracing via command. Error: " .. tostring(err))
+        -- Flip state back if the call failed, so the next toggle attempt is correct
+        currentRaytracingState = not currentRaytracingState
+    end
+end
+concommand.Add("rtx_toggle_raytracing", ToggleRaytracingCommand)
+print("[RTX Remix Fixes 2] Added console command: rtx_toggle_raytracing")
+
+-- HUD notification for RT disabled state
+hook.Add("HUDPaint", "RTXFixes_RTDisabledNotification", function()
+    if isRaytracingDisabledBySpawnmenu then
+        -- Get screen dimensions
+        local scrW, scrH = ScrW(), ScrH()
+        
+        -- Set up font and text
+        local message = "RT Disabled (Building Spawnicons)"
+        local font = "DermaLarge" -- Large built-in font
+        surface.SetFont(font)
+        local textW, textH = surface.GetTextSize(message)
+        
+        -- Position: upper right corner with some padding
+        local padding = 20
+        local x = scrW - textW - padding
+        local y = padding
+        
+        -- Draw background
+        local bgPadding = 10
+        surface.SetDrawColor(0, 0, 0, 200) -- Semi-transparent black
+        surface.DrawRect(x - bgPadding, y - bgPadding, textW + (bgPadding * 2), textH + (bgPadding * 2))
+        
+        -- Draw text
+        surface.SetTextColor(255, 100, 100, 255) -- Red text
+        surface.SetTextPos(x, y)
+        surface.DrawText(message)
+    end
+end)
