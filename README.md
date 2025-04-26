@@ -40,6 +40,7 @@
 - Some particles will not render (need to change each material from $SpriteCard to $UnlitGeneric to fix)
 - Some maps will be rasterized and have vertex explosions.
 - Some map lights will cull even with Lightupdaters active (investigating)
+- Enabling `r_3dsky` causes rendering issues
 
 ### Addons
 - High vram usage from addons like ARC9 or TFA as they precache textures on map load
