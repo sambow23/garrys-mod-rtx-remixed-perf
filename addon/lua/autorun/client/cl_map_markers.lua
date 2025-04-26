@@ -1,5 +1,5 @@
 -- Map Marker Marker System
--- Creates unique meshes for external Map Marker integration
+-- Creates unique meshes for anchoring remix assets
 
 AddCSLuaFile()
 
