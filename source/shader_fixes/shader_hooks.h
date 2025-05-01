@@ -21,17 +21,17 @@ public:
     void RegisterKnownCrashAddress(void* address);
     void TestExceptionHandler() {
     // Deliberately cause an access violation to test the handler
-    Msg("[RTX Remix Fixes 2 - Shader Fixes] Testing exception handler with deliberate access violation...\n");
+    Msg("[RTXF2 - Shader Fixes] Testing exception handler with deliberate access violation...\n");
     
     __try {
         void* nullPtr = nullptr;
         *reinterpret_cast<int*>(nullPtr) = 1;  // This will cause an access violation
     }
     __except(EXCEPTION_EXECUTE_HANDLER) {
-        Msg("[RTX Remix Fixes 2 - Shader Fixes] SEH caught the test exception as expected\n");
+        Msg("[RTXF2 - Shader Fixes] SEH caught the test exception as expected\n");
     }
     
-    Msg("[RTX Remix Fixes 2 - Shader Fixes] If you see this, the VEH might not be working properly\n");
+    Msg("[RTXF2 - Shader Fixes] If you see this, the VEH might not be working properly\n");
 }
 
 private:

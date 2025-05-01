@@ -230,24 +230,24 @@ void HardwareSkinningHooks::Initialize() {
 
         // get g_pHardwareConfig global interface (MATERIALSYSTEM_HARDWARECONFIG_INTERFACE_VERSION)
 #ifdef _WIN32
-		Msg("[RTX Remix Fixes 2 - Binary Module] - Loading materialsystem\n");
+		Msg("[RTXF2 - Binary Module] - Loading materialsystem\n");
         HMODULE materialsystemLib = LoadLibraryA("materialsystem.dll");
         if (!materialsystemLib) {
-            Warning("[RTX Remix Fixes 2] - Failed to load materialsystem.dll: error code %d\n", GetLastError());
+            Warning("[RTXF2] - Failed to load materialsystem.dll: error code %d\n", GetLastError());
             return;
         }
 
         using CreateInterfaceFn = void* (*)(const char* pName, int* pReturnCode);
         CreateInterfaceFn createInterface = (CreateInterfaceFn)GetProcAddress(materialsystemLib, "CreateInterface");
         if (!createInterface) {
-            Warning("[RTX Remix Fixes 2] - Could not get CreateInterface from materialsystem.dll\n");
+            Warning("[RTXF2] - Could not get CreateInterface from materialsystem.dll\n");
             return;
         }
         g_pHardwareConfig = (IMaterialSystemHardwareConfig*)createInterface(MATERIALSYSTEM_HARDWARECONFIG_INTERFACE_VERSION, nullptr);
 
         createInterface = (CreateInterfaceFn)GetProcAddress(shaderapidx9dll, "CreateInterface");
         if (!createInterface) {
-            Warning("[RTX Remix Fixes 2] - Could not get CreateInterface from shaderapidx9.dll\n");
+            Warning("[RTXF2] - Could not get CreateInterface from shaderapidx9.dll\n");
             return;
         }
         //**(IDirect3DDevice9***)(((DWORD_PTR**)CreateInterface("ShaderDevice001", NULL))[0][5] + 2);

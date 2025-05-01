@@ -27,7 +27,7 @@ void RemixAPI::ClearRemixResources() {
 // Lua function implementations
 LUA_FUNCTION(ClearRTXResources_Native) {
     try {
-        Msg("[RTX Remix Fixes 2 - Binary Module] Clearing RTX resources...\n");
+        Msg("[RTXF2 - Binary Module] Clearing RTX resources...\n");
 
 #ifdef _WIN64
         if (g_remix) {
@@ -50,7 +50,7 @@ LUA_FUNCTION(ClearRTXResources_Native) {
         LUA->PushBool(true);
         return 1;
     } catch (...) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Exception in ClearRTXResources\n");
+        Error("[RTXF2 - Binary Module] Exception in ClearRTXResources\n");
         LUA->PushBool(false);
         return 1;
     }
@@ -79,7 +79,7 @@ LUA_FUNCTION(GetRemixUIState) {
         return 1;
     }
     catch (...) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Exception in GetRemixUIState\n");
+        Error("[RTXF2 - Binary Module] Exception in GetRemixUIState\n");
         LUA->PushNumber(0);
         return 1;
     }
@@ -109,7 +109,7 @@ LUA_FUNCTION(SetRemixUIState) {
         return 1;
     }
     catch (...) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Exception in SetRemixUIState\n");
+        Error("[RTXF2 - Binary Module] Exception in SetRemixUIState\n");
         LUA->PushBool(false);
         return 1;
     }
@@ -118,33 +118,33 @@ LUA_FUNCTION(SetRemixUIState) {
 LUA_FUNCTION(PrintRemixUIState) {
     try {
 #ifdef _WIN64
-        Msg("[RTX Remix Fixes 2 - Binary Module] Checking Remix UI state...\n");
+        Msg("[RTXF2 - Binary Module] Checking Remix UI state...\n");
         
         if (!g_remix) {
-            Msg("[RTX Remix Fixes 2 - Binary Module] Error: g_remix is NULL (Remix API not initialized)\n");
+            Msg("[RTXF2 - Binary Module] Error: g_remix is NULL (Remix API not initialized)\n");
             return 0;
         }
         
-        Msg("[RTX Remix Fixes 2 - Binary Module] g_remix is valid, checking GetUIState function...\n");
+        Msg("[RTXF2 - Binary Module] g_remix is valid, checking GetUIState function...\n");
         
         // Check if the function exists in the interface
         if (!g_remix->m_CInterface.GetUIState) {
-            Msg("[RTX Remix Fixes 2 - Binary Module] Error: GetUIState function is not available in the Remix API\n");
-            Msg("[RTX Remix Fixes 2 - Binary Module] This may indicate you're using an older version of Remix that doesn't support this feature\n");
+            Msg("[RTXF2 - Binary Module] Error: GetUIState function is not available in the Remix API\n");
+            Msg("[RTXF2 - Binary Module] This may indicate you're using an older version of Remix that doesn't support this feature\n");
             return 0;
         }
         
-        Msg("[RTX Remix Fixes 2 - Binary Module] GetUIState function exists, calling it...\n");
+        Msg("[RTXF2 - Binary Module] GetUIState function exists, calling it...\n");
         
         // Try to call the function directly
         remixapi_UIState rawState = g_remix->m_CInterface.GetUIState();
-        Msg("[RTX Remix Fixes 2 - Binary Module] Raw UI state value: %d\n", rawState);
+        Msg("[RTXF2 - Binary Module] Raw UI state value: %d\n", rawState);
         
         // Now try to get it through the wrapper
         auto result = g_remix->GetUIState();
         if (!result) {
-            Msg("[RTX Remix Fixes 2 - Binary Module] Error: GetUIState wrapper returned failure\n");
-            Msg("[RTX Remix Fixes 2 - Binary Module] Error code: %d\n", result.status());
+            Msg("[RTXF2 - Binary Module] Error: GetUIState wrapper returned failure\n");
+            Msg("[RTXF2 - Binary Module] Error code: %d\n", result.status());
             return 0;
         }
 
@@ -163,12 +163,12 @@ LUA_FUNCTION(PrintRemixUIState) {
                 break;
         }
         
-        Msg("[RTX Remix Fixes 2 - Binary Module] Current UI state: %d (%s)\n", state, stateStr);
+        Msg("[RTXF2 - Binary Module] Current UI state: %d (%s)\n", state, stateStr);
 #endif
         return 0;
     }
     catch (...) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Exception in PrintRemixUIState\n");
+        Error("[RTXF2 - Binary Module] Exception in PrintRemixUIState\n");
         return 0;
     }
 }
@@ -191,14 +191,14 @@ LUA_FUNCTION(SetIgnoreGameDirectionalLights) {
         
         bool result = g_remix->SetConfigVariable("rtx.ignoreGameDirectionalLights", value);
         
-        Msg("[RTX Remix Fixes 2 - Binary Module] Setting rtx.ignoreGameDirectionalLights to %s\n", value);
+        Msg("[RTXF2 - Binary Module] Setting rtx.ignoreGameDirectionalLights to %s\n", value);
         
         LUA->PushBool(result);
         #endif
         return 1;
     }
     catch (...) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Exception in SetIgnoreGameDirectionalLights\n");
+        Error("[RTXF2 - Binary Module] Exception in SetIgnoreGameDirectionalLights\n");
         LUA->PushBool(false);
         return 1;
     }
@@ -222,14 +222,14 @@ LUA_FUNCTION(SetEnableRaytracing) {
         
         bool result = g_remix->SetConfigVariable("rtx.enableRaytracing", value);
         
-        Msg("[RTX Remix Fixes 2 - Binary Module] Setting rtx.enableRaytracing to %s\n", value);
+        Msg("[RTXF2 - Binary Module] Setting rtx.enableRaytracing to %s\n", value);
         
         LUA->PushBool(result);
         #endif
         return 1;
     }
     catch (...) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Exception in SetEnableRaytracing\n");
+        Error("[RTXF2 - Binary Module] Exception in SetEnableRaytracing\n");
         LUA->PushBool(false);
         return 1;
     }

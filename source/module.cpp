@@ -73,23 +73,23 @@ __declspec(selectany) PfnDliHook __pfnDliNotifyHook2 = MyDelayLoadHook;
 void* FindD3D9Device() {
     auto shaderapidx = GetModuleHandle("shaderapidx9.dll");
     if (!shaderapidx) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Failed to get shaderapidx9.dll module\n");
+        Error("[RTXF2 - Binary Module] Failed to get shaderapidx9.dll module\n");
         return nullptr;
     }
 
-    Msg("[RTX Remix Fixes 2 - Binary Module] shaderapidx9.dll module: %p\n", shaderapidx);
+    Msg("[RTXF2 - Binary Module] shaderapidx9.dll module: %p\n", shaderapidx);
 
     static const char sign[] = "BA E1 0D 74 5E 48 89 1D ?? ?? ?? ??";
     auto ptr = ScanSign(shaderapidx, sign, sizeof(sign) - 1);
     if (!ptr) { 
-        Error("[RTX Remix Fixes 2 - Binary Module] Failed to find D3D9Device signature\n");
+        Error("[RTXF2 - Binary Module] Failed to find D3D9Device signature\n");
         return nullptr;
     }
 
     auto offset = ((uint32_t*)ptr)[2];
     auto device = *(IDirect3DDevice9Ex**)((char*)ptr + offset + 12);
     if (!device) {
-        Error("[RTX Remix Fixes 2 - Binary Module] D3D9Device pointer is null\n");
+        Error("[RTXF2 - Binary Module] D3D9Device pointer is null\n");
         return nullptr;
     }
 
@@ -99,14 +99,14 @@ void* FindD3D9Device() {
 
 GMOD_MODULE_OPEN() { 
     try {
-        Msg("[RTX Remix Fixes 2 - Binary Module] - Module loaded!\n"); 
+        Msg("[RTXF2 - Binary Module] - Module loaded!\n"); 
 
         // Remix initialization is only available in 64-bit builds for now
 #ifdef _WIN64
         // Find Source's D3D9 device
         auto sourceDevice = static_cast<IDirect3DDevice9Ex*>(FindD3D9Device());
         if (!sourceDevice) {
-            LUA->ThrowError("[RTX Remix Fixes 2 - Binary Module] Failed to find D3D9 device");
+            LUA->ThrowError("[RTXF2 - Binary Module] Failed to find D3D9 device");
             return 0;
         }
 
@@ -115,7 +115,7 @@ GMOD_MODULE_OPEN() {
             g_remix = new remix::Interface{ *interf };
         }
         else {
-            LUA->ThrowError("[RTX Remix Fixes 2 - Binary Module] - remix::loadRemixDllAndInitialize() failed"); 
+            LUA->ThrowError("[RTXF2 - Binary Module] - remix::loadRemixDllAndInitialize() failed"); 
         }
 
         g_remix->dxvk_RegisterD3D9Device(sourceDevice);
@@ -135,7 +135,7 @@ GMOD_MODULE_OPEN() {
         if (g_remix) {
             g_remix->SetConfigVariable("rtx.enableAdvancedMode", "1");
             g_remix->SetConfigVariable("rtx.fallbackLightMode", "0");
-            Msg("[RTX Remix Fixes 2 - Binary Module] Remix configuration set\n");
+            Msg("[RTXF2 - Binary Module] Remix configuration set\n");
         }
 #endif //_WIN64
 
@@ -160,14 +160,14 @@ GMOD_MODULE_OPEN() {
         return 0;
     }
     catch (...) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Exception in module initialization\n");
+        Error("[RTXF2 - Binary Module] Exception in module initialization\n");
         return 0;
     }
 }
 
 GMOD_MODULE_CLOSE() {
     try {
-        Msg("[RTX Remix Fixes 2 - Binary Module] Shutting down module...\n");
+        Msg("[RTXF2 - Binary Module] Shutting down module...\n");
 
 #ifdef _WIN64
         RTXLightManager::Instance().Shutdown();
@@ -187,11 +187,11 @@ GMOD_MODULE_CLOSE() {
         }
 #endif
 
-        Msg("[RTX Remix Fixes 2 - Binary Module] Module shutdown complete\n");
+        Msg("[RTXF2 - Binary Module] Module shutdown complete\n");
         return 0;
     }
     catch (...) {
-        Error("[RTX Remix Fixes 2 - Binary Module] Exception in module shutdown\n");
+        Error("[RTXF2 - Binary Module] Exception in module shutdown\n");
         return 0;
     }
 }

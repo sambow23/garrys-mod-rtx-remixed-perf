@@ -106,7 +106,7 @@ std::vector<void*> ShaderAPIHooks::FindPatternAddresses(HMODULE module, const ch
 void ShaderAPIHooks::TrackProblematicAddress(void* address) {
     uintptr_t addr = reinterpret_cast<uintptr_t>(address);
     s_problematicAddresses.insert(addr);
-    Msg("[RTX Remix Fixes 2 - Shader Fixes] Added problematic address: %p\n", address);
+    Msg("[RTXF2 - Shader Fixes] Added problematic address: %p\n", address);
 }
 
 void ShaderAPIHooks::RegisterKnownCrashAddress(void* address) {
@@ -129,11 +129,11 @@ void ShaderAPIHooks::Initialize() {
                     (LPCTSTR)crashAddress, &hModule)) {
                     char moduleName[MAX_PATH];
                     GetModuleFileNameA(hModule, moduleName, sizeof(moduleName));
-                    Warning("[RTX Remix Fixes 2 - Shader Fixes] Division by zero in module: %s\n", moduleName);
+                    Warning("[RTXF2 - Shader Fixes] Division by zero in module: %s\n", moduleName);
                 }
 
                 // Log crash details
-                Warning("[RTX Remix Fixes 2 - Shader Fixes] Division crash details:\n");
+                Warning("[RTXF2 - Shader Fixes] Division crash details:\n");
                 Warning("  Address: %p\n", crashAddress);
                 Warning("  Thread ID: %u\n", GetCurrentThreadId());
                 
@@ -161,10 +161,10 @@ void ShaderAPIHooks::Initialize() {
             // Handle division by zero
             if (exceptionInfo->ExceptionRecord->ExceptionCode == EXCEPTION_INT_DIVIDE_BY_ZERO) {
                 void* crashAddress = exceptionInfo->ExceptionRecord->ExceptionAddress;
-                Warning("[RTX Remix Fixes 2 - Shader Fixes] Caught division by zero at %p\n", crashAddress);
+                Warning("[RTXF2 - Shader Fixes] Caught division by zero at %p\n", crashAddress);
                 
                 // Log register state
-                Warning("[RTX Remix Fixes 2 - Shader Fixes] Register state:\n");
+                Warning("[RTXF2 - Shader Fixes] Register state:\n");
                 Warning("  RAX: %016llX\n", exceptionInfo->ContextRecord->Rax);
                 Warning("  RCX: %016llX\n", exceptionInfo->ContextRecord->Rcx);
                 Warning("  RDX: %016llX\n", exceptionInfo->ContextRecord->Rdx);
@@ -198,7 +198,7 @@ void ShaderAPIHooks::Initialize() {
                     if (IsValidPointer(bytes, 3) && 
                         bytes[0] == 0x48 && bytes[1] == 0x8B && bytes[2] == 0x01) {
                         
-                        Warning("[RTX Remix Fixes 2 - Shader Fixes] Detected 'mov rax,[rcx]' instruction at crash address %p\n", 
+                        Warning("[RTXF2 - Shader Fixes] Detected 'mov rax,[rcx]' instruction at crash address %p\n", 
                             crashAddress);
                         isKnown = true;
                         
@@ -208,8 +208,8 @@ void ShaderAPIHooks::Initialize() {
                 }
                 
                 if (isKnown) {
-                    Warning("[RTX Remix Fixes 2 - Shader Fixes] Handling known access violation at %p\n", crashAddress);
-                    Warning("[RTX Remix Fixes 2 - Shader Fixes] RCX=%016llX is invalid\n", exceptionInfo->ContextRecord->Rcx);
+                    Warning("[RTXF2 - Shader Fixes] Handling known access violation at %p\n", crashAddress);
+                    Warning("[RTXF2 - Shader Fixes] RCX=%016llX is invalid\n", exceptionInfo->ContextRecord->Rcx);
                     
                     // Fix RCX and RAX to avoid future problems
                     exceptionInfo->ContextRecord->Rax = 0;
@@ -221,13 +221,13 @@ void ShaderAPIHooks::Initialize() {
                 }
                 
                 // Unknown access violation - log details
-                Warning("[RTX Remix Fixes 2 - Shader Fixes] Unhandled access violation at %p\n", crashAddress);
-                Warning("[RTX Remix Fixes 2 - Shader Fixes] Type: %s, Address: %p\n", 
+                Warning("[RTXF2 - Shader Fixes] Unhandled access violation at %p\n", crashAddress);
+                Warning("[RTXF2 - Shader Fixes] Type: %s, Address: %p\n", 
                     exceptionInfo->ExceptionRecord->ExceptionInformation[0] ? "Write" : "Read",
                     (void*)exceptionInfo->ExceptionRecord->ExceptionInformation[1]);
                 
                 // Dump register state
-                Warning("[RTX Remix Fixes 2 - Shader Fixes] Register state:\n");
+                Warning("[RTXF2 - Shader Fixes] Register state:\n");
                 Warning("  RAX: %016llX\n", exceptionInfo->ContextRecord->Rax);
                 Warning("  RCX: %016llX\n", exceptionInfo->ContextRecord->Rcx);
                 Warning("  RDX: %016llX\n", exceptionInfo->ContextRecord->Rdx);
@@ -250,16 +250,16 @@ void ShaderAPIHooks::Initialize() {
         // Get shaderapidx9.dll module
         HMODULE shaderapidx9 = GetModuleHandle("shaderapidx9.dll");
         if (shaderapidx9) {
-            Msg("[RTX Remix Fixes 2 - Shader Fixes] Scanning for known crash patterns in shaderapidx9.dll\n");
+            Msg("[RTXF2 - Shader Fixes] Scanning for known crash patterns in shaderapidx9.dll\n");
             
             // Scan for each pattern
             for (const auto& pattern : s_crashPatterns) {
                 auto matches = FindPatternAddresses(shaderapidx9, pattern.signature.c_str());
                 
-                Msg("[RTX Remix Fixes 2 - Shader Fixes] Found %zu matches for pattern: %s\n", 
+                Msg("[RTXF2 - Shader Fixes] Found %zu matches for pattern: %s\n", 
                     matches.size(), pattern.name.c_str());
 
-                Msg("[RTX Remix Fixes 2 - Shader Fixes] Found %zu problematic addresses\n", s_problematicAddresses.size());
+                Msg("[RTXF2 - Shader Fixes] Found %zu problematic addresses\n", s_problematicAddresses.size());
                 for (uintptr_t addr : s_problematicAddresses) {
                     Msg("  - %p\n", reinterpret_cast<void*>(addr));
                     
@@ -284,12 +284,12 @@ void ShaderAPIHooks::Initialize() {
                     TrackProblematicAddress(crashAddr);
                     
                     // Print the address we're protecting
-                    Msg("[RTX Remix Fixes 2 - Shader Fixes] Protected address: %p (pattern: %s)\n", 
+                    Msg("[RTXF2 - Shader Fixes] Protected address: %p (pattern: %s)\n", 
                         crashAddr, pattern.name.c_str());
                     
                     // Dump bytes around for verification
                     BYTE* bytes = reinterpret_cast<BYTE*>(crashAddr);
-                    Msg("[RTX Remix Fixes 2 - Shader Fixes] Bytes at %p: ", crashAddr);
+                    Msg("[RTXF2 - Shader Fixes] Bytes at %p: ", crashAddr);
                     for (int i = -4; i < 8; i++) {
                         Msg("%02X ", bytes[i]);
                     }
@@ -298,13 +298,13 @@ void ShaderAPIHooks::Initialize() {
             }
         }
 
-        Msg("[RTX Remix Fixes 2 - Shader Fixes] Enhanced shader protection initialized successfully\n");
+        Msg("[RTXF2 - Shader Fixes] Enhanced shader protection initialized successfully\n");
     }
     catch (const std::exception& e) {
-        Error("[RTX Remix Fixes 2 - Shader Fixes] Exception during initialization: %s\n", e.what());
+        Error("[RTXF2 - Shader Fixes] Exception during initialization: %s\n", e.what());
     }
     catch (...) {
-        Error("[RTX Remix Fixes 2 - Shader Fixes] Unknown exception during initialization\n");
+        Error("[RTXF2 - Shader Fixes] Unknown exception during initialization\n");
     }
     #ifdef _DEBUG
     TestExceptionHandler();
@@ -323,7 +323,7 @@ void ShaderAPIHooks::Shutdown() {
         m_vehHandle = nullptr;
     }
 
-    Msg("[RTX Remix Fixes 2 - Shader Fixes] Shader protection shutdown complete\n");
+    Msg("[RTXF2 - Shader Fixes] Shader protection shutdown complete\n");
 }
 
 #endif
