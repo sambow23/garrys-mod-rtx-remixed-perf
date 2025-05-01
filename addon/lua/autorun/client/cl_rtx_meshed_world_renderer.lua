@@ -119,7 +119,7 @@
 --             mapBounds.min = mapBounds.min - Vector(128, 128, 128)
 --             mapBounds.max = mapBounds.max + Vector(128, 128, 128)
             
---             print("[RTX Remix Fixes 2 - Meshed World Renderer] Map boundaries loaded:")
+--             print("[RTXF2 - Meshed World Renderer] Map boundaries loaded:")
 --             print("  Min: " .. tostring(mapBounds.min))
 --             print("  Max: " .. tostring(mapBounds.max))
 --             return true
@@ -314,7 +314,7 @@
     
 --     if not NikNaks or not NikNaks.CurrentMap then return end
 
---     print("[RTX Remix Fixes 2 - Meshed World Renderer] Building chunked meshes...")
+--     print("[RTXF2 - Meshed World Renderer] Building chunked meshes...")
 --     local startTime = SysTime()
     
 --     -- Count total faces for chunk size optimization
@@ -473,7 +473,7 @@
 --         end
 --     end
 
---     print(string.format("[RTX Remix Fixes 2 - Meshed World Renderer] Built chunked meshes in %.2f seconds", SysTime() - startTime))
+--     print(string.format("[RTXF2 - Meshed World Renderer] Built chunked meshes in %.2f seconds", SysTime() - startTime))
 -- end
 
 -- -- Rendering Functions
@@ -503,7 +503,7 @@
     
 --     -- Make sure groups exists before trying to iterate
 --     if not groups then
---         print("[RTX Remix Fixes 2 - Meshed World Renderer] Warning: No " .. groupType .. " mesh groups found")
+--         print("[RTXF2 - Meshed World Renderer] Warning: No " .. groupType .. " mesh groups found")
 --         return
 --     end
     
@@ -627,7 +627,7 @@
 --     InitializeMapBounds()
 --     local success, err = pcall(BuildMapMeshes)
 --     if not success then
---         ErrorNoHalt("[RTX Remix Fixes 2 - Meshed World Renderer] Failed to build meshes: " .. tostring(err) .. "\n")
+--         ErrorNoHalt("[RTXF2 - Meshed World Renderer] Failed to build meshes: " .. tostring(err) .. "\n")
 --         DisableCustomRendering()
 --         return
 --     end
@@ -636,7 +636,7 @@
 --         if CONVARS.ENABLED:GetBool() then
 --             local success, err = pcall(EnableCustomRendering)
 --             if not success then
---                 ErrorNoHalt("[RTX Remix Fixes 2 - Meshed World Renderer] Failed to enable custom rendering: " .. tostring(err) .. "\n")
+--                 ErrorNoHalt("[RTXF2 - Meshed World Renderer] Failed to enable custom rendering: " .. tostring(err) .. "\n")
 --                 DisableCustomRendering()
 --             end
 --         end

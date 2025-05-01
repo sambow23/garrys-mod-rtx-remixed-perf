@@ -26,7 +26,7 @@ function ENT:Initialize()
 	materialsset = false
 	RunConsoleCommand("r_flashlightnear", "50")
 
-	print("[RTX Remix Fixes 2] - Pseudoplayer Initialised.")
+	print("[RTXF2] - Pseudoplayer Initialised.")
 	self:SetModel(LocalPlayer():GetModel())
 	self:SetParent(LocalPlayer())
 	self:AddEffects( EF_BONEMERGE )
@@ -236,7 +236,7 @@ function ENT:Think()
 		pseudoplayer:SetNoDraw( true )
 	end
 	if pseudoplayer:GetModel() != LocalPlayer():GetModel() then
-		print("[RTX Remix Fixes 2] - Pseudoplayer model changed.")
+		print("[RTXF2] - Pseudoplayer model changed.")
 		self:RemoveEffects( EF_BONEMERGE )
 		self:SetModel(LocalPlayer():GetModel())
 		self:SetParent(LocalPlayer())

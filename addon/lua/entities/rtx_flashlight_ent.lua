@@ -12,7 +12,7 @@ ENT.Spawnable		= false
 ENT.AdminSpawnable	= false
   
 function ENT:Initialize() 
-    print("[RTX Remix Fixes 2] - Flashlight Initialised.")
+    print("[RTXF2] - Flashlight Initialised.")
     self:SetModel("models/hunter/plates/plate.mdl")  
     self:SetRenderMode(2) 
     self:SetColor(Color(255,255,255,1))

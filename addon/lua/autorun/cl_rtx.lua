@@ -9,6 +9,7 @@ local cv_fixmaterials = CreateClientConVar("rtx_fixmaterials", 1, true, false)
 local cv_experimental_manuallight = CreateClientConVar("rtx_experimental_manuallight", 0, true, false)
 local cv_experimental_mightcrash_combinedlightingmode = CreateClientConVar("rtx_experimental_mightcrash_combinedlightingmode", 0, false, false)
 local cv_disable_when_unsupported = CreateClientConVar("rtx_disable_when_unsupported", 1, false, false)
+local cv_debug = CreateClientConVar("rtx_rt_debug", "0", true, false, "Enable debug messages for RT States")
 
 -- Light system cache
 local lastLightUpdate = 0
@@ -23,6 +24,13 @@ local function TableConcat(t1, t2)
         t1[#t1 + 1] = t2[i]
     end
     return t1
+end
+
+-- Helper function for debug printing
+local function DebugPrint(message)
+    if cv_debug:GetBool() then
+        print(message)
+    end
 end
 
 -- Material management
@@ -46,7 +54,7 @@ local function FixupMaterial(filepath)
     local mat = Material(matname)
 
     if mat:IsError() then
-        print("[RTX Remix Fixes 2 - Material Fixup] - This texture loaded as an error? Trying to fix anyways but this shouldn't happen.")
+        DebugPrint("[RTXF2 - Material Fixup] - This texture loaded as an error? Trying to fix anyways but this shouldn't happen.")
     end
 
     if mat:GetString("$addself") ~= nil then
@@ -60,7 +68,7 @@ local function FixupMaterial(filepath)
 end
 
 local function MaterialFixupInDir(dir)
-    print("[RTX Remix Fixes 2 - Material Fixup] - Starting root material fixup in " .. dir)
+    DebugPrint("[RTXF2 - Material Fixup] - Starting root material fixup in " .. dir)
     local _, allfolders = file.Find(dir .. "*", "GAME")
     
     -- Fix materials in root directory
@@ -146,7 +154,7 @@ end
 
 -- RTX initialization
 local function RTXLoad()
-    print("[RTX Remix Fixes 2] - Initializing Client")
+    DebugPrint("[RTXF2] - Initializing Client")
 
     -- Set up console commands
     RunConsoleCommand("r_radiosity", "0")
@@ -210,23 +218,23 @@ local spawnIconTimerName = "RTXFixes_ReenableRaytracingTimer"
 
 -- Hook into SpawniconGenerated: Disable RT while icons are generating
 hook.Add("SpawniconGenerated", "RTXFixes_HandleSpawniconGenerated", function(lastmodel, imagename, modelsleft)
-    print(string.format("[RTX Remix Fixes 2] SpawniconGenerated hook called. Models left: %s, isRaytracingDisabledBySpawnmenu = %s", tostring(modelsleft), tostring(isRaytracingDisabledBySpawnmenu)))
+    DebugPrint(string.format("[RTXF2] SpawniconGenerated hook called. Models left: %s, isRaytracingDisabledBySpawnmenu = %s", tostring(modelsleft), tostring(isRaytracingDisabledBySpawnmenu)))
     
     -- First, always cancel any pending timers to re-enable RT
     if timer.Exists(spawnIconTimerName) then
         timer.Remove(spawnIconTimerName)
-        print("[RTX Remix Fixes 2] Cancelled timer to re-enable RT (new icons are being generated)")
+        DebugPrint("[RTXF2] Cancelled timer to re-enable RT (new icons are being generated)")
     end
 
     -- Disable RT if it hasn't already been disabled by us
     if not isRaytracingDisabledBySpawnmenu then
-        print("[RTX Remix Fixes 2] SpawniconGenerated hook: Disabling RT for icon generation...")
+        DebugPrint("[RTXF2] SpawniconGenerated hook: Disabling RT for icon generation...")
         local success, err = pcall(SetEnableRaytracing, false)
         if success then
-            print("[RTX Remix Fixes 2] SpawniconGenerated hook: SetEnableRaytracing(false) call succeeded.")
+            DebugPrint("[RTXF2] SpawniconGenerated hook: SetEnableRaytracing(false) call succeeded.")
             isRaytracingDisabledBySpawnmenu = true
         else
-            print("[RTX Remix Fixes 2] SpawniconGenerated hook: Warning: Failed to disable raytracing. Error: " .. tostring(err))
+            DebugPrint("[RTXF2] SpawniconGenerated hook: Warning: Failed to disable raytracing. Error: " .. tostring(err))
         end
     end
 
@@ -234,43 +242,43 @@ hook.Add("SpawniconGenerated", "RTXFixes_HandleSpawniconGenerated", function(las
     -- This will get constantly reset as long as icons are being generated
     timer.Create(spawnIconTimerName, 3, 1, function()
         if isRaytracingDisabledBySpawnmenu then
-            print("[RTX Remix Fixes 2] Timer: Re-enabling RT after icon generation completed...")
+            DebugPrint("[RTXF2] Timer: Re-enabling RT after icon generation completed...")
             local success, err = pcall(SetEnableRaytracing, true)
             if success then
-                print("[RTX Remix Fixes 2] Timer: SetEnableRaytracing(true) call succeeded.")
+                DebugPrint("[RTXF2] Timer: SetEnableRaytracing(true) call succeeded.")
                 isRaytracingDisabledBySpawnmenu = false
             else
-                print("[RTX Remix Fixes 2] Timer: Warning: Failed to re-enable raytracing. Error: " .. tostring(err))
+                DebugPrint("[RTXF2] Timer: Warning: Failed to re-enable raytracing. Error: " .. tostring(err))
                 -- Even if the call fails, reset the flag
                 isRaytracingDisabledBySpawnmenu = false
             end
         else
-            print("[RTX Remix Fixes 2] Timer: Skipped enabling RT (was not disabled by us).")
+            DebugPrint("[RTXF2] Timer: Skipped enabling RT (was not disabled by us).")
         end
     end)
 end)
 
 hook.Remove("FinishToolMode", "RTXFixes_EnableRTOnFinishToolMode")
 
-print("[RTX Remix Fixes 2] Spawnicon RT toggle hooks initialized (Using SpawniconGenerated + timer).")
+DebugPrint("[RTXF2] Spawnicon RT toggle hooks initialized (Using SpawniconGenerated + timer).")
 
 -- Test Toggle Command --
 local currentRaytracingState = true -- Assume it starts enabled (default)
 
 local function ToggleRaytracingCommand()
     currentRaytracingState = not currentRaytracingState -- Flip the state
-    print("[RTX Remix Fixes 2] Toggling raytracing via command. Setting enabled to: " .. tostring(currentRaytracingState))
+    DebugPrint("[RTXF2] Toggling raytracing via command. Setting enabled to: " .. tostring(currentRaytracingState))
     local success, err = pcall(SetEnableRaytracing, currentRaytracingState) -- Call directly using pcall
     if success then
-        print("[RTX Remix Fixes 2] Successfully called SetEnableRaytracing.")
+        DebugPrint("[RTXF2] Successfully called SetEnableRaytracing.")
     else
-        print("[RTX Remix Fixes 2] Warning: Failed to toggle raytracing via command. Error: " .. tostring(err))
+        DebugPrint("[RTXF2] Warning: Failed to toggle raytracing via command. Error: " .. tostring(err))
         -- Flip state back if the call failed, so the next toggle attempt is correct
         currentRaytracingState = not currentRaytracingState
     end
 end
 concommand.Add("rtx_toggle_raytracing", ToggleRaytracingCommand)
-print("[RTX Remix Fixes 2] Added console command: rtx_toggle_raytracing")
+DebugPrint("[RTXF2] Added console command: rtx_toggle_raytracing")
 
 -- HUD notification for RT disabled state
 hook.Add("HUDPaint", "RTXFixes_RTDisabledNotification", function()

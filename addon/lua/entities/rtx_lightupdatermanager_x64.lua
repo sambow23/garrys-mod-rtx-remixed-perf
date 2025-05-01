@@ -78,7 +78,7 @@
 --     end
     
 --     -- Print debug info
---     print(string.format("[RTX Remix Fixes 2 - Lights] Created %d regular light updaters and %d environment light updaters",
+--     print(string.format("[RTXF2 - Lights] Created %d regular light updaters and %d environment light updaters",
 --         #self.regularUpdaters,
 --         #self.environmentUpdaters))
 -- end
@@ -130,7 +130,7 @@
 --     self:CreateUpdaters()
 
 --     if GetConVar("rtx_lightupdater_debug"):GetBool() then
---         print("[RTX Remix Fixes 2 - Lights] Light counts by type:")
+--         print("[RTXF2 - Lights] Light counts by type:")
 --         local counts = {}
 --         for _, light in ipairs(self.regularLights) do
 --             counts[light.lightType] = (counts[light.lightType] or 0) + 1
