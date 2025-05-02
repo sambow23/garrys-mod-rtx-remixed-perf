@@ -1,7 +1,7 @@
 -- forcedynamic_enabler.lua
 -- Manages mat_forcedynamic persistence per map
 
-local FILE_NAME = "forcedynamic_maps.txt"
+local FILE_NAME = "mapfixes_maps.txt"
 local enabledMaps = {}
 
 -- Load the list of enabled maps from file
@@ -36,17 +36,18 @@ local function EnableForCurrentMap()
     if not enabledMaps[currentMap] then
         enabledMaps[currentMap] = true
         SaveEnabledMaps()
-        MsgC(Color(100, 255, 100), "[Render Fixes] Enabled automatic mat_forcedynamic for map: ", currentMap, "\n")
+        MsgC(Color(100, 255, 100), "[Render Fixes] Enabled automatic Map Fixes for map: ", currentMap, "\n")
         -- Add notification
         notification.AddLegacy("[Render Fixes] Enabled and saved for map: " .. currentMap, NOTIFY_GENERIC, 5)
     else
-        MsgC(Color(255, 255, 100), "[Render Fixes] Automatic mat_forcedynamic already enabled for map: ", currentMap, "\n")
+        MsgC(Color(255, 255, 100), "[Render Fixes] automatic Map Fixes already enabled for map: ", currentMap, "\n")
         -- Optional: Notify that it was already enabled
         notification.AddLegacy("[Render Fixes] Already enabled for map: " .. currentMap, NOTIFY_HINT, 3)
     end
 
     -- Attempt to set the CVar
     RunConsoleCommand("mat_forcedynamic", "1")
+    RunConsoleCommand("prop_disable_distance_fade", "1")
 end
 
 -- Function to disable forcedynamic for the current map
@@ -55,14 +56,15 @@ local function DisableForCurrentMap()
     if enabledMaps[currentMap] then
         enabledMaps[currentMap] = nil -- Remove from the table
         SaveEnabledMaps()
-        MsgC(Color(100, 255, 100), "[Render Fixes] Disabled automatic mat_forcedynamic for map: ", currentMap, "\n")
+        MsgC(Color(100, 255, 100), "[Render Fixes] Disabled automatic Map Fixes for map: ", currentMap, "\n")
         notification.AddLegacy("[Render Fixes] Disabled and removed for map: " .. currentMap, NOTIFY_GENERIC, 5) -- Added notification
     else
-        MsgC(Color(255, 255, 100), "[Render Fixes] Automatic mat_forcedynamic was not enabled for map: ", currentMap, "\n")
+        MsgC(Color(255, 255, 100), "[Render Fixes] automatic Map Fixes was not enabled for map: ", currentMap, "\n")
         notification.AddLegacy("[Render Fixes] Was not enabled for map: " .. currentMap, NOTIFY_HINT, 3) -- Added notification
     end
     -- Attempt to disable the CVar
     RunConsoleCommand("mat_forcedynamic", "0")
+    RunConsoleCommand("prop_disable_distance_fade", "0")
 end
 
 -- Check on map load if forcedynamic should be enabled
@@ -78,13 +80,14 @@ local function CheckMapOnLoad()
         -- Only do this if the CVar actually exists to avoid errors
         if GetConVar("mat_forcedynamic") then
              RunConsoleCommand("mat_forcedynamic", "0")
+             RunConsoleCommand("prop_disable_distance_fade", "0")
         end
     end
 end
 
 -- Register console commands
-concommand.Add("rtx_fd_enable_current_map", EnableForCurrentMap, nil, "Enables mat_forcedynamic 1 for the current map and remembers it.")
-concommand.Add("rtx_fd_disable_current_map", DisableForCurrentMap, nil, "Disables mat_forcedynamic 0 for the current map and forgets it.")
+concommand.Add("rtx_mf_enable_current_map", EnableForCurrentMap, nil, "Enables mat_forcedynamic 1 for the current map and remembers it.")
+concommand.Add("rtx_mf_disable_current_map", DisableForCurrentMap, nil, "Disables mat_forcedynamic 0 for the current map and forgets it.")
 
 -- Hook into map load (InitPostEntity runs after entities are initialized)
 -- Using a timer to delay slightly, ensuring the game state is fully ready
@@ -95,4 +98,4 @@ end)
 -- Load the map list when the script first runs
 LoadEnabledMaps()
 
-MsgC(Color(150, 200, 255), "[Render Fixes] Addon loaded. Use 'rtx_fd_enable_current_map' and 'rtx_fd_disable_current_map'.\n") 
+MsgC(Color(150, 200, 255), "[Render Fixes] Addon loaded. Use 'rtx_mf_enable_current_map' and 'rtx_mf_disable_current_map'.\n") 

@@ -35,13 +35,13 @@ hook.Add( "PopulateToolMenu", "RTXOptionsClient", function()
         local enableButton = vgui.Create("DButton", buttonsPanel)
         enableButton:SetText("Enable")
         enableButton.DoClick = function()
-            RunConsoleCommand("rtx_fd_enable_current_map")
+            RunConsoleCommand("rtx_mf_enable_current_map")
         end
         
         local disableButton = vgui.Create("DButton", buttonsPanel)
         disableButton:SetText("Disable")
         disableButton.DoClick = function()
-            RunConsoleCommand("rtx_fd_disable_current_map")
+            RunConsoleCommand("rtx_mf_disable_current_map")
         end
         
         -- Size and position buttons when the panel is laid out
@@ -56,7 +56,7 @@ hook.Add( "PopulateToolMenu", "RTXOptionsClient", function()
             disableButton:SetPos(margin + buttonWidth + spacing, 0)
         end
         
-        panel:ControlHelp("Enables/Disables 'mat_forcedynamic' for the current map and remembers the setting for future loads of this map. This helps fix map rendering issues.")
+        panel:ControlHelp("Enables/Disables Map Fixes for the current map and remembers the setting for future loads of this map. This helps fix map rendering issues.")
 
     end )
 end )
