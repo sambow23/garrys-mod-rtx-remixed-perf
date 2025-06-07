@@ -19,14 +19,10 @@
 #ifdef _WIN64
 #include <remix/remix.h>
 #include <remix/remix_c.h>
-#include "mwr/mwr.hpp"
 #include "remixapi/rtx_light_manager.h"
 #include "remixapi/remixapi.h"
-#include "math/math.hpp"
-#include "entity_manager/entity_manager.hpp"
 #endif // _WIN64
 
-#include "shader_fixes/shader_hooks.h"
 #include "prop_fixes.h" 
 #include "HardwareSkinningHooks.h" 
 #include <culling_fixes.h>
