@@ -5,6 +5,7 @@ local lights
 local light_positions -- Cache calculated positions
 local light_models = {} -- Track individual models for each light
 local known_lights = {} -- Track all lights we've encountered
+local all_discovered_lights = {} -- Track ALL lights found from NikNaks and dynamic scanning
 local stash
 local model
 local current_map_name
@@ -14,6 +15,8 @@ local showlights = CreateConVar( "rtx_lightupdater_show", 0,  FCVAR_ARCHIVE )
 local updatelights = CreateConVar( "rtx_lightupdater", 1,  FCVAR_ARCHIVE )
 local debugtext = CreateConVar( "rtx_lightupdater_debug", 0,  FCVAR_ARCHIVE )
 local debugmoved = CreateConVar( "rtx_lightupdater_debug_moved", 0,  FCVAR_ARCHIVE )
+local debugconsole = CreateConVar( "rtx_lightupdater_debug_console", 1,  FCVAR_ARCHIVE )
+local debugmissing = CreateConVar( "rtx_lightupdater_debug_missing", 0,  FCVAR_ARCHIVE )
 local forcemove = CreateConVar( "rtx_lightupdater_force_move", 0, FCVAR_NONE )
 
 local function shuffle(tbl)
@@ -46,6 +49,7 @@ local function CleanupModel()
 	end
 	light_models = {}
 	known_lights = {}
+	all_discovered_lights = {}
 	lights = nil
 	light_positions = nil
 end
@@ -365,7 +369,7 @@ local function FindClearPositionSmart(original_pos, light_data)
 	-- Immediately reject if the light itself is in an extreme location
 	if not IsInWorld(light_origin) or not IsPositionReasonable(light_origin, light_origin) then
 		-- Don't create updaters for lights that are themselves out of bounds
-		if debugtext:GetBool() then
+		if debugconsole:GetBool() then
 			print("[RTX Light Updater] Rejected light at extreme location: " .. tostring(light_origin))
 		end
 		return nil, false
@@ -488,7 +492,7 @@ local function FindClearPositionSmart(original_pos, light_data)
 	
 	-- Fallback: if all strict validation fails, try more lenient approach
 	-- This ensures we don't lose lights that were previously working
-	if debugtext:GetBool() then
+	if debugconsole:GetBool() then
 		print("[RTX Light Updater] Using lenient fallback for light at: " .. tostring(light_origin))
 	end
 	
@@ -506,14 +510,14 @@ local function FindClearPositionSmart(original_pos, light_data)
 	
 	-- Final emergency: place at light origin if it's in world (even if not ideal)
 	if IsInWorld(light_origin) then
-		if debugtext:GetBool() then
+		if debugconsole:GetBool() then
 			print("[RTX Light Updater] Emergency fallback: placing at light origin")
 		end
 		return light_origin, true
 	end
 	
 	-- Complete failure: don't create an updater for this light
-	if debugtext:GetBool() then
+	if debugconsole:GetBool() then
 		print("[RTX Light Updater] Failed to find any valid position for light at: " .. tostring(light_origin))
 	end
 	return nil, false
@@ -542,7 +546,13 @@ end
 -- Add a new light to our tracking system
 local function AddLight(light)
 	local light_id = GetLightID(light)
-	if not light_id or known_lights[light_id] then return false end
+	if not light_id then return false end
+	
+	-- Always add to discovered lights (even if we already have it or it fails)
+	all_discovered_lights[light_id] = light
+	
+	-- Skip if we already have this light
+	if known_lights[light_id] then return false end
 	
 	if light.origin and light.angles then
 		local original_pos
@@ -616,9 +626,18 @@ local function InitializeLights()
 		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_environment" ) or {})
 		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_dynamic" ) or {})
 		
+		local total_lights_found = #lights
+		local lights_processed = 0
+		
 		-- Pre-calculate all positions and add to known lights
 		light_positions = {}
 		for i, light in pairs(lights) do
+			-- Add to all discovered lights first
+			local light_id = GetLightID(light)
+			if light_id then
+				all_discovered_lights[light_id] = light
+			end
+			
 			if light.origin and light.angles then
 				local original_pos
 				
@@ -636,9 +655,9 @@ local function InitializeLights()
 				-- Only create light updater if we found a valid position
 				if adjusted_pos then
 					light_positions[i] = adjusted_pos
+					lights_processed = lights_processed + 1
 					
 					-- Add to known lights tracking
-					local light_id = GetLightID(light)
 					if light_id then
 						known_lights[light_id] = {
 							light = light,
@@ -650,6 +669,16 @@ local function InitializeLights()
 					end
 				end
 				-- If adjusted_pos is nil, we skip this light (don't create an updater)
+			end
+		end
+		
+		-- Report processing results
+		if debugconsole:GetBool() or lights_processed < total_lights_found then
+			if debugconsole:GetBool() then
+				print("[RTX Light Updater] Processed " .. lights_processed .. " / " .. total_lights_found .. " lights")
+			end
+			if lights_processed < total_lights_found and debugconsole:GetBool() then
+				print("[RTX Light Updater] " .. (total_lights_found - lights_processed) .. " lights were skipped (couldn't find valid positions)")
 			end
 		end
 	end
@@ -685,7 +714,9 @@ local function ForceRecalculateAllLights()
 	
 	-- Clear the known lights cache to force recalculation
 	local old_known_lights = known_lights
+	local old_count = table.Count(old_known_lights)
 	known_lights = {}
+	all_discovered_lights = {}
 	lights = nil
 	light_positions = nil
 	
@@ -694,9 +725,19 @@ local function ForceRecalculateAllLights()
 		-- Re-scan for dynamic lights too
 		ScanForNewLights()
 		
-		print("[RTX Light Updater] Force moved all lights - " .. table.Count(known_lights) .. " lights repositioned")
+		local new_count = table.Count(known_lights)
+		if debugconsole:GetBool() then
+			print("[RTX Light Updater] Force moved all lights - " .. new_count .. " lights repositioned (was " .. old_count .. ")")
+			
+			if new_count < old_count then
+				print("[RTX Light Updater] WARNING: Lost " .. (old_count - new_count) .. " light updaters during repositioning")
+				print("[RTX Light Updater] Enable rtx_lightupdater_debug_console 1 for more details")
+			end
+		end
 	else
-		print("[RTX Light Updater] Failed to force move lights - initialization failed")
+		if debugconsole:GetBool() then
+			print("[RTX Light Updater] Failed to force move lights - initialization failed")
+		end
 	end
 end
 
@@ -857,6 +898,61 @@ local function DrawDebugText()
 	end
 end
 
+-- Draw debug info for lights that don't have updaters
+local function DrawMissingLightsDebug()
+	if not debugmissing:GetBool() or not all_discovered_lights then return end
+	
+	-- Find lights that were discovered but don't have updaters
+	for light_id, light in pairs(all_discovered_lights) do
+		if not known_lights[light_id] and light.origin then
+			local text_pos = light.origin + Vector(0, 0, 20)
+			local screen_pos = text_pos:ToScreen()
+			
+			if screen_pos.visible then
+				-- Draw a red X marker
+				surface.SetDrawColor(255, 0, 0, 200)
+				local size = 8
+				surface.DrawLine(screen_pos.x - size, screen_pos.y - size, screen_pos.x + size, screen_pos.y + size)
+				surface.DrawLine(screen_pos.x - size, screen_pos.y + size, screen_pos.x + size, screen_pos.y - size)
+				
+				-- Draw a red circle around it
+				for i = 0, 360, 20 do
+					local x1 = screen_pos.x + math.cos(math.rad(i)) * 12
+					local y1 = screen_pos.y + math.sin(math.rad(i)) * 12
+					local x2 = screen_pos.x + math.cos(math.rad(i + 20)) * 12
+					local y2 = screen_pos.y + math.sin(math.rad(i + 20)) * 12
+					surface.DrawLine(x1, y1, x2, y2)
+				end
+				
+				-- Text showing it's missing
+				local class_text = (light.classname or "light") .. " (NO UPDATER)"
+				draw.SimpleText(
+					class_text,
+					"DermaDefault",
+					screen_pos.x,
+					screen_pos.y - 15,
+					Color(255, 0, 0, 255),
+					TEXT_ALIGN_CENTER,
+					TEXT_ALIGN_CENTER
+				)
+				
+				-- Show coordinates
+				draw.SimpleText(
+					string.format("%.0f %.0f %.0f", 
+						light.origin.x, light.origin.y, light.origin.z
+					),
+					"DermaDefault",
+					screen_pos.x,
+					screen_pos.y + 15,
+					Color(255, 100, 100, 255),
+					TEXT_ALIGN_CENTER,
+					TEXT_ALIGN_CENTER
+				)
+			end
+		end
+	end
+end
+
 local function RTXLightUpdater()
 	MovetoPositions()
 end
@@ -871,7 +967,9 @@ end
 -- Console command for easier access to force move
 local function ForceMoveLightsCommand()
 	forcemove:SetBool(true)
-	print("[RTX Light Updater] Force move requested - all light positions will be recalculated next frame")
+	if debugconsole:GetBool() then
+		print("[RTX Light Updater] Force move requested - all light positions will be recalculated next frame")
+	end
 end
 
 -- Register console command
@@ -881,6 +979,7 @@ hook.Add( "Think", "RTXReady_PropHashFixer", RTXLightUpdater)
 hook.Add( "HUDPaint", "RTXReady_LightIndicators", DrawLightIndicators)
 hook.Add( "HUDPaint", "RTXReady_MovedDebug", DrawMovedPositionDebug)
 hook.Add( "HUDPaint", "RTXReady_DebugText", DrawDebugText)
+hook.Add( "HUDPaint", "RTXReady_MissingLightsDebug", DrawMissingLightsDebug)
 hook.Add( "ShutDown", "RTXReady_Cleanup", Cleanup)
 hook.Add( "OnEntityCreated", "RTXReady_MapCheck", function(ent)
 	-- Reset when worldspawn is created (new map)
@@ -891,15 +990,19 @@ end)
 
 -- Print help information on load
 timer.Simple(1, function()
-	print("======================================")
-	print("RTX Light Updater Loaded")
-	print("======================================")
-	print("Commands:")
-	print("  rtx_lightupdater 0/1           - Enable/disable system")
-	print("  rtx_lightupdater_show 0/1      - Show/hide visual indicators")
-	print("  rtx_lightupdater_debug 0/1     - Show/hide debug text")
-	print("  rtx_lightupdater_debug_moved 0/1 - Show moved position debug")
-	print("  rtx_lightupdater_force_move 1  - Force recalculate all positions")
-	print("  rtx_lightupdater_force_move_cmd - Same as above (command)")
-	print("======================================")
+	if debugconsole:GetBool() then
+		print("======================================")
+		print("RTX Light Updater Loaded")
+		print("======================================")
+		print("Commands:")
+		print("  rtx_lightupdater 0/1              - Enable/disable system")
+		print("  rtx_lightupdater_show 0/1         - Show/hide visual indicators")
+		print("  rtx_lightupdater_debug 0/1        - Show/hide debug text")
+		print("  rtx_lightupdater_debug_moved 0/1  - Show moved position debug")
+		print("  rtx_lightupdater_debug_missing 0/1 - Show lights without updaters")
+		print("  rtx_lightupdater_debug_console 0/1 - Enable/disable console output")
+		print("  rtx_lightupdater_force_move 1     - Force recalculate all positions")
+		print("  rtx_lightupdater_force_move_cmd   - Same as above (command)")
+		print("======================================")
+	end
 end)  
