@@ -17,7 +17,6 @@ local debugtext = CreateConVar( "rtx_lightupdater_debug", 0,  FCVAR_ARCHIVE )
 local debugmoved = CreateConVar( "rtx_lightupdater_debug_moved", 0,  FCVAR_ARCHIVE )
 local debugconsole = CreateConVar( "rtx_lightupdater_debug_console", 1,  FCVAR_ARCHIVE )
 local debugmissing = CreateConVar( "rtx_lightupdater_debug_missing", 0,  FCVAR_ARCHIVE )
-local emergencymode = CreateConVar( "rtx_lightupdater_emergency_mode", 0,  FCVAR_ARCHIVE )
 local forcemove = CreateConVar( "rtx_lightupdater_force_move", 0, FCVAR_NONE )
 
 local function shuffle(tbl)
@@ -662,32 +661,30 @@ local function AddLight(light)
 			
 			return true
 		else
-			-- If emergency mode is enabled, try emergency positioning
-			if emergencymode:GetBool() then
-				local emergency_pos = FindEmergencyPosition(light)
-				if emergency_pos then
-					known_lights[light_id] = {
-						light = light,
-						original_pos = original_pos,
-						pos = emergency_pos,
-						was_moved = true, -- Mark as moved since it's emergency positioning
-						classname = light.classname,
-						emergency = true -- Mark as emergency positioned
-					}
-					
-					-- Add to legacy arrays for compatibility
-					if not lights then lights = {} end
-					if not light_positions then light_positions = {} end
-					
-					table.insert(lights, light)
-					light_positions[#lights] = emergency_pos
-					
-					if debugconsole:GetBool() then
-						print("[RTX Light Updater] Emergency updater created for " .. (light.classname or "light") .. " at: " .. tostring(emergency_pos))
-					end
-					
-					return true
+			-- Automatically try emergency positioning as fallback
+			local emergency_pos = FindEmergencyPosition(light)
+			if emergency_pos then
+				known_lights[light_id] = {
+					light = light,
+					original_pos = original_pos,
+					pos = emergency_pos,
+					was_moved = true, -- Mark as moved since it's emergency positioning
+					classname = light.classname,
+					emergency = true -- Mark as emergency positioned
+				}
+				
+				-- Add to legacy arrays for compatibility
+				if not lights then lights = {} end
+				if not light_positions then light_positions = {} end
+				
+				table.insert(lights, light)
+				light_positions[#lights] = emergency_pos
+				
+				if debugconsole:GetBool() then
+					print("[RTX Light Updater] Emergency updater created for " .. (light.classname or "light") .. " at: " .. tostring(emergency_pos))
 				end
+				
+				return true
 			end
 		end
 	end
@@ -771,28 +768,26 @@ local function InitializeLights()
 						}
 					end
 				else
-					-- If emergency mode is enabled, try emergency positioning
-					if emergencymode:GetBool() then
-						local emergency_pos = FindEmergencyPosition(light)
-						if emergency_pos then
-							light_positions[i] = emergency_pos
-							lights_processed = lights_processed + 1
-							
-							-- Add to known lights tracking with emergency flag
-							if light_id then
-								known_lights[light_id] = {
-									light = light,
-									original_pos = original_pos,
-									pos = emergency_pos,
-									was_moved = true, -- Mark as moved since it's emergency positioning
-									classname = light.classname,
-									emergency = true -- Mark as emergency positioned
-								}
-							end
-							
-							if debugconsole:GetBool() then
-								print("[RTX Light Updater] Emergency updater created for " .. (light.classname or "light") .. " at: " .. tostring(emergency_pos))
-							end
+					-- Automatically try emergency positioning as fallback
+					local emergency_pos = FindEmergencyPosition(light)
+					if emergency_pos then
+						light_positions[i] = emergency_pos
+						lights_processed = lights_processed + 1
+						
+						-- Add to known lights tracking with emergency flag
+						if light_id then
+							known_lights[light_id] = {
+								light = light,
+								original_pos = original_pos,
+								pos = emergency_pos,
+								was_moved = true, -- Mark as moved since it's emergency positioning
+								classname = light.classname,
+								emergency = true -- Mark as emergency positioned
+							}
+						end
+						
+						if debugconsole:GetBool() then
+							print("[RTX Light Updater] Emergency updater created for " .. (light.classname or "light") .. " at: " .. tostring(emergency_pos))
 						end
 					end
 				end
@@ -1124,49 +1119,8 @@ local function ForceMoveLightsCommand()
 	end
 end
 
--- Console command to try adding updaters for missing lights
-local function AddMissingLightsCommand()
-	if not all_discovered_lights then
-		if debugconsole:GetBool() then
-			print("[RTX Light Updater] No lights discovered yet - wait for initialization or change maps")
-		end
-		return
-	end
-	
-	local missing_count = 0
-	local added_count = 0
-	
-	-- Find lights that don't have updaters
-	for light_id, light in pairs(all_discovered_lights) do
-		if not known_lights[light_id] then
-			missing_count = missing_count + 1
-			
-			-- Try to add this light using emergency positioning
-			local was_emergency_enabled = emergencymode:GetBool()
-			emergencymode:SetBool(true) -- Temporarily enable emergency mode
-			
-			local success = AddLight(light)
-			if success then
-				added_count = added_count + 1
-			end
-			
-			-- Restore original emergency mode setting
-			emergencymode:SetBool(was_emergency_enabled)
-		end
-	end
-	
-	if debugconsole:GetBool() then
-		print("[RTX Light Updater] Found " .. missing_count .. " lights without updaters")
-		print("[RTX Light Updater] Successfully added " .. added_count .. " emergency updaters")
-		if added_count < missing_count then
-			print("[RTX Light Updater] " .. (missing_count - added_count) .. " lights still failed emergency positioning")
-		end
-	end
-end
-
 -- Register console command
 concommand.Add("rtx_lightupdater_force_move_cmd", ForceMoveLightsCommand, nil, "Force recalculate all RTX light updater positions")
-concommand.Add("rtx_lightupdater_add_missing_cmd", AddMissingLightsCommand, nil, "Try to add updaters for lights that don't have them using emergency positioning")
 
 hook.Add( "Think", "RTXReady_PropHashFixer", RTXLightUpdater)
 hook.Add( "HUDPaint", "RTXReady_LightIndicators", DrawLightIndicators)
@@ -1193,17 +1147,18 @@ timer.Simple(1, function()
 		print("  rtx_lightupdater_debug 0/1         - Show/hide debug text")
 		print("  rtx_lightupdater_debug_moved 0/1   - Show moved position debug")
 		print("  rtx_lightupdater_debug_missing 0/1 - Show lights without updaters")
-		print("  rtx_lightupdater_emergency_mode 0/1 - Enable emergency positioning")
-		print("  rtx_lightupdater_debug_console 0/1 - Enable/disable console output")
 		print("  rtx_lightupdater_force_move 1      - Force recalculate all positions")
 		print("  rtx_lightupdater_force_move_cmd    - Same as above (command)")
-		print("  rtx_lightupdater_add_missing_cmd   - Add updaters for missing lights")
+		print("======================================")
+		print("Features:")
+		print("  Automatic emergency positioning - Lights use fallback positioning")
+		print("  when normal validation fails (shown as magenta circles)")
 		print("======================================")
 		print("Visual Legend:")
 		print("  Cyan circles = Normal positioned lights")
 		print("  Orange circles = Moved positioned lights") 
 		print("  Magenta circles = Emergency positioned lights")
-		print("  Red X = Lights without updaters")
+		print("  Red X = Lights without updaters (complete failures)")
 		print("======================================")
 	end
 end)  
