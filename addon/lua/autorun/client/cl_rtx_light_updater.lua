@@ -17,6 +17,7 @@ local debugtext = CreateConVar( "rtx_lightupdater_debug", 0,  FCVAR_ARCHIVE )
 local debugmoved = CreateConVar( "rtx_lightupdater_debug_moved", 0,  FCVAR_ARCHIVE )
 local debugconsole = CreateConVar( "rtx_lightupdater_debug_console", 1,  FCVAR_ARCHIVE )
 local debugmissing = CreateConVar( "rtx_lightupdater_debug_missing", 0,  FCVAR_ARCHIVE )
+local emergencymode = CreateConVar( "rtx_lightupdater_emergency_mode", 0,  FCVAR_ARCHIVE )
 local forcemove = CreateConVar( "rtx_lightupdater_force_move", 0, FCVAR_NONE )
 
 local function shuffle(tbl)
@@ -543,6 +544,80 @@ local function CreateLightModel(light_id, pos)
 	return light_model
 end
 
+-- Emergency positioning for lights that fail normal validation
+local function FindEmergencyPosition(light)
+	if not light.origin then return nil end
+	
+	local light_origin = light.origin
+	
+	if debugconsole:GetBool() then
+		print("[RTX Light Updater] Emergency positioning for light at: " .. tostring(light_origin))
+	end
+	
+	-- Try extremely simple positions with minimal validation
+	local emergency_directions = {
+		Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0),
+		Vector(0, 0, 1), Vector(0, 0, -1), -- Up/down
+		Vector(1, 1, 0):GetNormalized(), Vector(-1, -1, 0):GetNormalized(),
+		Vector(1, -1, 0):GetNormalized(), Vector(-1, 1, 0):GetNormalized()
+	}
+	
+	-- Try very close distances first
+	local emergency_distances = {1, 2, 3, 4, 6, 8, 12, 16}
+	
+	for _, distance in ipairs(emergency_distances) do
+		for _, direction in ipairs(emergency_directions) do
+			local test_pos = light_origin + (direction * distance)
+			
+			-- VERY minimal validation - just check it's not in solid geometry and somewhat reasonable
+			local basic_max = 10000 -- Much more lenient coordinate check
+			local coords_ok = math.abs(test_pos.x) < basic_max and math.abs(test_pos.y) < basic_max and math.abs(test_pos.z) < basic_max
+			
+			if coords_ok then
+				-- Simple collision check only
+				local trace = util.TraceHull({
+					start = test_pos,
+					endpos = test_pos,
+					mins = Vector(-1, -1, -1), -- Smaller hull
+					maxs = Vector(1, 1, 1),
+					mask = MASK_SOLID
+				})
+				
+				if not (trace.Hit or trace.StartSolid) then
+					if debugconsole:GetBool() then
+						print("[RTX Light Updater] Emergency position found at distance " .. distance .. ": " .. tostring(test_pos))
+					end
+					return test_pos
+				end
+			end
+		end
+	end
+	
+	-- Last resort: try positions directly at light origin with small offsets
+	local tiny_offsets = {
+		Vector(0.5, 0, 0), Vector(-0.5, 0, 0), Vector(0, 0.5, 0), Vector(0, -0.5, 0),
+		Vector(0, 0, 0.5), Vector(0, 0, -0.5), Vector(0, 0, 0) -- Even try exactly at origin
+	}
+	
+	for _, offset in ipairs(tiny_offsets) do
+		local test_pos = light_origin + offset
+		
+		-- Absolute minimal check - just make sure coordinates aren't completely insane
+		if math.abs(test_pos.x) < 20000 and math.abs(test_pos.y) < 20000 and math.abs(test_pos.z) < 20000 then
+			-- Don't even check collision for these emergency positions
+			if debugconsole:GetBool() then
+				print("[RTX Light Updater] Ultra-emergency position (minimal validation): " .. tostring(test_pos))
+			end
+			return test_pos
+		end
+	end
+	
+	if debugconsole:GetBool() then
+		print("[RTX Light Updater] Emergency positioning completely failed for: " .. tostring(light_origin))
+	end
+	return nil
+end
+
 -- Add a new light to our tracking system
 local function AddLight(light)
 	local light_id = GetLightID(light)
@@ -586,6 +661,34 @@ local function AddLight(light)
 			light_positions[#lights] = adjusted_pos
 			
 			return true
+		else
+			-- If emergency mode is enabled, try emergency positioning
+			if emergencymode:GetBool() then
+				local emergency_pos = FindEmergencyPosition(light)
+				if emergency_pos then
+					known_lights[light_id] = {
+						light = light,
+						original_pos = original_pos,
+						pos = emergency_pos,
+						was_moved = true, -- Mark as moved since it's emergency positioning
+						classname = light.classname,
+						emergency = true -- Mark as emergency positioned
+					}
+					
+					-- Add to legacy arrays for compatibility
+					if not lights then lights = {} end
+					if not light_positions then light_positions = {} end
+					
+					table.insert(lights, light)
+					light_positions[#lights] = emergency_pos
+					
+					if debugconsole:GetBool() then
+						print("[RTX Light Updater] Emergency updater created for " .. (light.classname or "light") .. " at: " .. tostring(emergency_pos))
+					end
+					
+					return true
+				end
+			end
 		end
 	end
 	return false
@@ -666,6 +769,31 @@ local function InitializeLights()
 							was_moved = was_moved,
 							classname = light.classname
 						}
+					end
+				else
+					-- If emergency mode is enabled, try emergency positioning
+					if emergencymode:GetBool() then
+						local emergency_pos = FindEmergencyPosition(light)
+						if emergency_pos then
+							light_positions[i] = emergency_pos
+							lights_processed = lights_processed + 1
+							
+							-- Add to known lights tracking with emergency flag
+							if light_id then
+								known_lights[light_id] = {
+									light = light,
+									original_pos = original_pos,
+									pos = emergency_pos,
+									was_moved = true, -- Mark as moved since it's emergency positioning
+									classname = light.classname,
+									emergency = true -- Mark as emergency positioned
+								}
+							end
+							
+							if debugconsole:GetBool() then
+								print("[RTX Light Updater] Emergency updater created for " .. (light.classname or "light") .. " at: " .. tostring(emergency_pos))
+							end
+						end
 					end
 				end
 				-- If adjusted_pos is nil, we skip this light (don't create an updater)
@@ -781,9 +909,22 @@ local function DrawLightIndicators()
 		local screen_pos = light_data.pos:ToScreen()
 		
 		if screen_pos.visible then
-			-- Use different colors for moved vs original positions
-			local outer_color = light_data.was_moved and {255, 100, 0, 200} or {0, 255, 255, 200} -- Orange if moved, cyan if original
-			local inner_color = light_data.was_moved and {255, 200, 0, 200} or {255, 255, 0, 200} -- Brighter orange if moved, yellow if original
+			-- Use different colors for emergency, moved, vs original positions
+			local outer_color, inner_color
+			
+			if light_data.emergency then
+				-- Purple/magenta for emergency positioned lights
+				outer_color = {255, 0, 255, 200} -- Magenta
+				inner_color = {255, 100, 255, 200} -- Light magenta
+			elseif light_data.was_moved then
+				-- Orange for moved lights
+				outer_color = {255, 100, 0, 200} -- Orange
+				inner_color = {255, 200, 0, 200} -- Brighter orange
+			else
+				-- Cyan for original position lights
+				outer_color = {0, 255, 255, 200} -- Cyan
+				inner_color = {255, 255, 0, 200} -- Yellow
+			end
 			
 			-- Draw outer circle
 			surface.SetDrawColor(outer_color[1], outer_color[2], outer_color[3], outer_color[4])
@@ -848,7 +989,9 @@ local function DrawDebugText()
 		
 		if screen_pos.visible then
 			local class_text = light_data.classname or "light"
-			if light_data.was_moved then
+			if light_data.emergency then
+				class_text = class_text .. " (EMERGENCY)"
+			elseif light_data.was_moved then
 				class_text = class_text .. " (MOVED)"
 			end
 			
@@ -860,12 +1003,21 @@ local function DrawDebugText()
 				class_text = class_text .. " (OUT OF BOUNDS)"
 			end
 			
+			local text_color
+			if light_data.emergency then
+				text_color = Color(255, 0, 255, 255) -- Magenta for emergency
+			elseif light_data.was_moved then
+				text_color = Color(255, 150, 0, 255) -- Orange for moved
+			else
+				text_color = Color(255, 255, 0, 255) -- Yellow for normal
+			end
+			
 			draw.SimpleText(
 				class_text,
 				"DermaDefault",
 				screen_pos.x,
 				screen_pos.y - 10,
-				light_data.was_moved and Color(255, 150, 0, 255) or Color(255, 255, 0, 255),
+				text_color,
 				TEXT_ALIGN_CENTER,
 				TEXT_ALIGN_CENTER
 			)
@@ -972,8 +1124,49 @@ local function ForceMoveLightsCommand()
 	end
 end
 
+-- Console command to try adding updaters for missing lights
+local function AddMissingLightsCommand()
+	if not all_discovered_lights then
+		if debugconsole:GetBool() then
+			print("[RTX Light Updater] No lights discovered yet - wait for initialization or change maps")
+		end
+		return
+	end
+	
+	local missing_count = 0
+	local added_count = 0
+	
+	-- Find lights that don't have updaters
+	for light_id, light in pairs(all_discovered_lights) do
+		if not known_lights[light_id] then
+			missing_count = missing_count + 1
+			
+			-- Try to add this light using emergency positioning
+			local was_emergency_enabled = emergencymode:GetBool()
+			emergencymode:SetBool(true) -- Temporarily enable emergency mode
+			
+			local success = AddLight(light)
+			if success then
+				added_count = added_count + 1
+			end
+			
+			-- Restore original emergency mode setting
+			emergencymode:SetBool(was_emergency_enabled)
+		end
+	end
+	
+	if debugconsole:GetBool() then
+		print("[RTX Light Updater] Found " .. missing_count .. " lights without updaters")
+		print("[RTX Light Updater] Successfully added " .. added_count .. " emergency updaters")
+		if added_count < missing_count then
+			print("[RTX Light Updater] " .. (missing_count - added_count) .. " lights still failed emergency positioning")
+		end
+	end
+end
+
 -- Register console command
 concommand.Add("rtx_lightupdater_force_move_cmd", ForceMoveLightsCommand, nil, "Force recalculate all RTX light updater positions")
+concommand.Add("rtx_lightupdater_add_missing_cmd", AddMissingLightsCommand, nil, "Try to add updaters for lights that don't have them using emergency positioning")
 
 hook.Add( "Think", "RTXReady_PropHashFixer", RTXLightUpdater)
 hook.Add( "HUDPaint", "RTXReady_LightIndicators", DrawLightIndicators)
@@ -995,14 +1188,22 @@ timer.Simple(1, function()
 		print("RTX Light Updater Loaded")
 		print("======================================")
 		print("Commands:")
-		print("  rtx_lightupdater 0/1              - Enable/disable system")
-		print("  rtx_lightupdater_show 0/1         - Show/hide visual indicators")
-		print("  rtx_lightupdater_debug 0/1        - Show/hide debug text")
-		print("  rtx_lightupdater_debug_moved 0/1  - Show moved position debug")
+		print("  rtx_lightupdater 0/1               - Enable/disable system")
+		print("  rtx_lightupdater_show 0/1          - Show/hide visual indicators")
+		print("  rtx_lightupdater_debug 0/1         - Show/hide debug text")
+		print("  rtx_lightupdater_debug_moved 0/1   - Show moved position debug")
 		print("  rtx_lightupdater_debug_missing 0/1 - Show lights without updaters")
+		print("  rtx_lightupdater_emergency_mode 0/1 - Enable emergency positioning")
 		print("  rtx_lightupdater_debug_console 0/1 - Enable/disable console output")
-		print("  rtx_lightupdater_force_move 1     - Force recalculate all positions")
-		print("  rtx_lightupdater_force_move_cmd   - Same as above (command)")
+		print("  rtx_lightupdater_force_move 1      - Force recalculate all positions")
+		print("  rtx_lightupdater_force_move_cmd    - Same as above (command)")
+		print("  rtx_lightupdater_add_missing_cmd   - Add updaters for missing lights")
+		print("======================================")
+		print("Visual Legend:")
+		print("  Cyan circles = Normal positioned lights")
+		print("  Orange circles = Moved positioned lights") 
+		print("  Magenta circles = Emergency positioned lights")
+		print("  Red X = Lights without updaters")
 		print("======================================")
 	end
 end)  
