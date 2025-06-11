@@ -365,6 +365,9 @@ local function FindClearPositionSmart(original_pos, light_data)
 	-- Immediately reject if the light itself is in an extreme location
 	if not IsInWorld(light_origin) or not IsPositionReasonable(light_origin, light_origin) then
 		-- Don't create updaters for lights that are themselves out of bounds
+		if debugtext:GetBool() then
+			print("[RTX Light Updater] Rejected light at extreme location: " .. tostring(light_origin))
+		end
 		return nil, false
 	end
 	
@@ -483,7 +486,36 @@ local function FindClearPositionSmart(original_pos, light_data)
 		end
 	end
 	
+	-- Fallback: if all strict validation fails, try more lenient approach
+	-- This ensures we don't lose lights that were previously working
+	if debugtext:GetBool() then
+		print("[RTX Light Updater] Using lenient fallback for light at: " .. tostring(light_origin))
+	end
+	
+	-- Try very simple positioning with minimal validation
+	for _, distance in ipairs({2, 4, 6, 8}) do
+		for _, direction in ipairs(sample_directions) do
+			local test_pos = light_origin + (direction * distance)
+			
+			-- Only check basic world bounds and collision - skip reasonable position check
+			if IsInWorld(test_pos) and not IsPositionBlocked(test_pos) then
+				return test_pos, true
+			end
+		end
+	end
+	
+	-- Final emergency: place at light origin if it's in world (even if not ideal)
+	if IsInWorld(light_origin) then
+		if debugtext:GetBool() then
+			print("[RTX Light Updater] Emergency fallback: placing at light origin")
+		end
+		return light_origin, true
+	end
+	
 	-- Complete failure: don't create an updater for this light
+	if debugtext:GetBool() then
+		print("[RTX Light Updater] Failed to find any valid position for light at: " .. tostring(light_origin))
+	end
 	return nil, false
 end
 
