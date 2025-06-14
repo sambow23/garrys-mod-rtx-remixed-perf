@@ -10,13 +10,16 @@ local eye_cube_alpha = CreateClientConVar("rtx_eye_cube_alpha", "200", true, fal
 local eye_cube_individual = CreateClientConVar("rtx_eye_cube_individual", "1", true, false, "Draw individual left/right eye cubes (1) or single center cube (0)")
 local eye_cube_separation = CreateClientConVar("rtx_eye_cube_separation", "3", true, false, "Distance between individual eye cubes")
 local eye_cube_forward_offset = CreateClientConVar("rtx_eye_cube_forward_offset", "3", true, false, "Forward offset from head bone for eye positioning")
+local eye_cube_right_offset = CreateClientConVar("rtx_eye_cube_right_offset", "0", true, false, "Right offset from head bone for eye positioning")
 local eye_cube_up_offset = CreateClientConVar("rtx_eye_cube_up_offset", "2", true, false, "Up offset from head bone for eye positioning")
 local eye_cube_angle_pitch = CreateClientConVar("rtx_eye_cube_angle_pitch", "0", true, false, "Pitch angle correction for head bone orientation")
 local eye_cube_angle_yaw = CreateClientConVar("rtx_eye_cube_angle_yaw", "-90", true, false, "Yaw angle correction for head bone orientation")
 local eye_cube_angle_roll = CreateClientConVar("rtx_eye_cube_angle_roll", "0", true, false, "Roll angle correction for head bone orientation")
 local eye_cube_bone_priority = CreateClientConVar("rtx_eye_cube_bone_priority", "1", true, false, "Bone priority: 0=Head bone only, 1=Eye bones preferred, 2=Eye bones only")
-local eye_cube_draw_mode = CreateClientConVar("rtx_eye_cube_draw_mode", "0", true, false, "Draw mode: 0=Dev texture cubes, 1=Iris texture, 2=Simple wireframe")
+local eye_cube_draw_mode = CreateClientConVar("rtx_eye_cube_draw_mode", "0", true, false, "Draw mode: 0=Dev texture cubes, 1=Generic iris, 2=Model eyeball, 3=Simple wireframe")
 local eye_cube_iris_size = CreateClientConVar("rtx_eye_cube_iris_size", "1.5", true, false, "Size multiplier for iris texture")
+local eye_cube_auto_detect = CreateClientConVar("rtx_eye_cube_auto_detect", "1", true, false, "Auto-detect model eyeball materials")
+local eye_cube_prefer_iris = CreateClientConVar("rtx_eye_cube_prefer_iris", "1", true, false, "Prefer $iris texture over full eyeball texture when available")
 
 -- Function to check if an entity should have eye cubes drawn
 local function ShouldDrawEyeCube(ent)
@@ -39,6 +42,214 @@ end
 local devTextureMaterial = Material("dev/dev_measuregeneric01")
 local irisMaterial = Material("models/alyx/eyeball_l") -- Common Source engine iris texture
 local wireframeMaterial = Material("models/wireframe")
+
+-- Cache for model eyeball materials
+local modelEyeballCache = {}
+
+-- Cache for created iris materials
+local irisMatCache = {}
+
+-- Cache for original eyeball materials (for restoration)
+local originalEyeballMaterials = {}
+
+-- Cache for eyeball material indices
+local eyeballMaterialIndices = {}
+
+-- Function to extract $iris texture from a material and create a VertexLitGeneric version
+local function GetIrisTextureFromMaterial(material)
+    if not material or material:IsError() then return nil end
+    
+    -- Try to get the $iris parameter from the material
+    local irisTexture = material:GetString("$iris")
+    if irisTexture and irisTexture ~= "" then
+        -- Check cache first
+        if irisMatCache[irisTexture] then
+            return irisMatCache[irisTexture]
+        end
+        
+        -- Create a new VertexLitGeneric material using the iris texture
+        local irisMatName = "rtx_eye_iris_" .. string.gsub(irisTexture, "[^%w]", "_")
+        local irisMat = CreateMaterial(irisMatName, "VertexLitGeneric", {
+            ["$basetexture"] = irisTexture,
+            ["$model"] = 1,
+            ["$nocull"] = 1,
+            ["$halflambert"] = 1,
+            ["$nodecal"] = 1
+        })
+        
+        if irisMat and not irisMat:IsError() then
+            -- Cache the created material
+            irisMatCache[irisTexture] = irisMat
+            return irisMat
+        end
+    end
+    
+    return nil
+end
+
+-- Function to detect eyeball materials from a model
+local function GetModelEyeballMaterial(ent)
+    if not IsValid(ent) then return nil, nil end
+    
+    local model = ent:GetModel()
+    if not model then return nil, nil end
+    
+    -- Check cache first
+    if modelEyeballCache[model] then
+        return modelEyeballCache[model].eyeball, modelEyeballCache[model].iris
+    end
+    
+    -- Common eyeball material name patterns
+    local eyePatterns = {
+        "eye", "eyeball", "iris", "pupil", "cornea",
+        "eye_l", "eye_r", "eyeball_l", "eyeball_r",
+        "left_eye", "right_eye", "lefteye", "righteye"
+    }
+    
+    -- Get all materials from the model
+    local materials = ent:GetMaterials()
+    local foundEyeMaterial = nil
+    local foundIrisMaterial = nil
+    
+    for _, materialPath in ipairs(materials) do
+        local materialName = string.lower(materialPath)
+        
+        -- Check if material name contains eye-related keywords
+        for _, pattern in ipairs(eyePatterns) do
+            if string.find(materialName, pattern, 1, true) then
+                -- Try to load the material
+                local mat = Material(materialPath)
+                if mat and not mat:IsError() then
+                    foundEyeMaterial = mat
+                    
+                    -- Try to extract $iris texture from this material
+                    foundIrisMaterial = GetIrisTextureFromMaterial(mat)
+                    
+                    break
+                end
+            end
+        end
+        
+        if foundEyeMaterial then break end
+    end
+    
+    -- If no specific eye material found, try to find any material with "models/" prefix
+    if not foundEyeMaterial then
+        for _, materialPath in ipairs(materials) do
+            if string.StartWith(string.lower(materialPath), "models/") then
+                local mat = Material(materialPath)
+                if mat and not mat:IsError() then
+                    -- Use the first valid model material as fallback
+                    foundEyeMaterial = mat
+                    
+                    -- Still try to extract $iris texture
+                    foundIrisMaterial = GetIrisTextureFromMaterial(mat)
+                    
+                    break
+                end
+            end
+        end
+    end
+    
+    -- Cache the result (even if nil)
+    modelEyeballCache[model] = {
+        eyeball = foundEyeMaterial,
+        iris = foundIrisMaterial
+    }
+    
+    return foundEyeMaterial, foundIrisMaterial
+end
+
+-- Function to find eyeball material indices on a model
+local function GetEyeballMaterialIndices(ent)
+    if not IsValid(ent) then return {} end
+    
+    local model = ent:GetModel()
+    if not model then return {} end
+    
+    -- Check cache first
+    if eyeballMaterialIndices[model] then
+        return eyeballMaterialIndices[model]
+    end
+    
+    local indices = {}
+    local materials = ent:GetMaterials()
+    
+    -- Common eyeball material name patterns
+    local eyePatterns = {
+        "eye", "eyeball", "iris", "pupil", "cornea",
+        "eye_l", "eye_r", "eyeball_l", "eyeball_r",
+        "left_eye", "right_eye", "lefteye", "righteye"
+    }
+    
+    for i, materialPath in ipairs(materials) do
+        local materialName = string.lower(materialPath)
+        
+        -- Check if material name contains eye-related keywords
+        for _, pattern in ipairs(eyePatterns) do
+            if string.find(materialName, pattern, 1, true) then
+                -- Store the material index (0-based for SetSubMaterial)
+                table.insert(indices, i - 1)
+                break
+            end
+        end
+    end
+    
+    -- Cache the result
+    eyeballMaterialIndices[model] = indices
+    
+    return indices
+end
+
+-- Function to apply iris texture to model's eyeball materials
+local function ApplyIrisToModelEyeball(ent)
+    if not IsValid(ent) then return end
+    
+    local model = ent:GetModel()
+    if not model then return end
+    
+    -- Get the iris material to apply
+    local eyeballMat, irisMat = GetModelEyeballMaterial(ent)
+    local materialToUse = nil
+    
+    if eye_cube_prefer_iris:GetBool() and irisMat then
+        materialToUse = irisMat
+    elseif eyeballMat then
+        materialToUse = eyeballMat
+    else
+        materialToUse = irisMaterial -- Fallback to generic iris
+    end
+    
+    -- Get eyeball material indices
+    local indices = GetEyeballMaterialIndices(ent)
+    
+    if #indices > 0 then
+        -- Store original materials if not already stored
+        if not originalEyeballMaterials[ent] then
+            originalEyeballMaterials[ent] = {}
+            for _, index in ipairs(indices) do
+                originalEyeballMaterials[ent][index] = ent:GetSubMaterial(index)
+            end
+        end
+        
+        -- Apply iris material to all eyeball submaterials
+        for _, index in ipairs(indices) do
+            ent:SetSubMaterial(index, materialToUse:GetName())
+        end
+    end
+end
+
+-- Function to restore original eyeball materials
+local function RestoreOriginalEyeballMaterials(ent)
+    if not IsValid(ent) then return end
+    
+    if originalEyeballMaterials[ent] then
+        for index, originalMaterial in pairs(originalEyeballMaterials[ent]) do
+            ent:SetSubMaterial(index, originalMaterial)
+        end
+        originalEyeballMaterials[ent] = nil
+    end
+end
 
 -- Function to draw a solid cube with dev texture
 local function DrawDevTextureCube(pos, ang, size, color)
@@ -103,6 +314,55 @@ local function DrawIrisTexture(pos, ang, size, color)
     render.SetBlend(1)
 end
 
+-- Function to draw model's eyeball texture
+local function DrawModelEyeball(ent, pos, ang, size, color)
+    local eyeballMaterial = nil
+    local irisMat = nil
+    
+    if eye_cube_auto_detect:GetBool() then
+        eyeballMaterial, irisMat = GetModelEyeballMaterial(ent)
+    end
+    
+    -- Choose which material to use based on preference and availability
+    local materialToUse = nil
+    if eye_cube_prefer_iris:GetBool() and irisMat then
+        -- Prefer $iris texture if available and preference is set
+        materialToUse = irisMat
+    elseif eyeballMaterial then
+        -- Use full eyeball material
+        materialToUse = eyeballMaterial
+    else
+        -- Fallback to generic iris
+        materialToUse = irisMaterial
+    end
+    
+    local irisSize = size * eye_cube_iris_size:GetFloat()
+    
+    -- Set up rendering
+    render.SetMaterial(materialToUse)
+    render.SetColorModulation(color.r / 255, color.g / 255, color.b / 255)
+    render.SetBlend(color.a / 255)
+    
+    -- Draw a quad facing the forward direction
+    local forward = ang:Forward()
+    local right = ang:Right()
+    local up = ang:Up()
+    
+    -- Create eyeball quad vertices
+    local halfSize = irisSize * 0.5
+    local v1 = pos - right * halfSize - up * halfSize
+    local v2 = pos + right * halfSize - up * halfSize
+    local v3 = pos + right * halfSize + up * halfSize
+    local v4 = pos - right * halfSize + up * halfSize
+    
+    -- Draw the eyeball as a textured quad
+    render.DrawQuad(v1, v2, v3, v4)
+    
+    -- Reset render state
+    render.SetColorModulation(1, 1, 1)
+    render.SetBlend(1)
+end
+
 -- Function to draw simple wireframe (more stable, less visual noise)
 local function DrawSimpleWireframe(pos, ang, size, color)
     -- Draw a simple cross pattern
@@ -120,12 +380,14 @@ local function DrawSimpleWireframe(pos, ang, size, color)
 end
 
 -- Universal drawing function that chooses the appropriate method
-local function DrawEyeIndicator(pos, ang, size, color)
+local function DrawEyeIndicator(ent, pos, ang, size, color)
     local drawMode = eye_cube_draw_mode:GetInt()
     
     if drawMode == 1 then
         DrawIrisTexture(pos, ang, size, color)
     elseif drawMode == 2 then
+        DrawModelEyeball(ent, pos, ang, size, color)
+    elseif drawMode == 3 then
         DrawSimpleWireframe(pos, ang, size, color)
     else
         DrawDevTextureCube(pos, ang, size, color)
@@ -153,38 +415,48 @@ local function GetIndividualEyePositions(ent, centerPos, eyeAngles)
     if leftEyeAttach and leftEyeAttach > 0 then
         local leftAttachData = ent:GetAttachment(leftEyeAttach)
         if leftAttachData then
-            leftEyePos = leftAttachData.Pos
-            actualEyeAngles = leftAttachData.Ang
+            -- Apply angle corrections first
+            local pitchCorrection = eye_cube_angle_pitch:GetFloat()
+            local yawCorrection = eye_cube_angle_yaw:GetFloat()
+            local rollCorrection = eye_cube_angle_roll:GetFloat()
+            actualEyeAngles = Angle(leftAttachData.Ang.p + pitchCorrection, leftAttachData.Ang.y + yawCorrection, leftAttachData.Ang.r + rollCorrection)
+            
+            -- Apply position offsets to attachment position
+            local forwardOffset = eye_cube_forward_offset:GetFloat()
+            local rightOffset = eye_cube_right_offset:GetFloat()
+            local upOffset = eye_cube_up_offset:GetFloat()
+            
+            local forward = actualEyeAngles:Forward()
+            local right = actualEyeAngles:Right()
+            local up = actualEyeAngles:Up()
+            
+            local positionOffset = forward * forwardOffset + right * rightOffset + up * upOffset
+            leftEyePos = leftAttachData.Pos + positionOffset
             
             -- If we have right eye attachment too, use it
             if rightEyeAttach and rightEyeAttach > 0 then
                 local rightAttachData = ent:GetAttachment(rightEyeAttach)
                 if rightAttachData then
-                    rightEyePos = rightAttachData.Pos
+                    -- Apply same corrections to right eye
+                    local rightCorrectedAng = Angle(rightAttachData.Ang.p + pitchCorrection, rightAttachData.Ang.y + yawCorrection, rightAttachData.Ang.r + rollCorrection)
+                    rightEyePos = rightAttachData.Pos + positionOffset
+                    
                     -- Average the angles from both attachments
                     actualEyeAngles = Angle(
-                        (leftAttachData.Ang.p + rightAttachData.Ang.p) * 0.5,
-                        (leftAttachData.Ang.y + rightAttachData.Ang.y) * 0.5,
-                        (leftAttachData.Ang.r + rightAttachData.Ang.r) * 0.5
+                        (actualEyeAngles.p + rightCorrectedAng.p) * 0.5,
+                        (actualEyeAngles.y + rightCorrectedAng.y) * 0.5,
+                        (actualEyeAngles.r + rightCorrectedAng.r) * 0.5
                     )
                 else
                     -- Calculate right eye from left eye position
                     local separation = eye_cube_separation:GetFloat()
-                    local right = actualEyeAngles:Right()
                     rightEyePos = leftEyePos + right * separation
                 end
             else
                 -- Calculate right eye from left eye position
                 local separation = eye_cube_separation:GetFloat()
-                local right = actualEyeAngles:Right()
                 rightEyePos = leftEyePos + right * separation
             end
-            
-            -- Apply angle corrections to attachment angles
-            local pitchCorrection = eye_cube_angle_pitch:GetFloat()
-            local yawCorrection = eye_cube_angle_yaw:GetFloat()
-            local rollCorrection = eye_cube_angle_roll:GetFloat()
-            actualEyeAngles = Angle(actualEyeAngles.p + pitchCorrection, actualEyeAngles.y + yawCorrection, actualEyeAngles.r + rollCorrection)
             
             return leftEyePos, rightEyePos, actualEyeAngles
         end
@@ -208,8 +480,6 @@ local function GetIndividualEyePositions(ent, centerPos, eyeAngles)
                 
                 if leftEyeAng and rightEyeAng then
                     -- Use eye bone positions and their own corrected angles for maximum stability
-                    leftEyePos = leftEyePos_temp
-                    rightEyePos = rightEyePos_temp
                     -- Use the average of left and right eye angles, corrected
                     local avgEyeAng = Angle(
                         (leftEyeAng.p + rightEyeAng.p) * 0.5,
@@ -217,10 +487,33 @@ local function GetIndividualEyePositions(ent, centerPos, eyeAngles)
                         (leftEyeAng.r + rightEyeAng.r) * 0.5
                     )
                     actualEyeAngles = Angle(avgEyeAng.p + pitchCorrection, avgEyeAng.y + yawCorrection, avgEyeAng.r + rollCorrection)
+                    
+                    -- Apply position offsets to eye bone positions
+                    local forwardOffset = eye_cube_forward_offset:GetFloat()
+                    local rightOffset = eye_cube_right_offset:GetFloat()
+                    local upOffset = eye_cube_up_offset:GetFloat()
+                    
+                    local forward = actualEyeAngles:Forward()
+                    local right = actualEyeAngles:Right()
+                    local up = actualEyeAngles:Up()
+                    
+                    local positionOffset = forward * forwardOffset + right * rightOffset + up * upOffset
+                    leftEyePos = leftEyePos_temp + positionOffset
+                    rightEyePos = rightEyePos_temp + positionOffset
                 else
                     -- Fallback: use eye bone positions with head bone angles
-                    leftEyePos = leftEyePos_temp
-                    rightEyePos = rightEyePos_temp
+                    -- Apply position offsets to eye bone positions
+                    local forwardOffset = eye_cube_forward_offset:GetFloat()
+                    local rightOffset = eye_cube_right_offset:GetFloat()
+                    local upOffset = eye_cube_up_offset:GetFloat()
+                    
+                    local forward = correctedAng:Forward()
+                    local right = correctedAng:Right()
+                    local up = correctedAng:Up()
+                    
+                    local positionOffset = forward * forwardOffset + right * rightOffset + up * upOffset
+                    leftEyePos = leftEyePos_temp + positionOffset
+                    rightEyePos = rightEyePos_temp + positionOffset
                     actualEyeAngles = correctedAng
                 end
             else
@@ -258,7 +551,13 @@ end
 
 -- Main drawing function
 local function DrawEyeCubes()
-    if not eye_cube_enabled:GetBool() then return end
+    if not eye_cube_enabled:GetBool() then 
+        -- Restore all materials when disabled
+        for ent, _ in pairs(originalEyeballMaterials) do
+            RestoreOriginalEyeballMaterials(ent)
+        end
+        return 
+    end
     
     local size = eye_cube_size:GetFloat()
     local drawIndividual = eye_cube_individual:GetBool()
@@ -284,11 +583,11 @@ local function DrawEyeCubes()
                     
                     -- Left eye (slightly blue tinted)
                     local leftColor = Color(baseColor.r, baseColor.g, math.min(255, baseColor.b + 50), baseColor.a)
-                    DrawEyeIndicator(leftEyePos, actualEyeAngles, size * 0.8, leftColor)
+                    DrawEyeIndicator(ent, leftEyePos, actualEyeAngles, size * 0.8, leftColor)
                     
                     -- Right eye (slightly red tinted)
                     local rightColor = Color(math.min(255, baseColor.r + 50), baseColor.g, baseColor.b, baseColor.a)
-                    DrawEyeIndicator(rightEyePos, actualEyeAngles, size * 0.8, rightColor)
+                    DrawEyeIndicator(ent, rightEyePos, actualEyeAngles, size * 0.8, rightColor)
                     
                     -- Draw direction lines from both eyes using actual eye angles
                     local forward = actualEyeAngles:Forward()
@@ -314,7 +613,7 @@ local function DrawEyeCubes()
                     end
                     
                     -- Draw single center indicator with head bone angles
-                    DrawEyeIndicator(eyePos, actualAngles, size, baseColor)
+                    DrawEyeIndicator(ent, eyePos, actualAngles, size, baseColor)
                     
                     -- Draw direction line
                     local forward = actualAngles:Forward()
@@ -326,10 +625,24 @@ local function DrawEyeCubes()
             end
         end
     end
+    
+    -- Clean up materials for entities that no longer should have eye cubes or are invalid
+    for ent, _ in pairs(originalEyeballMaterials) do
+        if not IsValid(ent) or not ShouldDrawEyeCube(ent) then
+            RestoreOriginalEyeballMaterials(ent)
+        end
+    end
 end
 
 -- Hook into the 3D rendering
 hook.Add("PostDrawOpaqueRenderables", "DrawEyeCubes", DrawEyeCubes)
+
+-- Clean up materials when shutting down
+hook.Add("ShutDown", "EyeCubeCleanup", function()
+    for ent, _ in pairs(originalEyeballMaterials) do
+        RestoreOriginalEyeballMaterials(ent)
+    end
+end)
 
 -- Console commands for easy control
 concommand.Add("rtx_eye_cube_toggle", function()
@@ -403,12 +716,43 @@ local function CreateEyeCubePanel()
     drawModeCombo:SetPos(100, y)
     drawModeCombo:SetSize(200, 20)
     drawModeCombo:AddChoice("Dev Texture Cubes", 0)
-    drawModeCombo:AddChoice("Iris Texture", 1)
-    drawModeCombo:AddChoice("Simple Wireframe", 2)
+    drawModeCombo:AddChoice("Generic Iris", 1)
+    drawModeCombo:AddChoice("Model Eyeball", 2)
+    drawModeCombo:AddChoice("Simple Wireframe", 3)
     drawModeCombo:ChooseOptionID(eye_cube_draw_mode:GetInt() + 1)
     drawModeCombo.OnSelect = function(self, index, value, data)
         RunConsoleCommand("rtx_eye_cube_draw_mode", tostring(data))
     end
+    
+    y = y + 30
+    
+    -- Auto-detect checkbox
+    local autoDetectCheck = vgui.Create("DCheckBox", frame)
+    autoDetectCheck:SetPos(20, y)
+    autoDetectCheck:SetValue(eye_cube_auto_detect:GetBool())
+    autoDetectCheck.OnChange = function(self, val)
+        RunConsoleCommand("rtx_eye_cube_auto_detect", val and "1" or "0")
+    end
+    
+    local autoDetectLabel = vgui.Create("DLabel", frame)
+    autoDetectLabel:SetPos(45, y)
+    autoDetectLabel:SetText("Auto-detect Model Eyeball Materials")
+    autoDetectLabel:SizeToContents()
+    
+    y = y + 30
+    
+    -- Prefer iris checkbox
+    local preferIrisCheck = vgui.Create("DCheckBox", frame)
+    preferIrisCheck:SetPos(20, y)
+    preferIrisCheck:SetValue(eye_cube_prefer_iris:GetBool())
+    preferIrisCheck.OnChange = function(self, val)
+        RunConsoleCommand("rtx_eye_cube_prefer_iris", val and "1" or "0")
+    end
+    
+    local preferIrisLabel = vgui.Create("DLabel", frame)
+    preferIrisLabel:SetPos(45, y)
+    preferIrisLabel:SetText("Prefer $iris Texture (VMT Parameter)")
+    preferIrisLabel:SizeToContents()
     
     y = y + 40
     
@@ -445,6 +789,9 @@ local function CreateEyeCubePanel()
     
     -- Forward offset slider
     CreateSlider(frame, "Forward Offset:", eye_cube_forward_offset, -5, 10, 1)
+    
+    -- Right offset slider
+    CreateSlider(frame, "Right Offset:", eye_cube_right_offset, -5, 10, 1)
     
     -- Up offset slider
     CreateSlider(frame, "Up Offset:", eye_cube_up_offset, -5, 10, 1)
@@ -486,12 +833,15 @@ local function CreateEyeCubePanel()
         RunConsoleCommand("rtx_eye_cube_size", "2")
         RunConsoleCommand("rtx_eye_cube_separation", "3")
         RunConsoleCommand("rtx_eye_cube_forward_offset", "3")
+        RunConsoleCommand("rtx_eye_cube_right_offset", "0")
         RunConsoleCommand("rtx_eye_cube_up_offset", "2")
         RunConsoleCommand("rtx_eye_cube_angle_pitch", "0")
         RunConsoleCommand("rtx_eye_cube_angle_yaw", "-90")
         RunConsoleCommand("rtx_eye_cube_angle_roll", "0")
         RunConsoleCommand("rtx_eye_cube_draw_mode", "0")
         RunConsoleCommand("rtx_eye_cube_iris_size", "1.5")
+        RunConsoleCommand("rtx_eye_cube_auto_detect", "1")
+        RunConsoleCommand("rtx_eye_cube_prefer_iris", "1")
         RunConsoleCommand("rtx_eye_cube_bone_priority", "1")
         RunConsoleCommand("rtx_eye_cube_color_r", "255")
         RunConsoleCommand("rtx_eye_cube_color_g", "0")
@@ -602,6 +952,38 @@ concommand.Add("rtx_eye_cube_debug", function(ply, cmd, args)
         local bonePriority = eye_cube_bone_priority:GetInt()
         local priorityText = bonePriority == 0 and "Head bone only" or (bonePriority == 1 and "Eye bones preferred" or "Eye bones only")
         chat.AddText(Color(200, 200, 100), "[Eye Cube Debug] ", Color(255, 255, 255), "Bone priority: " .. priorityText)
+        
+        -- Show material detection info
+        if eye_cube_auto_detect:GetBool() then
+            local eyeballMat, irisMat = GetModelEyeballMaterial(ent)
+            if eyeballMat then
+                chat.AddText(Color(100, 255, 100), "[Eye Cube Debug] ", Color(255, 255, 255), "Detected eyeball material: Found")
+                
+                if irisMat then
+                    chat.AddText(Color(100, 255, 100), "[Eye Cube Debug] ", Color(255, 255, 255), "Detected $iris texture: Found (VertexLitGeneric)")
+                    local preferIris = eye_cube_prefer_iris:GetBool()
+                    chat.AddText(Color(150, 150, 255), "[Eye Cube Debug] ", Color(255, 255, 255), "Using: " .. (preferIris and "$iris texture (VertexLitGeneric)" or "Full eyeball material"))
+                else
+                    chat.AddText(Color(255, 200, 100), "[Eye Cube Debug] ", Color(255, 255, 255), "No $iris texture found in VMT")
+                end
+            else
+                chat.AddText(Color(255, 200, 100), "[Eye Cube Debug] ", Color(255, 255, 255), "No eyeball material detected")
+            end
+            
+            -- Show all materials for reference
+            local materials = ent:GetMaterials()
+            chat.AddText(Color(150, 150, 255), "[Eye Cube Debug] ", Color(255, 255, 255), "Model materials (" .. #materials .. "):")
+            for i, mat in ipairs(materials) do
+                if i <= 5 then -- Show first 5 materials
+                    chat.AddText(Color(200, 200, 200), "  " .. i .. ": " .. mat)
+                elseif i == 6 then
+                    chat.AddText(Color(200, 200, 200), "  ... and " .. (#materials - 5) .. " more")
+                    break
+                end
+            end
+        else
+            chat.AddText(Color(255, 200, 100), "[Eye Cube Debug] ", Color(255, 255, 255), "Auto-detect disabled")
+        end
         
         -- List some bones for reference
         chat.AddText(Color(150, 150, 255), "[Eye Cube Debug] ", Color(255, 255, 255), "Bone count: " .. ent:GetBoneCount())
