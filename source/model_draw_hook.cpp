@@ -7,7 +7,7 @@
 
 // Global control variable (kept for backwards compatibility, but ConVar takes precedence)
 static bool g_forceStaticLighting = true;
-static bool g_hookEnabled = false; // Temporarily disable hook to prevent crashes
+static bool g_hookEnabled = false; // Temporarily disable hook modifications to test basic hooking
 
 // Function to toggle the static lighting from external code
 void SetForceStaticLighting(bool enable) {
@@ -35,24 +35,7 @@ void SetModelDrawHookEnabled(bool enable) {
     Msg("[RTXF2 - ModelDrawHook] Hook %s\n", enable ? "enabled" : "disabled");
 }
 
-// Based on Source SDK and IDA analysis
-// This is the actual DrawModelInfo_t structure used by the engine
-struct DrawModelInfo_t {
-    void* m_pStudioHdr;         // studiohdr_t*
-    void* m_pHardwareData;      // studiohwdata_t*
-    void* m_pStudioMeshes;      // void*
-    void* m_pClientEntity;      // IClientRenderable*
-    void* m_Decals;             // void*
-    int m_Skin;
-    int m_Body;
-    int m_HitboxSet;
-    void* m_pClientRenderable;  // IClientRenderable*
-    int m_LOD;
-    void* m_pColorMeshes;       // ColorMeshInfo_t*
-    bool m_bStaticLighting;
-    int m_DrawFlags;            // This is where the STUDIO_* flags are stored
-    // ... potentially more fields, but these are the main ones
-};
+
 
 // Alternative approach: Since we're hooking at the vtable level, 
 // we might not need the exact structure - just match the calling convention
@@ -64,11 +47,11 @@ struct DrawModelInfo_t {
 // where pInfo is the structure pointer passed in rdx
 
 // Hook for the main DrawModel function
-// Based on IDA analysis: vtable offset 0x88 (index 17)
+// Based on IDA analysis: vtable offset 0x90 (index 18)
 // The actual calling convention from the disassembly:
 // this->DrawModel(DrawModelInfo_t* pInfo)
 Define_method_Hook(int, StudioRender_DrawModel, void*,
-    DrawModelInfo_t* pInfo)     // The DrawModelInfo structure (rdx in calling convention)
+    DrawModelInfo_Internal_t* pInfo)     // The DrawModelInfo structure (rdx in calling convention)
 {
     // Log the call for debugging
     static int callCount = 0;
@@ -84,7 +67,7 @@ Define_method_Hook(int, StudioRender_DrawModel, void*,
     }
 
     // Safety check: validate the pointer before accessing it
-    if (!pInfo || IsBadReadPtr(pInfo, sizeof(DrawModelInfo_t))) {
+    if (!pInfo || IsBadReadPtr(pInfo, sizeof(DrawModelInfo_Internal_t))) {
         Warning("[RTXF2] Invalid pInfo pointer: 0x%p, calling original function\n", pInfo);
         return StudioRender_DrawModel_trampoline()(_this, pInfo);
     }
@@ -99,18 +82,32 @@ Define_method_Hook(int, StudioRender_DrawModel, void*,
     if (GetForceStaticLighting()) {
         // Try to safely access the structure
         __try {
+            // First, let's validate that we can read the flags field safely
+            if (IsBadReadPtr(&pInfo->m_DrawFlags, sizeof(int))) {
+                Warning("[RTXF2] Cannot read flags field at offset 0x40, calling original function\n");
+                return StudioRender_DrawModel_trampoline()(_this, pInfo);
+            }
+            
+            // Check if we can write to the flags field
+            if (IsBadWritePtr(&pInfo->m_DrawFlags, sizeof(int))) {
+                Warning("[RTXF2] Cannot write to flags field at offset 0x40, calling original function\n");
+                return StudioRender_DrawModel_trampoline()(_this, pInfo);
+            }
+            
+            // Instead of copying the structure, temporarily modify the flags directly
             int originalFlags = pInfo->m_DrawFlags;
             pInfo->m_DrawFlags |= 0x10; // STUDIO_STATIC_LIGHTING
             
-            // Call original function
+            if (callCount <= 5) {
+                Msg("[RTXF2] Modified flags: 0x%X -> 0x%X (at offset 0x40)\n", originalFlags, pInfo->m_DrawFlags);
+                Msg("[RTXF2] Structure base: 0x%p, flags address: 0x%p\n", pInfo, &pInfo->m_DrawFlags);
+            }
+            
+            // Call original function with modified flags
             int result = StudioRender_DrawModel_trampoline()(_this, pInfo);
             
-            // Restore original flags (good practice)
+            // Restore original flags immediately after the call
             pInfo->m_DrawFlags = originalFlags;
-            
-            if (callCount <= 5) {
-                Msg("[RTXF2] Successfully modified flags: 0x%X -> 0x%X\n", originalFlags, originalFlags | 0x10);
-            }
             
             return result;
         }
@@ -157,15 +154,19 @@ void ModelDrawHook::Initialize() {
         Msg("[RTXF2 - ModelDrawHook] Found engine.dll at 0x%p\n", engineModule);
 
         // Pattern to find the studio render interface pointer
-        // This pattern looks for: mov rcx, cs:qword_180DBB608
-        Msg("[RTXF2 - ModelDrawHook] Searching for studio render interface pattern...\n");
+        // This pattern looks for the sequence in CStaticProp::DrawModel that calls the interface
+        // 48 8B 0D ? ? ? ? = mov rcx, cs:off_1804B5D18
+        // 48 8D 54 24 ?    = lea rdx, [rsp+var_68] 
+        // 48 8B 01         = mov rax, [rcx]
+        // FF 90 90 00 00 00 = call qword ptr [rax+90h]
+        Msg("[RTXF2 - ModelDrawHook] Searching for CStaticProp::DrawModel interface pattern...\n");
         void* studioRenderPtrPattern = g_MemoryPatcher.FindPatternWildcard(
             engineModule, 
-            "48 8B 0D ? ? ? ? 48 8B 01 FF 90 F8 00 00 00"
+            "48 8B 0D ? ? ? ? 48 8D 54 24 ? 48 8B 01 FF 90 90 00 00 00"
         );
 
         if (!studioRenderPtrPattern) {
-            Warning("[RTXF2 - ModelDrawHook] Failed to find studio render interface pattern\n");
+            Warning("[RTXF2 - ModelDrawHook] Failed to find CStaticProp::DrawModel interface pattern\n");
             // Try alternative approach - for now just mark as initialized so Lua functions work
             m_bInitialized = true;
             Msg("[RTXF2 - ModelDrawHook] Marked as initialized (pattern search failed, but Lua functions will work)\n");
