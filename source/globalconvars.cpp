@@ -1,8 +1,9 @@
- 
-#include "convar.h"
+#include "tier1/convar.h"
 #include <GarrysMod/FactoryLoader.hpp>
 #include <GarrysMod/Lua/LuaShared.h>
 #include <GarrysMod/Lua/LuaConVars.h>
+#include <tier0/dbg.h>
+#include "interfaces/interfaces.h"
 #include "globalconvars.h"
 
 static SourceSDK::FactoryLoader loader_lua_shared("lua_shared");
@@ -13,6 +14,7 @@ ConVar* GlobalConvars::r_forcenovis;
 ConVar* GlobalConvars::c_frustumcull;
 ConVar* GlobalConvars::r_worldnodenocull;
 ConVar* GlobalConvars::r_forcehwlight;
+ConVar* GlobalConvars::rtx_force_static_lighting;
 void GlobalConvars::InitialiseConVars() {
 	m_pLuaConVars = loader_lua_shared.GetInterface<GarrysMod::Lua::ILuaConVars>(GMOD_LUACONVARS_INTERFACE);
 	if (!m_pLuaConVars) {
@@ -39,7 +41,12 @@ void GlobalConvars::InitialiseConVars() {
 
 
 	r_forcehwlight = m_pLuaConVars->CreateConVar("r_forcehwlight", "0", "Force LIGHTING_HARDWARE", FCVAR_ARCHIVE);
-	if (!r_worldnodenocull) { r_forcehwlight = cvar->FindVar("r_forcehwlight"); }
-	if (!r_worldnodenocull) { Error("[RTX Fixes 2] Failed to create r_forcehwlight convar\n"); }
+	if (!r_forcehwlight) { r_forcehwlight = cvar->FindVar("r_forcehwlight"); }
+	if (!r_forcehwlight) { Error("[RTX Fixes 2] Failed to create r_forcehwlight convar\n"); }
 	else { Msg("[RTX Fixes 2] r_forcehwlight convar created\n"); }
+
+	rtx_force_static_lighting = m_pLuaConVars->CreateConVar("rtx_force_static_lighting", "1", "Force all models to use static lighting for RTX", FCVAR_ARCHIVE);
+	if (!rtx_force_static_lighting) { rtx_force_static_lighting = cvar->FindVar("rtx_force_static_lighting"); }
+	if (!rtx_force_static_lighting) { Error("[RTX Fixes 2] Failed to create rtx_force_static_lighting convar\n"); }
+	else { Msg("[RTX Fixes 2] rtx_force_static_lighting convar created\n"); }
 }

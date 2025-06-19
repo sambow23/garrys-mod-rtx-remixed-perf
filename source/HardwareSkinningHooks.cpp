@@ -1,4 +1,3 @@
-
 //#define HWSKIN_PATCHES
 
 #ifdef HWSKIN_PATCHES
@@ -245,22 +244,16 @@ void HardwareSkinningHooks::Initialize() {
         }
         g_pHardwareConfig = (IMaterialSystemHardwareConfig*)createInterface(MATERIALSYSTEM_HARDWARECONFIG_INTERFACE_VERSION, nullptr);
 
-        createInterface = (CreateInterfaceFn)GetProcAddress(shaderapidx9dll, "CreateInterface");
-        if (!createInterface) {
-            Warning("[RTXF2] - Could not get CreateInterface from shaderapidx9.dll\n");
-            return;
-        }
-        //**(IDirect3DDevice9***)(((DWORD_PTR**)CreateInterface("ShaderDevice001", NULL))[0][5] + 2);
-		m_pD3DDevice = **(IDirect3DDevice9***)(((DWORD_PTR**)createInterface("ShaderDevice001", NULL))[0][5] + 2);
+		m_pD3DDevice = (IDirect3DDevice9*)FindD3D9Device();
 #endif
 
 
 
 		// Define signature patterns for the functions we need to hook, copilot wanted to autocomplete these so i let it lmao, Still have yet to actually find the signatures
 #ifdef _WIN64
-        static const char StudioDrawGroupHWSkin_sign[] = "48 89 5C 24 ?? 48 89 74 24 ?? 57 48 83 EC 30 48 8B 01";
-        static const char StudioBuildMeshGroup_sign[] = "40 53 55 56 57 41 54 41 55 41 56 41 57 48 83 EC 68";
-        static const char StudioRenderFinal_sign[] = "40 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24";
+        static const char StudioDrawGroupHWSkin_sign[] = "44 0F B7 4B 10 48 8D 15 ?? ?? ?? ?? 44 8B 43 13";
+        static const char StudioBuildMeshGroup_sign[] = "48 8D 15 ?? ?? ?? ?? E8 ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ??";
+        static const char StudioRenderFinal_sign[] = "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20";
         static const char SetFixedFunctionStateSkinningMatrices_sign[] = "40 53 48 83 EC 20 48 8B 81";
 #else   // the 32 bit ones have been done though.
         static const char StudioDrawGroupHWSkin_sign[] = "55 8B EC 83 EC 0C 53 8B 5D ? 56";
@@ -271,9 +264,13 @@ void HardwareSkinningHooks::Initialize() {
 
         // Scan for function addresses
         auto StudioDrawGroupHWSkin_addr = ScanSign(studiorenderdll, StudioDrawGroupHWSkin_sign, sizeof(StudioDrawGroupHWSkin_sign) - 1);
+        Msg("[Hardware Skinning] - StudioDrawGroupHWSkin address: %p\n", StudioDrawGroupHWSkin_addr);
         auto StudioBuildMeshGroup_addr = ScanSign(studiorenderdll, StudioBuildMeshGroup_sign, sizeof(StudioBuildMeshGroup_sign) - 1);
+        Msg("[Hardware Skinning] - StudioBuildMeshGroup address: %p\n", StudioBuildMeshGroup_addr);
         auto StudioRenderFinal_addr = ScanSign(studiorenderdll, StudioRenderFinal_sign, sizeof(StudioRenderFinal_sign) - 1);
+        Msg("[Hardware Skinning] - StudioRenderFinal address: %p\n", StudioRenderFinal_addr);
         auto SetFixedFunctionStateSkinningMatrices_addr = ScanSign(shaderapidx9dll, SetFixedFunctionStateSkinningMatrices_sign, sizeof(SetFixedFunctionStateSkinningMatrices_sign) - 1);
+        Msg("[Hardware Skinning] - SetFixedFunctionStateSkinningMatrices address: %p\n", SetFixedFunctionStateSkinningMatrices_addr);
 
         modelToWorld.SetToIdentity();
 

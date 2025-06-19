@@ -76,3 +76,10 @@ void* ScanSign(const void* handle, const char* sig, size_t len, const void* star
 #define HOOK_SIGN_CHROMIUM_x64(x)
 #define HOOK_SIGN_CHROMIUM_x32(x)
 #endif
+
+#ifdef _WIN64
+#include <windows.h>
+#include <d3d9.h>
+
+void* FindD3D9Device();
+#endif
