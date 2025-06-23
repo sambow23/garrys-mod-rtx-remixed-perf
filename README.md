@@ -13,6 +13,7 @@
     * Allows HL2 RTX mesh replacements to load correctly
 
 ## Installation
+### This compatibility mod is primarily designed for singleplayer sandbox, it has not been extensively tested for multiplayer. Your milage may vary
 1. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
 2. Put `RTXLauncher.exe` in an empty folder (not in the same place as your game), run it as an <ins>**Administrator**</ins>.
 3. Select `Run Quick Install` on the main screen and follow the prompts when asked.
