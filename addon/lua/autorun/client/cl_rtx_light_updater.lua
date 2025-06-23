@@ -9,8 +9,6 @@ local all_discovered_lights = {} -- Track ALL lights found from NikNaks and dyna
 local stash
 local model
 local current_map_name
-local last_scan_time = 0
-local scan_interval = 1 -- Scan for new lights every 1 second
 local showlights = CreateConVar( "rtx_lightupdater_show", 0,  FCVAR_ARCHIVE )
 local updatelights = CreateConVar( "rtx_lightupdater", 1,  FCVAR_ARCHIVE )
 local debugtext = CreateConVar( "rtx_lightupdater_debug", 0,  FCVAR_ARCHIVE )
@@ -691,22 +689,6 @@ local function AddLight(light)
 	return false
 end
 
--- Scan for new dynamic lights
-local function ScanForNewLights()
-	local current_time = CurTime()
-	if current_time - last_scan_time < scan_interval then return end
-	last_scan_time = current_time
-	
-	-- Get all currently active light entities
-	local dynamic_lights = ents.FindByClass("light*")
-	
-	for _, light in pairs(dynamic_lights) do
-		if IsValid(light) then
-			AddLight(light)
-		end
-	end
-end
-
 -- Initialize or reinitialize lights data
 local function InitializeLights()
 	if not NikNaks or not NikNaks.CurrentMap then
@@ -845,8 +827,6 @@ local function ForceRecalculateAllLights()
 	
 	-- Force re-initialization of lights with new positions
 	if InitializeLights() then
-		-- Re-scan for dynamic lights too
-		ScanForNewLights()
 		
 		local new_count = table.Count(known_lights)
 		if debugconsole:GetBool() then
@@ -874,16 +854,11 @@ local function MovetoPositions()
 		return -- Skip normal processing this frame to allow recalculation
 	end
 	
-	-- Initialize lights if needed
+	-- Initialize lights if needed (only runs once per map)
 	if not InitializeLights() then return end
 	
-	-- Scan for new dynamic lights
-	ScanForNewLights()
-	
-	-- Initialize model if needed
 	if not InitializeModel() then return end
-	
-	-- Render at all cached positions using individual models
+
 	for light_id, light_data in pairs(known_lights) do
 		local light_model = light_models[light_id]
 		if not IsValid(light_model) then
