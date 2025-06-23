@@ -14,7 +14,7 @@
 
 ## Installation
 1. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
-2. Put `RTXLauncher.exe` in an empty folder, run it as an <ins>**Administrator**</ins>.
+2. Put `RTXLauncher.exe` in an empty folder (not in the same place as your game), run it as an <ins>**Administrator**</ins>.
 3. Select `Run Quick Install` on the main screen and follow the prompts when asked.
 4. Once it's finished, press `Launch Game` at the bottom of the launcher.
 
