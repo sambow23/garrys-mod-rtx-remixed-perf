@@ -1,6 +1,11 @@
 #pragma once
 
 #include "e_utils.h"
+#include "mathlib/vector.h"
+#include "mathlib/mathlib.h"
+#include "istudiorender.h"
+#include "detouring/hook.h"
+#include "engine/ivmodelrender.h"
 
 // External functions to control static lighting
 void SetForceStaticLighting(bool enable);
@@ -46,4 +51,9 @@ private:
     ModelDrawHook& operator=(const ModelDrawHook&) = delete;
 
     bool m_bInitialized = false;
-}; 
+};
+
+// Hook declarations
+Declare_method_Hook(int, StudioRender_DrawModel, void*, DrawModelInfo_Internal_t* pInfo);
+Declare_method_Hook(void, IStudioRender_DrawModel, void*, DrawModelResults_t* pResults, const DrawModelInfo_t& info, matrix3x4_t* pBoneToWorld, float* pFlexWeights, float* pFlexDelayedWeights, const Vector& modelOrigin, int flags);
+Declare_method_Hook(void, IVModelRender_DrawModelExecute, void*, const DrawModelState_t& state, const ModelRenderInfo_t& pInfo, matrix3x4_t* pCustomBoneToWorld); 
