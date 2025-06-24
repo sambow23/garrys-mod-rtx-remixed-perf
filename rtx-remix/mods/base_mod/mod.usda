@@ -8,8 +8,9 @@
     metersPerUnit = 0.01
     subLayers = [
         @./water/replacements.usda@,
-		@./mirrors/replacements.usda@,
-        @./marker/marker.usda@
+        @./mirrors/replacements.usda@,
+        @./marker/marker.usda@,
+		@./flashlight/flashlight.usda@
     ]
     timeCodesPerSecond = 24
     upAxis = "Z"
