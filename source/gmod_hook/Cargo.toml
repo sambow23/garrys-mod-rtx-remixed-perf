@@ -11,14 +11,6 @@ crate-type = ["cdylib", "rlib"]
 name = "rtx_injector"
 path = "src/main.rs"
 
-[[bin]]
-name = "rtx_demo"
-path = "demo.rs"
-
-[[bin]]
-name = "rtx_standalone_demo"
-path = "standalone_demo.rs"
-
 [dependencies]
 libloading = "0.8"
 fn_abi = "3"

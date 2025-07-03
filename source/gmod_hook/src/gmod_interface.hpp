@@ -32,5 +32,5 @@ extern "C"
 {
     ILuaShared *get_lua_shared(CreateInterfaceFn createInterface);
     CLuaInterface *open_lua_interface(ILuaShared *lua, unsigned char type);
-    void *get_lua_state(CLuaInterface *lua);
+    void *get_lua_state_from_interface(CLuaInterface *lua);
 }

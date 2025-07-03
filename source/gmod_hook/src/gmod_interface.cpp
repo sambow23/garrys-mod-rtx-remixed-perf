@@ -11,7 +11,7 @@ extern "C" CLuaInterface *open_lua_interface(ILuaShared *lua, unsigned char type
     return (CLuaInterface *)lua->GetLuaInterface(type);
 }
 
-extern "C" void *get_lua_state(CLuaInterface *lua)
+extern "C" void *get_lua_state_from_interface(CLuaInterface *lua)
 {
     return lua->lua;
 }

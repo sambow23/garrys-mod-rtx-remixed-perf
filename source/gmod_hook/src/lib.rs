@@ -1,4 +1,4 @@
-use std::{cell::Cell, ffi::c_void, path::Path};
+use std::{cell::Cell, ffi::c_void};
 
 pub mod rtx_handler;
 pub use rtx_handler::RTXHandler;
@@ -31,7 +31,7 @@ thread_local! {
 }
 
 #[cfg(any(target_os = "windows", target_os = "linux"))]
-pub fn get_lua_state() -> Option<gmod::lua::State> {
+pub fn get_current_lua_state() -> Option<gmod::lua::State> {
     if let GmodLoadingContext::BinaryModule(state) = LOADING_CONTEXT.get() {
         Some(state)
     } else {
@@ -40,7 +40,7 @@ pub fn get_lua_state() -> Option<gmod::lua::State> {
 }
 
 #[cfg(target_os = "macos")]
-pub fn get_lua_state() -> Option<*mut c_void> {
+pub fn get_current_lua_state() -> Option<*mut c_void> {
     if let GmodLoadingContext::BinaryModule(state) = LOADING_CONTEXT.get() {
         Some(state)
     } else {
@@ -111,41 +111,33 @@ macro_rules! dll_paths {
     };
 }
 
-/// Generic function hooking macro
-#[macro_export]
-macro_rules! create_detour {
-    ($name:ident, $func_type:ty, $hook_impl:expr, $sigs:expr) => {
-        paste::paste! {
-            static mut [<$name:upper _DETOUR>]: Option<gmod::detour::RawDetour> = None;
+/// Convenience function to set up the standard hook system
+pub unsafe fn setup_standard_hook<H: GmodHookHandler + 'static>(
+    handler: H,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Store the handler
+    static mut HANDLER: Option<Box<dyn GmodHookHandler>> = None;
+    HANDLER = Some(Box::new(handler));
 
-            #[cfg_attr(target_pointer_width = "64", fn_abi::abi("fastcall"))]
-            #[cfg_attr(all(target_os = "windows", target_pointer_width = "32"), fn_abi::abi("thiscall"))]
-            #[cfg_attr(all(target_os = "linux", target_pointer_width = "32"), fn_abi::abi("C"))]
-            unsafe extern "C" fn [<$name _hook>](this: *mut c_void) {
-                let trampoline = core::mem::transmute::<_, $func_type>(
-                    [<$name:upper _DETOUR>].as_ref().unwrap().trampoline() as *const ()
-                );
-                $hook_impl(this, trampoline);
-            }
+    // Try to detect if we're in the right context first
+    if !is_gmod_context() {
+        return Err("Not running in GMod context. This hook requires GMod to be running and the library to be loaded within GMod's process.".into());
+    }
 
-            fn [<$name _signature>]() -> gmod::sigscan::Signature {
-                $sigs
+    // Try to get Lua state and initialize
+    match acquire_lua_state() {
+        Ok(lua) => {
+            log::info!("Lua state acquired successfully");
+            if let Some(handler) = HANDLER.as_ref() {
+                handler.on_lua_init(lua);
             }
-
-            pub unsafe fn [<hook_ $name>](dll_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-                log::info!("Hooking {} in {}", stringify!($name), dll_path);
-                
-                let sig = [<$name _signature>]();
-                let target_fn = sig.scan_module(dll_path)? as *const ();
-                
-                let detour = gmod::detour::RawDetour::new(target_fn, [<$name _hook>] as *const ())?;
-                detour.enable()?;
-                
-                [<$name:upper _DETOUR>] = Some(detour);
-                Ok(())
-            }
+            Ok(())
         }
-    };
+        Err(e) => {
+            log::error!("Failed to acquire Lua state: {}", e);
+            Err(e)
+        }
+    }
 }
 
 // Generate common DLL paths
@@ -159,7 +151,7 @@ dll_paths! {
 extern "C" {
     pub fn get_lua_shared(create_interface_fn: *const ()) -> *mut c_void;
     pub fn open_lua_interface(i_lua_shared: *mut c_void, realm: GmodLuaInterfaceRealm) -> *mut c_void;
-    pub fn get_lua_state(c_lua_interface: *mut c_void) -> *mut c_void;
+    pub fn get_lua_state_from_interface(c_lua_interface: *mut c_void) -> *mut c_void;
 }
 
 /// Detects if we're loaded as a binary module or injected
@@ -222,7 +214,7 @@ pub unsafe fn acquire_lua_state() -> Result<gmod::lua::State, Box<dyn std::error
         return Err("Failed to get CLuaInterface".into());
     }
 
-    let lua_state = get_lua_state(c_lua_interface);
+    let lua_state = get_lua_state_from_interface(c_lua_interface);
     
     // Set the global Lua state for gmod-rs
     {
@@ -236,7 +228,7 @@ pub unsafe fn acquire_lua_state() -> Result<gmod::lua::State, Box<dyn std::error
 }
 
 /// Initialize the hooking system
-pub unsafe fn init_hooks<H: GmodHookHandler>(handler: H) -> Result<(), Box<dyn std::error::Error>> {
+pub unsafe fn init_hooks<H: GmodHookHandler>(_handler: H) -> Result<(), Box<dyn std::error::Error>> {
     if is_binary_module() {
         // If we're loaded as a binary module, we don't need to hook anything
         return Ok(());
@@ -251,61 +243,21 @@ pub unsafe fn init_hooks<H: GmodHookHandler>(handler: H) -> Result<(), Box<dyn s
     Ok(())
 }
 
-/// Convenience function to set up CLuaManager::Startup hook
-pub unsafe fn setup_standard_hook<H: GmodHookHandler + 'static>(
-    handler: H,
-) -> Result<(), Box<dyn std::error::Error>> {
-    static mut HANDLER: Option<Box<dyn GmodHookHandler>> = None;
-    HANDLER = Some(Box::new(handler));
-
-    // Only support Windows and Linux for now due to signature scanning limitations
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    {
-        // Define the CLuaManager::Startup hook
-        type CLuaManagerStartupFn = extern "C" fn(this: *mut c_void);
-        
-        let sigs = match () {
-            _ if cfg!(all(target_pointer_width = "64", target_os = "windows")) => {
-                gmod::sigscan::signature!("48 89 5C 24 ? 48 89 74 24 ? 57 48 83 EC 60 48 8B 05 ? ? ? ? 48 33 C4 48 89 44 24 ? 48 8B F1 48 8D 0D ? ? ? ? FF 15 ? ? ? ? E8 ? ? ? ? F3 0F 10 0D")
-            },
-            _ if cfg!(all(target_pointer_width = "32", target_os = "windows")) => {
-                gmod::sigscan::signature!("55 8B EC 83 EC 18 53 68 ? ? ? ? 8B D9 FF 15 ? ? ? ? 83 C4 04 E8 ? ? ? ? D9 05 ? ? ? ? 68 ? ? ? ? 51 8B 10 8B C8 D9 1C 24")
-            },
-            _ if cfg!(target_os = "linux") => {
-                // Linux signature - may need adjustment
-                gmod::sigscan::signature!("55 48 89 E5 41 57 41 56 41 55 41 54 53 48 83 EC 28")
-            },
-            _ => return Err("Unsupported platform".into()),
-        };
-
-        create_detour!(
-            cluamanager_startup,
-            CLuaManagerStartupFn,
-            |this, trampoline| {
-                trampoline(this);
-                if let Some(handler) = HANDLER.as_ref() {
-                    if let Ok(lua) = acquire_lua_state() {
-                        handler.on_lua_init(lua);
-                    }
-                }
-            },
-            sigs
-        );
-
-        hook_cluamanager_startup(client_dll_path())?;
-    }
-    
-    // For macOS, try to use alternative approach without signature scanning
-    #[cfg(target_os = "macos")]
-    {
-        log::warn!("macOS detected - signature scanning not available. Using alternative approach.");
-        // For now, just call the handler directly to test the Lua loading
-        if let Ok(lua) = acquire_lua_state() {
-            if let Some(handler) = HANDLER.as_ref() {
-                handler.on_lua_init(lua);
-            }
+/// Check if we're running in GMod's context
+pub unsafe fn is_gmod_context() -> bool {
+    // Try to check if lua_shared is available
+    let lib_result = {
+        #[cfg(windows)]
+        {
+            libloading::os::windows::Library::open_already_loaded("lua_shared")
+                .or_else(|_| libloading::os::windows::Library::open_already_loaded("lua_shared_srv"))
         }
-    }
-    
-    Ok(())
+        #[cfg(unix)]
+        {
+            libloading::os::unix::Library::open(Some("lua_shared_srv"), libc::RTLD_NOLOAD)
+                .or_else(|_| libloading::os::unix::Library::open(Some("lua_shared"), libc::RTLD_NOLOAD))
+        }
+    };
+
+    lib_result.is_ok()
 } 
