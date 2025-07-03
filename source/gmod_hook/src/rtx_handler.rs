@@ -1,5 +1,10 @@
-use crate::GmodHookHandler;
 use gmod::lua::State;
+use gmod::lua_string;
+use std::ffi::CString;
+use std::ptr;
+use std::time::Duration;
+use std::thread;
+use std::sync::Once;
 
 /// Handler for RTX Remix Fixes integration
 pub struct RTXHandler;
@@ -7,6 +12,10 @@ pub struct RTXHandler;
 impl RTXHandler {
     pub fn new() -> Self {
         RTXHandler
+    }
+    
+    pub fn shutdown(&self) {
+        log::info!("[RTX Handler] Shutting down RTX handler");
     }
     
     /// Load embedded Lua addon files
@@ -270,57 +279,187 @@ impl RTXHandler {
     }
 }
 
-impl GmodHookHandler for RTXHandler {
-    #[cfg(any(target_os = "windows", target_os = "linux"))]
-    unsafe fn on_lua_init(&self, lua: State) {
-        log::info!("[RTX Handler] Lua initialization started");
+// Removed GmodHookHandler implementation - using direct hook approach instead
+
+static INIT: Once = Once::new();
+
+// C++ interface structures (similar to gmcl_rekinect)
+#[repr(C)]
+pub struct CLuaInterface {
+    padding: usize,
+    pub lua: *mut std::ffi::c_void,
+}
+
+#[repr(C)]
+pub struct ILuaShared {
+    _vtable: *const std::ffi::c_void,
+}
+
+impl ILuaShared {
+    pub unsafe fn get_lua_interface(&self, realm: u8) -> *mut CLuaInterface {
+        let vtable = self._vtable as *const *const std::ffi::c_void;
+        let get_lua_interface_fn = *vtable.offset(6); // GetLuaInterface is at offset 6
+        let func: extern "C" fn(*const ILuaShared, u8) -> *mut CLuaInterface = 
+            std::mem::transmute(get_lua_interface_fn);
+        func(self, realm)
+    }
+}
+
+type CreateInterfaceFn = extern "C" fn(*const i8, *mut i32) -> *mut std::ffi::c_void;
+
+// Function to get ILuaShared from lua_shared.dll
+unsafe fn get_lua_shared(create_interface: CreateInterfaceFn) -> *mut ILuaShared {
+    let interface_name = CString::new("LUASHARED003").unwrap();
+    let mut return_code = 0i32;
+    create_interface(interface_name.as_ptr(), &mut return_code) as *mut ILuaShared
+}
+
+// Hook function that will be called when CLuaManager::Startup is executed
+unsafe extern "C" fn lua_manager_startup_hook() {
+    INIT.call_once(|| {
+        // Wait a bit to ensure Lua is fully initialized
+        thread::sleep(Duration::from_millis(1000));
         
-        // Add delay to ensure GMod is fully loaded
-        let init_delay_script = r#"
-            -- Add a delay to ensure GMod is fully loaded before injecting RTX code
-            timer.Simple(2, function()
-                print("[RTX Handler] Delayed initialization starting...")
-                -- Signal that we're ready for RTX injection
-                if RTX_HANDLER_READY then
-                    RTX_HANDLER_READY()
-                end
-            end)
+        if let Err(e) = perform_safe_injection() {
+            eprintln!("RTX injection failed: {}", e);
+        }
+    });
+}
+
+unsafe fn perform_safe_injection() -> Result<(), String> {
+    // Load lua_shared.dll
+    let lua_shared_path = if cfg!(target_pointer_width = "64") {
+        "bin/win64/lua_shared.dll"
+    } else {
+        "bin/lua_shared.dll"
+    };
+    
+    let lua_shared = libloading::Library::new(lua_shared_path)
+        .map_err(|e| format!("Failed to load lua_shared: {}", e))?;
+    
+    // Get CreateInterface function
+    let create_interface: CreateInterfaceFn = *lua_shared
+        .get(b"CreateInterface")
+        .map_err(|e| format!("Failed to find CreateInterface: {}", e))?;
+    
+    // Get ILuaShared interface
+    let lua_shared_interface = get_lua_shared(create_interface);
+    if lua_shared_interface.is_null() {
+        return Err("Failed to get ILuaShared interface".to_string());
+    }
+    
+    // Get client Lua interface (realm 0 = client)
+    let client_lua = (*lua_shared_interface).get_lua_interface(0);
+    if client_lua.is_null() {
+        return Err("Failed to get client Lua interface".to_string());
+    }
+    
+    // Get Lua state
+    let lua_state = (*client_lua).lua;
+    if lua_state.is_null() {
+        return Err("Failed to get Lua state".to_string());
+    }
+    
+    // Set up gmod crate's Lua state
+    gmod::set_lua_state(lua_state);
+    let lua = State(lua_state);
+    
+    // Now perform safe RTX initialization
+    safe_rtx_init(lua)?;
+    
+    Ok(())
+}
+
+unsafe fn safe_rtx_init(lua: State) -> Result<(), String> {
+    // Check if we're in a safe context
+    lua.get_global(lua_string!("CLIENT"));
+    let is_client = lua.get_boolean(-1);
+    lua.pop();
+    
+    if !is_client {
+        return Ok(()); // Don't do anything on server
+    }
+    
+    // Check if RTX namespace already exists (avoid conflicts)
+    lua.get_global(lua_string!("RTX"));
+    if !lua.is_nil(-1) {
+        lua.pop();
+        return Ok(()); // RTX already loaded
+    }
+    lua.pop();
+    
+    // Create RTX namespace
+    lua.create_table(0, 0);
+    lua.set_global(lua_string!("RTX"));
+    
+    // Load our embedded Lua addon safely
+    let lua_addon = include_str!("../../../addon/lua/autorun/cl_rtx.lua");
+    let lua_addon_cstr = CString::new(lua_addon).map_err(|e| format!("Failed to convert Lua addon to C string: {}", e))?;
+    
+    // Use protected call to prevent crashes
+    if lua.load_string(lua_addon_cstr.as_ptr()).is_ok() {
+        lua.get_global(lua_string!("pcall"));
+        lua.push_value(-2); // Push the loaded function
+        
+        let result = lua.pcall(1, 0, 0);
+        if result == 0 {
+            println!("RTX addon loaded successfully");
+        } else {
+            let error_msg = lua.get_string(-1).unwrap_or(std::borrow::Cow::Borrowed("Unknown error"));
+            eprintln!("RTX addon failed to load: {}", error_msg);
+            lua.pop();
+        }
+    } else {
+        return Err("Failed to load RTX addon string".to_string());
+    }
+    
+    Ok(())
+}
+
+pub fn is_gmod_context() -> bool {
+    unsafe {
+        let lua_shared_path = if cfg!(target_pointer_width = "64") {
+            "bin/win64/lua_shared.dll"
+        } else {
+            "bin/lua_shared.dll"
+        };
+        
+        // Try to load lua_shared - if it fails, we're not in GMod
+        libloading::Library::new(lua_shared_path).is_ok()
+    }
+}
+
+// Hook setup function (this would need to be called from main injection point)
+pub unsafe fn setup_lua_hook() -> Result<(), String> {
+    // This is where we would set up the CLuaManager::Startup hook
+    // For now, we'll use a simpler approach with a delay
+    thread::spawn(|| {
+        // Wait for GMod to be fully loaded
+        thread::sleep(Duration::from_millis(3000));
+        lua_manager_startup_hook();
+    });
+    
+    Ok(())
+}
+
+#[no_mangle]
+pub extern "C" fn gmod13_open(lua_state: *mut std::ffi::c_void) -> i32 {
+    unsafe {
+        if !lua_state.is_null() {
+            gmod::set_lua_state(lua_state);
+            let lua = State(lua_state);
             
-            function RTX_HANDLER_READY()
-                print("[RTX Handler] GMod is ready, proceeding with RTX injection")
-            end
-        "#;
-        
-        // Load the delay script first
-        if let Err(e) = self.load_lua_script(lua, "rtx_delay.lua", init_delay_script) {
-            log::error!("[RTX Handler] Failed to load delay script: {}", e);
-            return;
+            // This is called when loaded as a binary module
+            if let Err(e) = safe_rtx_init(lua) {
+                eprintln!("RTX binary module init failed: {}", e);
+            }
         }
-        
-        // Schedule the actual RTX loading for later
-        let delayed_init_script = r#"
-            timer.Simple(3, function()
-                if not RTX_HANDLER_LOADED then
-                    RTX_HANDLER_LOADED = true
-                    print("[RTX Handler] Starting delayed RTX system initialization...")
-                end
-            end)
-        "#;
-        
-        if let Err(e) = self.load_lua_script(lua, "rtx_delayed_init.lua", delayed_init_script) {
-            log::error!("[RTX Handler] Failed to schedule delayed init: {}", e);
-        }
-        
-        log::info!("[RTX Handler] Initial Lua setup completed - full initialization scheduled");
     }
-    
-    #[cfg(target_os = "macos")]
-    unsafe fn on_lua_init(&self, _lua: *mut std::ffi::c_void) {
-        log::info!("[RTX Handler] macOS Lua initialization - limited functionality");
-        // macOS implementation would go here
-    }
-    
-    unsafe fn on_shutdown(&self) {
-        log::info!("[RTX Handler] Shutting down RTX handler");
-    }
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn gmod13_close(_lua_state: *mut std::ffi::c_void) -> i32 {
+    // Cleanup if needed
+    0
 } 

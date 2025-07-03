@@ -1,176 +1,119 @@
-use gmod_hook::{RTXHandler, setup_standard_hook, is_gmod_context};
-use std::thread;
+mod rtx_handler;
+mod process_utils;
+
+use std::ffi::OsString;
+use std::os::windows::ffi::OsStringExt;
+use std::ptr;
 use std::time::Duration;
+use std::thread;
 
-/// Main entry point for the RTX injection system
-fn main() {
-    // Initialize logging
-    env_logger::init();
-    
-    println!("RTX Remix Fixes - Injection System");
-    println!("==================================");
-    
-    // Check command line arguments
-    let args: Vec<String> = std::env::args().collect();
-    let no_wait = args.len() > 1 && args[1] == "--no-wait";
-    
-    // Check if we're already in GMod context
-    let in_gmod_context = unsafe { is_gmod_context() };
-    
-    if !in_gmod_context && no_wait {
-        println!("⚠️  GMod is not running or this process is not in GMod context.");
-        println!();
-        println!("Usage: rtx_injector.exe [--no-wait]");
-        println!("  --no-wait    Don't wait for GMod to start (exit immediately if not found)");
-        println!();
-        println!("Alternative usage:");
-        println!("  1. Inject gmod_hook.dll into running GMod process using a DLL injector");
-        println!("  2. Copy gmod_hook.dll to GMod's binary modules folder");
-        println!("  3. Start GMod and run this executable (waits by default)");
-        println!();
-        println!("Current status: GMod context = {}", in_gmod_context);
-        
-        // Don't exit immediately, let user see the message
-        thread::sleep(Duration::from_secs(5));
-        return;
-    }
-    
-    if !in_gmod_context {
-        println!("🔍 GMod is not running. Waiting for Garry's Mod to start...");
-        println!("💡 Tip: Start GMod now, or use --no-wait to exit immediately");
-        wait_for_gmod_process();
-    } else {
-        println!("✅ GMod context detected!");
-    }
-    
-    // Create RTX handler
-    let rtx_handler = RTXHandler::new();
-    
-    // Initialize the hook system
-    unsafe {
-        match setup_standard_hook(rtx_handler) {
-            Ok(()) => {
-                println!("✅ RTX Hook system initialized successfully!");
-                println!("🎮 RTX Lua addons are now active in GMod");
-            }
-            Err(e) => {
-                eprintln!("❌ Failed to initialize RTX hook system: {}", e);
-                println!("\n💡 Try injecting the DLL directly into GMod instead.");
-                thread::sleep(Duration::from_secs(3));
-                std::process::exit(1);
-            }
+use windows::Win32::Foundation::{GetLastError, HMODULE};
+use windows::Win32::System::LibraryLoader::{GetModuleHandleExW, GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS};
+use windows::Win32::System::Threading::GetCurrentProcessId;
+
+use crate::rtx_handler::RTXHandler;
+use crate::process_utils::ProcessUtils;
+
+pub struct GmodHookHandler {
+    rtx_handler: RTXHandler,
+}
+
+impl GmodHookHandler {
+    pub fn new() -> Self {
+        Self {
+            rtx_handler: RTXHandler::new(),
         }
     }
     
-    // Keep the process running
-    println!("🔄 RTX injection system running... Press Ctrl+C to exit");
+    pub fn initialize(&mut self) -> Result<(), String> {
+        // Use the new hook-based approach
+        unsafe {
+            rtx_handler::setup_lua_hook()
+        }
+    }
     
-    loop {
-        thread::sleep(Duration::from_secs(1));
+    pub fn shutdown(&mut self) {
+        self.rtx_handler.shutdown();
     }
 }
 
-/// Wait for GMod process to start
-fn wait_for_gmod_process() {
-    println!("🔍 Scanning for GMod process...");
-    
-    let mut dot_count = 0;
-    loop {
-        if is_gmod_running() {
-            println!("\n🎮 GMod process detected! Attempting injection...");
-            thread::sleep(Duration::from_secs(2)); // Give GMod time to fully load
-            break;
-        }
-        
-        // Show progress dots
-        print!(".");
-        dot_count += 1;
-        if dot_count % 60 == 0 {
-            println!(" ({}s)", dot_count);
-        }
-        
-        thread::sleep(Duration::from_secs(1));
-    }
-}
-
-/// Check if GMod is running
-fn is_gmod_running() -> bool {
-    use std::process::Command;
-    
-    // Check for common GMod process names
-    let gmod_processes = ["gmod.exe", "hl2.exe", "garrysmod.exe"];
-    
-    for process_name in &gmod_processes {
-        let output = Command::new("tasklist")
-            .args(&["/FI", &format!("IMAGENAME eq {}", process_name)])
-            .output();
-            
-        if let Ok(output) = output {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            if output_str.contains(process_name) {
-                return true;
-            }
-        }
-    }
-    
-    false
-}
-
-/// DLL entry point (for when compiled as a DLL)
-#[cfg(windows)]
+// DLL entry point for injection
 #[no_mangle]
 pub extern "system" fn DllMain(
-    _hinst_dll: *mut std::ffi::c_void,
-    fdw_reason: u32,
+    _hinst_dll: HMODULE,
+    _fdw_reason: u32,
     _lpv_reserved: *mut std::ffi::c_void,
 ) -> i32 {
-    match fdw_reason {
-        1 => {
-            // DLL_PROCESS_ATTACH
-            thread::spawn(|| {
-                // Initialize logging for DLL mode
-                env_logger::init();
-                
-                println!("[RTX Hook] DLL injected into process");
-                
-                // Initialize the RTX hook system
-                let rtx_handler = RTXHandler::new();
-                unsafe {
-                    if let Err(e) = setup_standard_hook(rtx_handler) {
-                        eprintln!("[RTX Hook] Failed to initialize: {}", e);
-                    } else {
-                        println!("[RTX Hook] RTX injection system initialized successfully!");
-                    }
-                }
-            });
+    unsafe {
+        // Check if we're in GMod context
+        if !rtx_handler::is_gmod_context() {
+            return 1; // Exit gracefully if not in GMod
         }
-        0 => {
-            // DLL_PROCESS_DETACH
-            println!("[RTX Hook] DLL unloading");
+        
+        // Set up the hook with proper timing
+        if let Err(e) = rtx_handler::setup_lua_hook() {
+            eprintln!("Failed to setup RTX hook: {}", e);
+            return 0;
         }
-        _ => {}
     }
-    1 // TRUE
+    
+    1
 }
 
-/// Linux/macOS shared library entry point
-#[cfg(unix)]
-#[no_mangle]
-pub extern "C" fn _init() {
-    thread::spawn(|| {
-        // Initialize logging for shared library mode
-        env_logger::init();
-        
-        println!("[RTX Hook] Shared library loaded");
-        
-        // Initialize the RTX hook system
-        let rtx_handler = RTXHandler::new();
-        unsafe {
-            if let Err(e) = setup_standard_hook(rtx_handler) {
-                eprintln!("[RTX Hook] Failed to initialize: {}", e);
-            } else {
-                println!("[RTX Hook] RTX injection system initialized successfully!");
+// Standalone injector
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let no_wait = args.contains(&"--no-wait".to_string());
+    
+    if !no_wait {
+        println!("Waiting for GMod to start...");
+        loop {
+            if ProcessUtils::is_process_running("gmod.exe") || ProcessUtils::is_process_running("hl2.exe") {
+                println!("GMod detected! Waiting 3 seconds for full initialization...");
+                thread::sleep(Duration::from_secs(3));
+                break;
             }
+            thread::sleep(Duration::from_millis(500));
         }
-    });
+    }
+    
+    // Find GMod process
+    let gmod_process = ProcessUtils::find_gmod_process();
+    if gmod_process.is_none() {
+        if no_wait {
+            eprintln!("GMod is not running. Use without --no-wait to wait for GMod.");
+            std::process::exit(1);
+        } else {
+            eprintln!("GMod process not found after detection. Something went wrong.");
+            std::process::exit(1);
+        }
+    }
+    
+    let (pid, process_name) = gmod_process.unwrap();
+    println!("Found GMod process: {} (PID: {})", process_name, pid);
+    
+    // Get current executable path
+    let current_exe = std::env::current_exe().expect("Failed to get current executable path");
+    let dll_path = current_exe.parent().unwrap().join("gmod_hook.dll");
+    
+    if !dll_path.exists() {
+        eprintln!("gmod_hook.dll not found at: {}", dll_path.display());
+        std::process::exit(1);
+    }
+    
+    println!("Injecting {} into GMod...", dll_path.display());
+    
+    // Inject the DLL
+    match ProcessUtils::inject_dll(pid, &dll_path) {
+        Ok(()) => println!("Successfully injected RTX hook into GMod!"),
+        Err(e) => {
+            eprintln!("Injection failed: {}", e);
+            std::process::exit(1);
+        }
+    }
+    
+    println!("RTX integration active. You can now close this window.");
+    println!("Press Enter to exit...");
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).unwrap();
 } 
