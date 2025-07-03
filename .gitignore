@@ -66,3 +66,5 @@ source/launcher/CMakeCache.txt
 /patcherlauncher/.vs
 /patcherlauncher/PatcherLauncher/x64
 /patcherlauncher/x64
+
+source/gmod_hook/target
