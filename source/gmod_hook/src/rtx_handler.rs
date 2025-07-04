@@ -437,6 +437,10 @@ unsafe fn init_rtx_bindings(lua: gmod::lua::State) {
     lua.push_function(lua_draw_rtx_lights);
     lua.set_global(lua_string!("DrawRTXLights"));
     
+    // Add console command to manually load RTX addon files
+    lua.push_function(lua_load_rtx_addon_command);
+    lua.set_global(lua_string!("LoadRTXAddon"));
+    
     log::info!("RTX Remix Lua bindings initialized successfully!");
     
     // Print to GMod console
@@ -444,7 +448,34 @@ unsafe fn init_rtx_bindings(lua: gmod::lua::State) {
     lua.push_string("[RTX] RTX Remix integration loaded successfully!");
     lua.call(1, 0);
     
-    // Load the RTX addon files
+    // Create console command for manual loading
+    lua_stack_guard!(lua => {
+        let concommand_code = r#"
+concommand.Add("rtx_load_addon", function()
+    print("[RTX] Manually loading RTX addon files...")
+    if LoadRTXAddon then
+        LoadRTXAddon()
+        print("[RTX] Manual addon loading completed!")
+    else
+        print("[RTX] Error: LoadRTXAddon function not found!")
+    end
+end, nil, "Manually load RTX addon files")
+print("[RTX] Added console command: rtx_load_addon")
+"#;
+        let code_cstring = std::ffi::CString::new(concommand_code).expect("Failed to create CString");
+        if lua.load_string(code_cstring.as_ptr()).is_ok() {
+            let result = lua.pcall(0, 0, 0);
+            if result != 0 {
+                log::info!("Error creating rtx_load_addon command");
+                if let Some(error_msg) = lua.get_string(-1) {
+                    log::info!("Lua error: {}", error_msg.to_string());
+                }
+                lua.pop();
+            }
+        }
+    });
+    
+    // Try to load the RTX addon files automatically
     load_rtx_addon_files(lua);
 }
 
@@ -500,8 +531,27 @@ unsafe extern "C-unwind" fn lua_draw_rtx_lights(_lua: gmod::lua::State) -> i32 {
     0
 }
 
+unsafe extern "C-unwind" fn lua_load_rtx_addon_command(lua: gmod::lua::State) -> i32 {
+    log::info!("LoadRTXAddon command called from Lua");
+    
+    // Print to GMod console
+    lua.get_global(lua_string!("print"));
+    lua.push_string("[RTX] Loading RTX addon files via command...");
+    lua.call(1, 0);
+    
+    // Load the RTX addon files
+    load_rtx_addon_files(lua);
+    
+    0
+}
+
 unsafe fn load_rtx_addon_files(lua: gmod::lua::State) {
     log::info!("Loading RTX addon files from injected DLL...");
+    
+    // Print to GMod console
+    lua.get_global(lua_string!("print"));
+    lua.push_string("[RTX] Starting to load embedded addon files...");
+    lua.call(1, 0);
     
     // Execute the core RTX initialization code
     execute_lua_code(lua, "rtxfixes_init", RTXFIXES_INIT_LUA);
@@ -510,10 +560,20 @@ unsafe fn load_rtx_addon_files(lua: gmod::lua::State) {
     execute_lua_code(lua, "sh_flashlight_override", SH_FLASHLIGHT_OVERRIDE_LUA);
     
     log::info!("RTX addon files loaded successfully!");
+    
+    // Print completion to GMod console
+    lua.get_global(lua_string!("print"));
+    lua.push_string("[RTX] Embedded addon files loading completed!");
+    lua.call(1, 0);
 }
 
 unsafe fn execute_lua_code(lua: gmod::lua::State, name: &str, code: &str) {
     log::info!("Executing Lua code: {}", name);
+    
+    // Print to GMod console
+    lua.get_global(lua_string!("print"));
+    lua.push_string(&format!("[RTX] Loading: {}", name));
+    lua.call(1, 0);
     
     lua_stack_guard!(lua => {
         // Use lua.load_string with proper C string conversion
@@ -523,16 +583,28 @@ unsafe fn execute_lua_code(lua: gmod::lua::State, name: &str, code: &str) {
             let result = lua.pcall(0, 0, 0);
             if result == 0 {
                 log::info!("Successfully executed: {}", name);
+                // Print success to GMod console
+                lua.get_global(lua_string!("print"));
+                lua.push_string(&format!("[RTX] ✓ {} loaded successfully", name));
+                lua.call(1, 0);
             } else {
                 log::info!("Error executing Lua code: {}", name);
                 // Get error message from stack - just try to get string directly
                 if let Some(error_msg) = lua.get_string(-1) {
                     log::info!("Lua error in {}: {}", name, error_msg.to_string());
+                    // Print error to GMod console
+                    lua.get_global(lua_string!("print"));
+                    lua.push_string(&format!("[RTX] ✗ {} failed: {}", name, error_msg.to_string()));
+                    lua.call(1, 0);
                 }
                 lua.pop();
             }
         } else {
             log::info!("Error loading Lua code: {}", name);
+            // Print error to GMod console
+            lua.get_global(lua_string!("print"));
+            lua.push_string(&format!("[RTX] ✗ {} failed to load", name));
+            lua.call(1, 0);
         }
     });
 }
