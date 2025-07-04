@@ -1,793 +1,319 @@
-use gmod::lua::State;
-use gmod::lua_string;
-use std::ffi::CString;
-use std::fs;
-use std::ptr;
-use std::time::Duration;
-use std::thread;
-use std::sync::Once;
+use std::{cell::Cell, ffi::c_void, path::Path, fs::File, io::Write};
+use fn_abi::abi;
 
-/// Handler for RTX Remix Fixes integration
-pub struct RTXHandler;
+// Custom logger that writes to both GMod console and file
+static mut LOGGER: Logger = Logger(None);
 
-impl RTXHandler {
-    pub fn new() -> Self {
-        RTXHandler
+struct Logger(Option<File>);
+impl log::Log for Logger {
+    fn log(&self, record: &log::Record) {
+        if let Some(lua) = lua_state() {
+            unsafe {
+                lua.get_global(lua_string!("print"));
+                lua.push_string(&if record.level() != log::Level::Info {
+                    format!("gmod_hook: [{}] {}", record.level(), record.args())
+                } else {
+                    format!("gmod_hook: {}", record.args())
+                });
+                lua.call(1, 0);
+            }
+        } else if let Some(mut f) = self.0.as_ref() {
+            let _ = if record.level() != log::Level::Info {
+                writeln!(f, "gmod_hook: [{}] {}", record.level(), record.args())
+            } else {
+                writeln!(f, "gmod_hook: {}", record.args())
+            };
+        }
     }
-    
-    pub fn shutdown(&self) {
-        log::info!("[RTX Handler] Shutting down RTX handler");
+
+    #[inline]
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Info
     }
-    
-    /// Load embedded Lua addon files
-    fn load_lua_addons(&self, lua: State) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("[RTX Handler] Loading Lua addons...");
-        
-        // Load shared RTX functionality first
-        self.load_lua_script(lua, "sh_rtx.lua", include_str!("../../../addon/lua/autorun/sh_rtx.lua"))?;
-        
-        // Load flashlight override configuration
-        self.load_lua_script(lua, "sh_flashlight_override.lua", include_str!("../../../addon/lua/autorun/sh_flashlight_override.lua"))?;
-        
-        // Load main client RTX functionality
-        self.load_lua_script(lua, "cl_rtx.lua", include_str!("../../../addon/lua/autorun/cl_rtx.lua"))?;
-        
-        // Load entity definitions
-        self.load_entity_definitions(lua)?;
-        
-        log::info!("[RTX Handler] Lua addons loaded successfully");
-        Ok(())
+
+    fn flush(&self) {}
+}
+
+#[repr(u8)]
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub enum GmodLuaInterfaceRealm {
+    Client = 0,
+    Server = 1,
+    Menu = 2,
+}
+
+// C++ interface helpers (linked from hax.cpp)
+#[link(name = "gmod_hook_cpp", kind = "static")]
+extern "C" {
+    fn get_lua_shared(create_interface_fn: *const ()) -> *mut c_void;
+    fn open_lua_interface(i_lua_shared: *mut c_void, realm: GmodLuaInterfaceRealm) -> *mut c_void;
+    fn get_lua_state(c_lua_interface: *mut c_void) -> *mut c_void;
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RtxLuaState {
+    Uninitialized,
+    InjectedDll,
+    BinaryModule(gmod::lua::State),
+}
+
+thread_local! {
+    static LUA_STATE: Cell<RtxLuaState> = Cell::new(RtxLuaState::Uninitialized);
+}
+
+static mut INIT_REFCOUNT: usize = 0;
+
+pub fn lua_state() -> Option<gmod::lua::State> {
+    if let RtxLuaState::BinaryModule(state) = LUA_STATE.get() {
+        Some(state)
+    } else {
+        None
     }
-    
-    /// Load a single Lua script with error handling
-    fn load_lua_script(&self, lua: State, name: &str, content: &str) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("[RTX Handler] Loading script: {}", name);
-        
-        // Use load_string to load the script, then pcall to execute it
-        unsafe {
-            // Convert string to C-string for gmod API
-            let c_content = std::ffi::CString::new(content)?;
-            match lua.load_string(c_content.as_ptr()) {
-                Ok(_) => {
-                    // Script loaded successfully, now execute it with pcall
-                    if lua.pcall_ignore(0, 0) {
-                        log::info!("[RTX Handler] Successfully loaded and executed: {}", name);
-                        Ok(())
+}
+
+pub unsafe fn already_initialized() -> bool {
+    INIT_REFCOUNT != 0
+}
+
+// DLL path helpers similar to gmcl_rekinect
+macro_rules! dll_paths {
+    ($($func:ident => $bin:literal / $linux_main_branch:literal),*) => {
+        $(pub fn $func() -> &'static str {
+            match () {
+                _ if cfg!(all(windows, target_pointer_width = "64")) => concat!("bin/win64/", $bin, ".dll"),
+                _ if cfg!(all(target_os = "linux", target_pointer_width = "64")) => concat!("bin/linux64/", $bin, ".so"),
+
+                _ if cfg!(all(target_os = "macos")) => concat!("GarrysMod_Signed.app/Contents/MacOS/", $bin, ".dylib"),
+
+                _ if cfg!(all(windows, target_pointer_width = "32")) => {
+                    let x86_64_branch = concat!("bin/", $bin, ".dll");
+                    if Path::new(x86_64_branch).exists() {
+                        x86_64_branch
                     } else {
-                        let error = format!("Failed to execute script: {}", name);
-                        log::error!("[RTX Handler] {}", error);
-                        Err(error.into())
+                        concat!("garrysmod/bin/", $bin, ".dll")
                     }
-                }
-                Err(e) => {
-                    let error = format!("Failed to load {}: {:?}", name, e);
-                    log::error!("[RTX Handler] {}", error);
-                    Err(error.into())
-                }
+                },
+
+                _ if cfg!(all(target_os = "linux", target_pointer_width = "32")) => {
+                    let x86_64_branch = concat!("bin/linux32/", $bin, ".so");
+                    if Path::new(x86_64_branch).exists() {
+                        x86_64_branch
+                    } else {
+                        concat!("garrysmod/bin/", $linux_main_branch, ".so")
+                    }
+                },
+
+                _ => panic!("Unsupported platform"),
             }
-        }
-    }
-    
-    /// Load RTX entity definitions
-    fn load_entity_definitions(&self, lua: State) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("[RTX Handler] Loading entity definitions...");
-        
-        // Load entity files - use placeholder content for now since include_str! paths might not exist
-        let entity_placeholder = r#"
-            -- RTX Entity placeholder
-            print("[RTX Handler] Entity loaded via injection")
-        "#;
-        
-        self.load_lua_script(lua, "rtx_pseudoplayer.lua", entity_placeholder)?;
-        self.load_lua_script(lua, "rtx_flashlight_ent.lua", entity_placeholder)?;
-        self.load_lua_script(lua, "rtx_pseudoweapon.lua", entity_placeholder)?;
-        self.load_lua_script(lua, "base_rtx_light_shared.lua", entity_placeholder)?;
-        self.load_lua_script(lua, "base_rtx_light_cl_init.lua", entity_placeholder)?;
-        
-        Ok(())
-    }
-    
-    /// Register stub functions for RTXFixesBinary compatibility
-    fn register_rtx_stubs(&self, lua: State) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("[RTX Handler] Registering RTX compatibility stubs...");
-        
-        // Create stub functions in a safe namespace to avoid conflicts
-        let stub_functions = r#"
-            -- Check if we're safe to proceed (don't interfere with menu state)
-            if not game or not game.GetIPAddress then
-                print("[RTX Handler] Deferring RTX stubs registration - GMod not fully loaded")
-                return
-            end
-            
-            -- Create RTX namespace to avoid conflicts
-            RTX = RTX or {}
-            RTX.Stubs = RTX.Stubs or {}
-            
-            -- Only register global functions if they don't already exist
-            local function SafeGlobal(name, func)
-                if not _G[name] then
-                    _G[name] = func
-                    print("[RTX Handler] Registered stub function:", name)
-                else
-                    print("[RTX Handler] Function already exists, skipping:", name)
-                end
-            end
-            
-            -- RTXFixesBinary compatibility stubs
-            SafeGlobal("SetForceStaticLighting", function(enabled)
-                print("[RTX Handler] SetForceStaticLighting called with:", enabled)
-                return true
-            end)
-            
-            SafeGlobal("GetForceStaticLighting", function()
-                print("[RTX Handler] GetForceStaticLighting called")
-                return false
-            end)
-            
-            SafeGlobal("SetModelDrawHookEnabled", function(enabled)
-                print("[RTX Handler] SetModelDrawHookEnabled called with:", enabled)
-                return true
-            end)
-            
-            SafeGlobal("ClearRTXResources_Native", function()
-                print("[RTX Handler] ClearRTXResources_Native called")
-                return true
-            end)
-            
-            SafeGlobal("SetEnableRaytracing", function(enabled)
-                print("[RTX Handler] SetEnableRaytracing called with:", enabled)
-                return true
-            end)
-            
-            SafeGlobal("SetIgnoreGameDirectionalLights", function(enabled)
-                print("[RTX Handler] SetIgnoreGameDirectionalLights called with:", enabled)
-                return true
-            end)
-            
-            SafeGlobal("PrintRemixUIState", function()
-                print("[RTX Handler] PrintRemixUIState called")
-                return true
-            end)
-            
-            -- RTX Light API stubs
-            SafeGlobal("CreateRTXSphereLight", function(x, y, z, radius, brightness, r, g, b, entityID, enableShaping, dirX, dirY, dirZ, coneAngle, coneSoftness)
-                print("[RTX Handler] CreateRTXSphereLight called")
-                return {} -- Return empty table as light handle
-            end)
-            
-            SafeGlobal("CreateRTXRectLight", function(x, y, z, width, height, brightness, r, g, b, entityID, dirX, dirY, dirZ, xAxisX, xAxisY, xAxisZ, yAxisX, yAxisY, yAxisZ, enableShaping, coneAngle, coneSoftness)
-                print("[RTX Handler] CreateRTXRectLight called")
-                return {} -- Return empty table as light handle
-            end)
-            
-            SafeGlobal("CreateRTXDiskLight", function(x, y, z, xRadius, yRadius, brightness, r, g, b, entityID, dirX, dirY, dirZ, xAxisX, xAxisY, xAxisZ, yAxisX, yAxisY, yAxisZ, enableShaping, coneAngle, coneSoftness)
-                print("[RTX Handler] CreateRTXDiskLight called")
-                return {} -- Return empty table as light handle
-            end)
-            
-            SafeGlobal("CreateRTXDistantLight", function(dirX, dirY, dirZ, angularDiameter, brightness, r, g, b, entityID)
-                print("[RTX Handler] CreateRTXDistantLight called")
-                return {} -- Return empty table as light handle
-            end)
-            
-            SafeGlobal("UpdateRTXLight", function(handle, ...)
-                print("[RTX Handler] UpdateRTXLight called")
-                return true, handle
-            end)
-            
-            SafeGlobal("DestroyRTXLight", function(handle)
-                print("[RTX Handler] DestroyRTXLight called")
-                return true
-            end)
-            
-            SafeGlobal("DrawRTXLights", function()
-                -- No-op for now
-                return true
-            end)
-            
-            SafeGlobal("RTXBeginFrame", function()
-                return true
-            end)
-            
-            SafeGlobal("RTXEndFrame", function()
-                return true
-            end)
-            
-            SafeGlobal("RegisterRTXLightEntityValidator", function(validator)
-                print("[RTX Handler] RegisterRTXLightEntityValidator called")
-                return true
-            end)
-            
-            print("[RTX Handler] RTX compatibility stubs registered safely")
-        "#;
-        
-        self.load_lua_script(lua, "rtx_stubs.lua", stub_functions)?;
-        Ok(())
-    }
-    
-    /// Initialize RTX system after Lua state is available
-    fn initialize_rtx_system(&self, lua: State) -> Result<(), Box<dyn std::error::Error>> {
-        log::info!("[RTX Handler] Initializing RTX system...");
-        
-        // Run RTX initialization script with better safety checks
-        let init_script = r#"
-            -- Check if we're in a safe context to initialize
-            if not game or not game.GetIPAddress then
-                print("[RTX Handler] Deferring RTX initialization - GMod not fully loaded")
-                timer.Simple(1, function()
-                    if RTX and RTX.Initialize then
-                        RTX.Initialize()
-                    end
-                end)
-                return
-            end
-            
-            -- Initialize RTX system
-            print("[RTX Handler] Starting RTX initialization...")
-            
-            -- Create RTX namespace
-            RTX = RTX or {}
-            
-            -- Initialize function for deferred loading
-            RTX.Initialize = function()
-                print("[RTX Handler] RTX deferred initialization running...")
-                
-                -- Create necessary ConVars if they don't exist and we're on client
-                if CLIENT then
-                    local function SafeConVar(name, default)
-                        if not ConVarExists(name) then
-                            CreateClientConVar(name, default, true, false)
-                            print("[RTX Handler] Created ConVar:", name)
-                        end
-                    end
-                    
-                    SafeConVar("rtx_pseudoplayer", "1")
-                    SafeConVar("rtx_pseudoweapon", "1")
-                    SafeConVar("rtx_disablevertexlighting", "0")
-                    SafeConVar("rtx_fixmaterials", "1")
-                    SafeConVar("rtx_rt_debug", "0")
-                end
-                
-                -- Trigger RTX initialization if available
-                if RTXLoad then
-                    local success, err = pcall(RTXLoad)
-                    if success then
-                        print("[RTX Handler] RTXLoad called successfully")
-                    else
-                        print("[RTX Handler] RTXLoad failed:", err)
-                    end
-                end
-                
-                print("[RTX Handler] RTX initialization complete")
-            end
-            
-            -- Schedule initialization for when we're in-game (safer)
-            if CLIENT then
-                hook.Add("InitPostEntity", "RTXHandler_Init", function()
-                    timer.Simple(0.5, RTX.Initialize)
-                    hook.Remove("InitPostEntity", "RTXHandler_Init")
-                end)
-            else
-                -- For server or menu, try immediate initialization
-                RTX.Initialize()
-            end
-            
-            print("[RTX Handler] RTX system initialization scheduled")
-        "#;
-        
-        self.load_lua_script(lua, "rtx_init.lua", init_script)?;
-        Ok(())
-    }
-}
-
-// Removed GmodHookHandler implementation - using direct hook approach instead
-
-static INIT: Once = Once::new();
-
-// C++ interface structures (similar to gmcl_rekinect)
-#[repr(C)]
-pub struct CLuaInterface {
-    padding: usize,
-    pub lua: *mut std::ffi::c_void,
-}
-
-#[repr(C)]
-pub struct ILuaShared {
-    _vtable: *const std::ffi::c_void,
-}
-
-impl ILuaShared {
-    pub unsafe fn get_lua_interface(&self, realm: u8) -> *mut CLuaInterface {
-        let vtable = self._vtable as *const *const std::ffi::c_void;
-        let get_lua_interface_fn = *vtable.offset(6); // GetLuaInterface is at offset 6
-        let func: extern "C" fn(*const ILuaShared, u8) -> *mut CLuaInterface = 
-            std::mem::transmute(get_lua_interface_fn);
-        func(self, realm)
-    }
-}
-
-type CreateInterfaceFn = extern "C" fn(*const i8, *mut i32) -> *mut std::ffi::c_void;
-
-// Function to get ILuaShared from lua_shared.dll
-unsafe fn get_lua_shared(create_interface: CreateInterfaceFn) -> *mut ILuaShared {
-    let interface_name = CString::new("LUASHARED003").unwrap();
-    let mut return_code = 0i32;
-    create_interface(interface_name.as_ptr(), &mut return_code) as *mut ILuaShared
-}
-
-// Hook function that will be called when CLuaManager::Startup is executed
-unsafe extern "C" fn lua_manager_startup_hook() {
-    println!("[RTX Handler] lua_manager_startup_hook called!");
-    INIT.call_once(|| {
-        println!("[RTX Handler] INIT.call_once executing...");
-        // Wait a bit to ensure Lua is fully initialized
-        thread::sleep(Duration::from_millis(1000));
-        
-        println!("[RTX Handler] About to call perform_safe_injection...");
-        if let Err(e) = perform_safe_injection() {
-            eprintln!("[RTX Handler] RTX injection failed: {}", e);
-        } else {
-            println!("[RTX Handler] perform_safe_injection completed successfully");
-        }
-    });
-    println!("[RTX Handler] lua_manager_startup_hook finished");
-}
-
-unsafe fn perform_safe_injection() -> Result<(), String> {
-    println!("[RTX Handler] perform_safe_injection started");
-    
-    // Load lua_shared.dll
-    let lua_shared_path = if cfg!(target_pointer_width = "64") {
-        "bin/win64/lua_shared.dll"
-    } else {
-        "bin/lua_shared.dll"
+        })*
     };
-    
-    println!("[RTX Handler] Looking for lua_shared at: {}", lua_shared_path);
-    
-    let lua_shared = libloading::Library::new(lua_shared_path)
-        .map_err(|e| format!("Failed to load lua_shared: {}", e))?;
-    
-    println!("[RTX Handler] lua_shared loaded successfully");
-    
-    // Get CreateInterface function
-    let create_interface: CreateInterfaceFn = *lua_shared
-        .get(b"CreateInterface")
-        .map_err(|e| format!("Failed to find CreateInterface: {}", e))?;
-    
-    println!("[RTX Handler] CreateInterface function found");
-    
-    // Get ILuaShared interface
-    let lua_shared_interface = get_lua_shared(create_interface);
-    if lua_shared_interface.is_null() {
-        return Err("Failed to get ILuaShared interface".to_string());
-    }
-    
-    println!("[RTX Handler] ILuaShared interface obtained");
-    
-    // Get client Lua interface (realm 0 = client)
-    let client_lua = (*lua_shared_interface).get_lua_interface(0);
-    if client_lua.is_null() {
-        return Err("Failed to get client Lua interface".to_string());
-    }
-    
-    println!("[RTX Handler] Client Lua interface obtained");
-    
-    // Get Lua state
-    let lua_state = (*client_lua).lua;
-    if lua_state.is_null() {
-        return Err("Failed to get Lua state".to_string());
-    }
-    
-    println!("[RTX Handler] Lua state obtained: {:p}", lua_state);
-    
-    // Set up gmod crate's Lua state
-    gmod::set_lua_state(lua_state);
-    let lua = State(lua_state);
-    
-    println!("[RTX Handler] About to call safe_rtx_init...");
-    
-    // Now perform safe RTX initialization
-    safe_rtx_init(lua)?;
-    
-    println!("[RTX Handler] safe_rtx_init completed successfully");
-    
-    Ok(())
 }
 
-unsafe fn safe_rtx_init(lua: State) -> Result<(), String> {
-    println!("[RTX Handler] safe_rtx_init called - starting initialization...");
-    
-    // Check if we're in a safe context
-    lua.get_global(lua_string!("CLIENT"));
-    let is_client = lua.get_boolean(-1);
-    lua.pop();
-    
-    println!("[RTX Handler] CLIENT check: is_client = {}", is_client);
-    
-    if !is_client {
-        println!("[RTX Handler] Not on client side, skipping RTX initialization");
-        return Ok(()); // Don't do anything on server
-    }
-    
-    // Check if RTX namespace already exists (avoid conflicts)
-    lua.get_global(lua_string!("RTX"));
-    let rtx_exists = !lua.is_nil(-1);
-    lua.pop();
-    
-    println!("[RTX Handler] RTX namespace exists: {}", rtx_exists);
-    
-    if rtx_exists {
-        println!("[RTX Handler] RTX already loaded, skipping");
-        return Ok(()); // RTX already loaded
-    }
-    
-    // Create RTX namespace
-    lua.create_table(0, 0);
-    lua.set_global(lua_string!("RTX"));
-    
-    println!("[RTX Handler] Starting RTX Remix Binary addon loading...");
-    
-    // Load RTX binary stubs first (so Lua code doesn't crash)
-    match load_rtx_binary_stubs(lua) {
-        Ok(_) => println!("[RTX Handler] RTX binary stubs loaded successfully"),
-        Err(e) => {
-            println!("[RTX Handler] Failed to load RTX binary stubs: {}", e);
-            return Err(e);
-        }
-    }
-    
-    // Load addon files in correct order
-    match load_addon_files(lua) {
-        Ok(_) => println!("[RTX Handler] Addon files loaded successfully"),
-        Err(e) => {
-            println!("[RTX Handler] Failed to load addon files: {}", e);
-            return Err(e);
-        }
-    }
-    
-    println!("[RTX Handler] RTX Remix Binary addon loaded successfully!");
-    
-    Ok(())
+dll_paths! {
+    client_dll_path => "client"/"client",
+    lua_shared_dll_path => "lua_shared"/"lua_shared",
+    lua_shared_srv_dll_path => "lua_shared"/"lua_shared_srv"
 }
 
-unsafe fn load_rtx_binary_stubs(lua: State) -> Result<(), String> {
-    println!("[RTX Handler] Loading RTX Binary stubs...");
-    
-    let stubs_script = r#"
-        -- RTX Binary Module Stubs
-        print("[RTX Handler] Loading RTX Binary stubs...")
-        
-        -- Create RTXFixesBinary module simulation
-        local rtx_binary = {}
-        
-        -- RTX API stubs
-        function SetForceStaticLighting(enabled)
-            print("[RTX] SetForceStaticLighting:", enabled)
-            return true
-        end
-        
-        function GetForceStaticLighting()
-            return false
-        end
-        
-        function SetModelDrawHookEnabled(enabled)
-            print("[RTX] SetModelDrawHookEnabled:", enabled)
-            return true
-        end
-        
-        function ClearRTXResources_Native()
-            print("[RTX] ClearRTXResources_Native called")
-            return true
-        end
-        
-        function SetEnableRaytracing(enabled)
-            print("[RTX] SetEnableRaytracing:", enabled)
-            return true
-        end
-        
-        function SetIgnoreGameDirectionalLights(enabled)
-            print("[RTX] SetIgnoreGameDirectionalLights:", enabled)
-            return true
-        end
-        
-        function PrintRemixUIState()
-            print("[RTX] PrintRemixUIState called")
-            return true
-        end
-        
-        -- RTX Light API stubs
-        function CreateRTXSphereLight(x, y, z, radius, brightness, r, g, b, entityID, enableShaping, dirX, dirY, dirZ, coneAngle, coneSoftness)
-            print("[RTX] CreateRTXSphereLight called")
-            return {id = math.random(1000, 9999), type = "sphere"}
-        end
-        
-        function CreateRTXRectLight(x, y, z, width, height, brightness, r, g, b, entityID, dirX, dirY, dirZ, xAxisX, xAxisY, xAxisZ, yAxisX, yAxisY, yAxisZ, enableShaping, coneAngle, coneSoftness)
-            print("[RTX] CreateRTXRectLight called")
-            return {id = math.random(1000, 9999), type = "rect"}
-        end
-        
-        function CreateRTXDiskLight(x, y, z, xRadius, yRadius, brightness, r, g, b, entityID, dirX, dirY, dirZ, xAxisX, xAxisY, xAxisZ, yAxisX, yAxisY, yAxisZ, enableShaping, coneAngle, coneSoftness)
-            print("[RTX] CreateRTXDiskLight called")
-            return {id = math.random(1000, 9999), type = "disk"}
-        end
-        
-        function CreateRTXDistantLight(dirX, dirY, dirZ, angularDiameter, brightness, r, g, b, entityID)
-            print("[RTX] CreateRTXDistantLight called")
-            return {id = math.random(1000, 9999), type = "distant"}
-        end
-        
-        function UpdateRTXLight(handle, ...)
-            print("[RTX] UpdateRTXLight called")
-            return true, handle
-        end
-        
-        function DestroyRTXLight(handle)
-            print("[RTX] DestroyRTXLight called")
-            return true
-        end
-        
-        function DrawRTXLights()
-            -- No-op for now
-            return true
-        end
-        
-        function RTXBeginFrame()
-            return true
-        end
-        
-        function RTXEndFrame()
-            return true
-        end
-        
-        function RegisterRTXLightEntityValidator(validator)
-            print("[RTX] RegisterRTXLightEntityValidator called")
-            return true
-        end
-        
-        -- Create require stub for RTXFixesBinary
-        local old_require = require
-        require = function(module)
-            if module == "RTXFixesBinary" then
-                print("[RTX] RTXFixesBinary module loaded (stub)")
-                return rtx_binary
-            else
-                return old_require(module)
-            end
-        end
-        
-        print("[RTX Handler] RTX Binary stubs loaded")
-    "#;
-    
-    let stubs_cstr = CString::new(stubs_script).map_err(|e| format!("Failed to convert stubs to C string: {}", e))?;
-    
-    if lua.load_string(stubs_cstr.as_ptr()).is_ok() {
-        let result = lua.pcall(0, 0, 0);
-        if result != 0 {
-            let error_msg = lua.get_string(-1).unwrap_or(std::borrow::Cow::Borrowed("Unknown error"));
-            return Err(format!("Failed to load RTX stubs: {}", error_msg));
-        }
-        println!("[RTX Handler] RTX stubs Lua execution successful");
-    } else {
-        return Err("Failed to load RTX stubs script".to_string());
-    }
-    
-    Ok(())
-}
+#[cfg_attr(target_pointer_width = "64", abi("fastcall"))]
+#[cfg_attr(all(target_os = "windows", target_pointer_width = "32"), abi("thiscall"))]
+#[cfg_attr(all(target_os = "linux", target_pointer_width = "32"), abi("C"))]
+type CLuaManagerStartup = extern "C" fn(this: *mut c_void);
 
-unsafe fn load_addon_files(lua: State) -> Result<(), String> {
-    let addon_base_path = "./garrysmod/addons/remixbinary/";
-    
-    println!("[RTX Handler] Looking for addon files in: {}", addon_base_path);
-    
-    // Check if the addon directory exists
-    let addon_path = std::path::Path::new(addon_base_path);
-    if !addon_path.exists() {
-        return Err(format!("Addon directory does not exist: {}", addon_base_path));
-    }
-    
-    // Check current working directory
-    let current_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("unknown"));
-    println!("[RTX Handler] Current working directory: {}", current_dir.display());
-    
-    // Define the loading order
-    let addon_files = vec![
-        // 1. Load shared files first
-        ("sh_rtx.lua", format!("{}lua/autorun/sh_rtx.lua", addon_base_path)),
-        ("sh_flashlight_override.lua", format!("{}lua/autorun/sh_flashlight_override.lua", addon_base_path)),
-        
-        // 2. Load main initialization
-        ("rtxfixes_init.lua", format!("{}lua/autorun/rtxfixes_init.lua", addon_base_path)),
-        
-        // 3. Load main client file
-        ("cl_rtx.lua", format!("{}lua/autorun/cl_rtx.lua", addon_base_path)),
-        
-        // 4. Load specialized client files (only a few key ones for testing)
-        ("cl_rtx_settings.lua", format!("{}lua/autorun/client/cl_rtx_settings.lua", addon_base_path)),
-        ("cl_rtx_light_updater.lua", format!("{}lua/autorun/client/cl_rtx_light_updater.lua", addon_base_path)),
-        ("cl_rtx_material_fixer.lua", format!("{}lua/autorun/client/cl_rtx_material_fixer.lua", addon_base_path)),
-    ];
-    
-    let mut loaded_count = 0;
-    let mut failed_count = 0;
-    
-    // Load each file
-    for (name, file_path) in addon_files {
-        println!("[RTX Handler] Attempting to load: {} from {}", name, file_path);
-        match load_addon_file(lua, name, &file_path) {
-            Ok(_) => {
-                println!("[RTX Handler] ✓ Loaded: {}", name);
-                loaded_count += 1;
+macro_rules! cluamanager_detours {
+    ($($func:ident => { hook($this_var:ident): $hook:block, $trampoline_var:ident: $trampoline:ident, sigs: $sigfunc:ident => { $($cfg:expr => $sig:literal),* } }),*) => {
+        $(
+            static mut $trampoline: Option<gmod::detour::RawDetour> = None;
+
+            #[cfg_attr(target_pointer_width = "64", abi("fastcall"))]
+            #[cfg_attr(all(target_os = "windows", target_pointer_width = "32"), abi("thiscall"))]
+            #[cfg_attr(all(target_os = "linux", target_pointer_width = "32"), abi("C"))]
+            unsafe extern "C" fn $func($this_var: *mut c_void) {
+                let $trampoline_var = core::mem::transmute::<_, CLuaManagerStartup>($trampoline.as_ref().unwrap().trampoline() as *const ());
+                $hook;
             }
-            Err(e) => {
-                println!("[RTX Handler] ✗ Failed to load {}: {}", name, e);
-                failed_count += 1;
-                // Continue loading other files even if one fails
+
+            fn $sigfunc() -> gmod::sigscan::Signature {
+                match () {
+                    $(_ if $cfg => gmod::sigscan::signature!($sig),)*
+                    _ => todo!("Unsupported platform")
+                }
             }
+        )*
+    };
+}
+
+cluamanager_detours! {
+    client_cluamanager_startup => {
+        hook(this): {
+            trampoline(this);
+            cluamanager_startup();
+        },
+        trampoline: CLIENT_CLUAMANAGER_STARTUP,
+        sigs: client_cluamanager_startup_sig => {
+            // string search: "Clientside Lua startup!"
+            cfg!(all(target_pointer_width = "64", target_os = "windows")) => "48 89 5C 24 ? 48 89 74 24 ? 57 48 83 EC 60 48 8B 05 ? ? ? ? 48 33 C4 48 89 44 24 ? 48 8B F1 48 8D 0D ? ? ? ? FF 15 ? ? ? ? E8 ? ? ? ? F3 0F 10 0D",
+            cfg!(all(target_pointer_width = "32", target_os = "windows")) => "55 8B EC 83 EC 18 53 68 ? ? ? ? 8B D9 FF 15 ? ? ? ? 83 C4 04 E8 ? ? ? ? D9 05 ? ? ? ? 68 ? ? ? ? 51 8B 10 8B C8 D9 1C 24"
         }
     }
-    
-    println!("[RTX Handler] Loading summary: {} loaded, {} failed", loaded_count, failed_count);
-    
-    // Load a few key entities
-    let entities_path = format!("{}lua/entities/", addon_base_path);
-    match load_addon_entities(lua, &entities_path) {
-        Ok(_) => println!("[RTX Handler] Entities loaded successfully"),
-        Err(e) => println!("[RTX Handler] Warning: Failed to load entities: {}", e),
-    }
-    
-    // Set up a timer for delayed initialization
-    let delayed_init_script = r#"
-        -- Delayed RTX initialization
-        print("[RTX Handler] Setting up delayed initialization timer...")
-        timer.Simple(1, function()
-            print("[RTX Handler] Running delayed RTX initialization...")
-            
-            -- Call RTX initialization if it exists
-            if RTXLoad then
-                print("[RTX Handler] Calling RTXLoad()...")
-                local success, err = pcall(RTXLoad)
-                if success then
-                    print("[RTX Handler] RTXLoad() completed successfully")
-                else
-                    print("[RTX Handler] RTXLoad() failed:", err)
-                end
-            else
-                print("[RTX Handler] RTXLoad function not found")
-            end
-            
-            -- Set up entity hooks
-            hook.Add("OnEntityCreated", "RTXEntitySetup", function(ent)
-                timer.Simple(0.1, function()
-                    if IsValid(ent) then
-                        -- Apply RTX fixes to new entities
-                        if ent.RenderOverride == nil and ent:GetClass() ~= "procedural_shard" then
-                            -- Apply render override if available
-                            if DrawFix then
-                                ent.RenderOverride = DrawFix
-                            end
-                        end
-                    end
-                end)
-            end)
-            
-            print("[RTX Handler] Delayed initialization complete")
-        end)
-        print("[RTX Handler] Delayed initialization timer set")
-    "#;
-    
-    let delayed_cstr = CString::new(delayed_init_script).map_err(|e| format!("Failed to convert delayed init to C string: {}", e))?;
-    
-    if lua.load_string(delayed_cstr.as_ptr()).is_ok() {
-        let result = lua.pcall(0, 0, 0);
-        if result != 0 {
-            let error_msg = lua.get_string(-1).unwrap_or(std::borrow::Cow::Borrowed("Unknown error"));
-            println!("[RTX Handler] Warning: Failed to set up delayed init: {}", error_msg);
-        } else {
-            println!("[RTX Handler] Delayed initialization setup successful");
+}
+
+unsafe fn cluamanager_startup() {
+    let lib_path = lua_shared_dll_path();
+
+    let lib = {
+        #[cfg(windows)]
+        {
+            libloading::os::windows::Library::open_already_loaded(lib_path)
+        }
+        #[cfg(unix)]
+        {
+            libloading::os::unix::Library::open(Some(lib_path), libc::RTLD_NOLOAD)
+                .or_else(|_| libloading::os::unix::Library::open(Some(lib_path), libc::RTLD_NOLOAD))
         }
     }
-    
-    Ok(())
-}
+    .expect("Failed to load lua_shared");
 
-unsafe fn load_addon_file(lua: State, name: &str, file_path: &str) -> Result<(), String> {
-    // Try to read the file
-    let content = fs::read_to_string(file_path)
-        .map_err(|e| format!("Failed to read {}: {}", file_path, e))?;
-    
-    let content_cstr = CString::new(content).map_err(|e| format!("Failed to convert {} to C string: {}", name, e))?;
-    
-    if lua.load_string(content_cstr.as_ptr()).is_ok() {
-        let result = lua.pcall(0, 0, 0);
-        if result != 0 {
-            let error_msg = lua.get_string(-1).unwrap_or(std::borrow::Cow::Borrowed("Unknown error"));
-            return Err(format!("Failed to execute {}: {}", name, error_msg));
-        }
-    } else {
-        return Err(format!("Failed to load script: {}", name));
+    let i_lua_shared = get_lua_shared(
+        *lib.get::<*const ()>(b"CreateInterface")
+            .expect("Failed to find CreateInterface in lua_shared"),
+    );
+
+    if i_lua_shared.is_null() {
+        panic!("Failed to get ILuaShared");
     }
-    
-    Ok(())
-}
 
-unsafe fn load_addon_entities(lua: State, entities_path: &str) -> Result<(), String> {
-    // Load key entities
-    let entities = vec![
-        "rtx_flashlight_ent.lua",
-        "rtx_pseudoplayer.lua", 
-        "rtx_pseudoweapon.lua",
-        "rtx_lightupdater.lua",
-        "gmod_lamp.lua",
-        "gmod_light.lua",
-        "rtx_flashlight.lua",
-        "rtx_physics.lua",
-        "rtx_mattest.lua",
-    ];
-    
-    for entity in entities {
-        let entity_path = format!("{}{}", entities_path, entity);
-        match load_addon_file(lua, entity, &entity_path) {
-            Ok(_) => println!("[RTX Handler] Loaded entity: {}", entity),
-            Err(e) => {
-                println!("[RTX Handler] Warning: Failed to load entity {}: {}", entity, e);
-                // Continue loading other entities
-            }
-        }
+    let c_lua_interface = open_lua_interface(i_lua_shared, GmodLuaInterfaceRealm::Client);
+    if c_lua_interface.is_null() {
+        panic!("Failed to get CLuaInterface");
     }
-    
-    Ok(())
-}
 
-pub fn is_gmod_context() -> bool {
-    unsafe {
-        let lua_shared_path = if cfg!(target_pointer_width = "64") {
-            "bin/win64/lua_shared.dll"
-        } else {
-            "bin/lua_shared.dll"
-        };
-        
-        // Try to load lua_shared - if it fails, we're not in GMod
-        libloading::Library::new(lua_shared_path).is_ok()
-    }
-}
+    let lua_state = get_lua_state(c_lua_interface);
 
-// Hook setup function (this would need to be called from main injection point)
-pub unsafe fn setup_lua_hook() -> Result<(), String> {
-    println!("[RTX Handler] setup_lua_hook called");
-    
-    // This is where we would set up the CLuaManager::Startup hook
-    // For now, we'll use a simpler approach with a delay
-    thread::spawn(|| {
-        println!("[RTX Handler] Hook setup thread started");
-        // Wait for GMod to be fully loaded
-        thread::sleep(Duration::from_millis(3000));
-        println!("[RTX Handler] Hook setup delay complete, calling lua_manager_startup_hook...");
-        lua_manager_startup_hook();
-    });
-    
-    println!("[RTX Handler] setup_lua_hook completed");
-    Ok(())
-}
-
-#[no_mangle]
-pub extern "C" fn gmod13_open(lua_state: *mut std::ffi::c_void) -> i32 {
-    unsafe {
-        if !lua_state.is_null() {
+    {
+        static mut GMOD_RS_SET_LUA_STATE: bool = false;
+        if !core::mem::replace(&mut GMOD_RS_SET_LUA_STATE, true) {
             gmod::set_lua_state(lua_state);
-            let lua = State(lua_state);
-            
-            // This is called when loaded as a binary module
-            if let Err(e) = safe_rtx_init(lua) {
-                eprintln!("RTX binary module init failed: {}", e);
-            }
         }
     }
-    0
+
+    crate::init(gmod::lua::State(lua_state));
 }
 
-#[no_mangle]
-pub extern "C" fn gmod13_close(_lua_state: *mut std::ffi::c_void) -> i32 {
-    // Cleanup if needed
-    0
-} 
+pub unsafe fn init_injection() {
+    if is_ctor_binary_module() {
+        // If we were loaded by GMOD_LoadBinaryModule, we don't need to hook CLuaManager::Startup
+        return;
+    }
+
+    LUA_STATE.set(RtxLuaState::InjectedDll);
+
+    init_logging_for_injected_dll();
+
+    log::info!("DLL injected");
+
+    let client_dll_path = client_dll_path();
+
+    let (dll_path, sig, global, detour) = (
+        client_dll_path,
+        client_cluamanager_startup_sig(),
+        &mut CLIENT_CLUAMANAGER_STARTUP,
+        client_cluamanager_startup as *const (),
+    );
+    log::info!("Hooking CLuaManager::Startup in {}", dll_path);
+
+    let cluamanager_startup_addr = sig.scan_module(dll_path).expect("Failed to find CLuaManager::Startup") as *const ();
+
+    *global = Some({
+        let cluamanager_startup = gmod::detour::RawDetour::new(cluamanager_startup_addr, detour).expect("Failed to hook CLuaManager::Startup");
+        cluamanager_startup.enable().expect("Failed to enable CLuaManager::Startup hook");
+        cluamanager_startup
+    });
+}
+
+unsafe fn is_ctor_binary_module() -> bool {
+    let lib = {
+        #[cfg(windows)]
+        {
+            libloading::os::windows::Library::open_already_loaded("lua_shared")
+        }
+        #[cfg(unix)]
+        {
+            libloading::os::unix::Library::open(Some("lua_shared_srv"), libc::RTLD_NOLOAD)
+                .or_else(|_| libloading::os::unix::Library::open(Some("lua_shared"), libc::RTLD_NOLOAD))
+        }
+    };
+
+    let lib = lib.expect("Failed to find lua_shared");
+
+    let i_lua_shared = get_lua_shared(
+        *lib.get::<*const ()>(b"CreateInterface")
+            .expect("Failed to find CreateInterface in lua_shared"),
+    );
+    if i_lua_shared.is_null() {
+        panic!("Failed to get ILuaShared");
+    }
+
+    let cl = open_lua_interface(i_lua_shared, GmodLuaInterfaceRealm::Client);
+    let sv = open_lua_interface(i_lua_shared, GmodLuaInterfaceRealm::Server);
+
+    // This detection really sucks, can't really think of anything better
+    if cl.is_null() && sv.is_null() {
+        // We're being injected if the client and server Lua states are inactive
+        false
+    } else {
+        // We're being loaded by GMOD_LoadBinaryModule
+        true
+    }
+}
+
+pub fn binary_module_init(lua: gmod::lua::State) {
+    if !matches!(LUA_STATE.get(), RtxLuaState::InjectedDll) {
+        LUA_STATE.set(RtxLuaState::BinaryModule(lua));
+    }
+}
+
+pub unsafe fn init(_lua: gmod::lua::State) {
+    INIT_REFCOUNT += 1;
+
+    if INIT_REFCOUNT != 1 {
+        return;
+    }
+
+    log::info!(concat!("gmod_hook v", env!("CARGO_PKG_VERSION"), " loaded!"));
+    
+    // TODO: Add your RTX-specific initialization here
+    // For now, just log that we're successfully initialized
+}
+
+pub unsafe fn shutdown() {
+    INIT_REFCOUNT = INIT_REFCOUNT.saturating_sub(1);
+    
+    if INIT_REFCOUNT == 0 {
+        // TODO: Add cleanup code here
+    }
+}
+
+// Logging functions
+pub unsafe fn init_logging_for_injected_dll() {
+    std::fs::remove_file("gmod_hook.log").ok();
+
+    LOGGER = Logger(
+        std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .truncate(false)
+            .open("gmod_hook.log")
+            .ok(),
+    );
+
+    init_logging_for_binary_module();
+}
+
+pub unsafe fn init_logging_for_binary_module() {
+    log::set_logger(&LOGGER).ok();
+    log::set_max_level(log::LevelFilter::Info);
+}
+
+ 

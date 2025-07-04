@@ -5,38 +5,52 @@ edition = "2021"
 
 [lib]
 name = "gmod_hook"
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib"]
 
 [[bin]]
 name = "rtx_injector"
-path = "src/main.rs"
+path = "src/injector/main.rs"
 
 [dependencies]
-gmod = "17"
-env_logger = "0.10"
+gmod = "17.0.0"
+fn_abi = "3.0.0"
+dll-syringe = "0.16"
+eyre = "0.6"
+chrono = { version = "0.4", features = ["serde"] }
 log = "0.4"
+env_logger = "0.10"
+ctor = "0.2"
 libloading = "0.8"
-chrono = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_Security",
+    "Win32_System",
+    "Win32",
+    "Win32_System_Kernel",
+    "Wdk_System_Threading",
+    "Wdk_System",
+    "Wdk",
+] }
+
+[build-dependencies]
+cc = "1.0"
+
+[target.'cfg(windows)'.build-dependencies]
+cc = "1.0"
 
 [target.'cfg(any(target_os = "windows", target_os = "linux"))'.dependencies]
-fn_abi = "3"
 paste = "1.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # For macOS, don't include gmod since skidscan doesn't work
 
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
-
-[target.'cfg(windows)'.dependencies]
-windows = { version = "0.52", features = [
-    "Win32_Foundation",
-    "Win32_System_LibraryLoader",
-    "Win32_System_Threading",
-    "Win32_System_Diagnostics_Debug",
-    "Win32_System_Memory",
-    "Win32_Security"
-] }
-
-[build-dependencies]
-cc = "1" 
+libc = "0.2" 

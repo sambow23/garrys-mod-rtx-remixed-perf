@@ -68,3 +68,4 @@ source/launcher/CMakeCache.txt
 /patcherlauncher/x64
 
 source/gmod_hook/target
+source/gmod_hook/garrysmod

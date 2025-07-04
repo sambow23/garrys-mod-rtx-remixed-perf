@@ -1,11 +1,14 @@
-use std::{cell::Cell, ffi::c_void};
+#![allow(clippy::let_and_return)]
+
+use std::{cell::Cell, ffi::c_void, borrow::Cow};
+
+#[macro_use]
+extern crate gmod;
 
 pub mod rtx_handler;
-pub use rtx_handler::RTXHandler;
+mod process_utils;
 
-// Only import gmod on supported platforms
-#[cfg(any(target_os = "windows", target_os = "linux"))]
-use gmod;
+// Only import gmod on supported platforms (already imported via extern crate)
 
 #[repr(u8)]
 #[derive(Debug, Clone, Copy)]
@@ -260,4 +263,94 @@ pub unsafe fn is_gmod_context() -> bool {
     };
 
     lib_result.is_ok()
+}
+
+// Main library functionality from main.rs
+static mut GMOD13_OPEN: bool = false;
+
+unsafe fn init(lua: gmod::lua::State) {
+    log::info!(concat!("gmod_hook v", env!("CARGO_PKG_VERSION"), " loaded!"));
+    
+    lua_stack_guard!(lua => {
+        rtx_handler::init(lua);
+    });
+}
+
+unsafe fn shutdown() {
+    rtx_handler::shutdown();
+}
+
+#[gmod13_open]
+unsafe fn gmod13_open(lua: gmod::lua::State) {
+    let is_server;
+    {
+        lua.get_global(lua_string!("SERVER"));
+        is_server = lua.get_boolean(-1);
+        lua.pop();
+    }
+
+    // If we're on the server, don't do anything.
+    if is_server {
+        log::info!("gmod_hook is a clientside module, and does nothing on the server.");
+        return;
+    }
+
+    // If we're already injected, don't do anything.
+    if rtx_handler::already_initialized() {
+        return;
+    }
+
+    GMOD13_OPEN = true;
+
+    rtx_handler::init_logging_for_binary_module();
+    rtx_handler::binary_module_init(lua);
+    init(lua);
+}
+
+#[gmod13_close]
+unsafe fn gmod13_close(_lua: gmod::lua::State) {
+    if GMOD13_OPEN {
+        shutdown();
+    }
+}
+
+// Support for DLL injecting
+#[ctor::ctor]
+fn ctor() {
+    set_panic_handler();
+
+    // If we're already injected, don't do anything.
+    if unsafe { rtx_handler::already_initialized() } {
+        return;
+    }
+
+    unsafe { rtx_handler::init_injection() };
+}
+
+fn set_panic_handler() {
+    std::panic::set_hook(Box::new(move |panic: &std::panic::PanicHookInfo<'_>| {
+        if let Some(lua) = rtx_handler::lua_state() {
+            unsafe {
+                lua.get_global(lua_string!("ErrorNoHalt"));
+                if !lua.is_nil(-1) {
+                    lua.push_string(&format!("gmod_hook panic: {:#?}\n", panic));
+                    lua.call(1, 0);
+                } else {
+                    lua.pop();
+                }
+            }
+        } else {
+            std::fs::write(
+                format!(
+                    "gmod_hook_panic_{}.log",
+                    Some(format!("{:?}", std::thread::current().id()).replace(|char| !char::is_ascii_digit(&char), ""))
+                        .filter(|s| !s.is_empty())
+                        .map(Cow::Owned)
+                        .unwrap_or_else(|| Cow::Borrowed("unknown"))
+                ),
+                format!("{:#?}", panic),
+            )
+            .ok();
+        }
+    }));
 } 
