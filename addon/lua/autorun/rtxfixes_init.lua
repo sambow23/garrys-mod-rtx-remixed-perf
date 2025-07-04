@@ -3,7 +3,13 @@ if SERVER then
 end
 
 if CLIENT then
-    require((BRANCH == "x86-64" or BRANCH == "chromium" ) and "RTXFixesBinary" or "RTXFixesBinary")
+    -- RTX binary module is now provided by the injected DLL
+    -- Check if RTX functions are available
+    if SetEnableRaytracing then
+        print("[RTX] RTX Remix binary integration detected!")
+    else
+        print("[RTX] Warning: RTX Remix binary integration not found. Make sure the injector is running.")
+    end
 end
 
 -- Disabled Remix API Light lua bindings
