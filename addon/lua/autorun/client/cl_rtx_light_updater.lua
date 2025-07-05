@@ -367,9 +367,6 @@ local function FindClearPositionSmart(original_pos, light_data)
 	-- Immediately reject if the light itself is in an extreme location
 	if not IsInWorld(light_origin) or not IsPositionReasonable(light_origin, light_origin) then
 		-- Don't create updaters for lights that are themselves out of bounds
-		if debugconsole:GetBool() then
-			print("[RTX Light Updater] Rejected light at extreme location: " .. tostring(light_origin))
-		end
 		return nil, false
 	end
 	
@@ -521,14 +518,23 @@ local function FindClearPositionSmart(original_pos, light_data)
 	return nil, false
 end
 
--- Use the smart positioning system
-local function FindClearPosition(original_pos, light_data)
-	return FindClearPositionSmart(original_pos, light_data)
+-- Helper function to calculate initial position for a light
+local function CalculateInitialPosition(light)
+	if not light.origin or not light.angles then return nil end
+	
+	-- For spot lights, position EXTREMELY close directly in front
+	if light.classname == "light_spot" then
+		local light_dir = light.angles:Forward()
+		return light.origin + (light_dir * 2) -- EXTREMELY close - 2 units
+	else
+		-- For other lights, position slightly offset (original logic)
+		return light.origin - (light.angles:Forward() * 8)
+	end
 end
 
 -- Create a model for a specific light
 local function CreateLightModel(light_id, pos)
-	local light_model = ClientsideModel("models/hunter/plates/plate.mdl")
+	local light_model = ClientsideModel("models/editor/cone_helper.mdl")
 	if not IsValid(light_model) then
 		return nil
 	end
@@ -546,10 +552,6 @@ local function FindEmergencyPosition(light)
 	if not light.origin then return nil end
 	
 	local light_origin = light.origin
-	
-	if debugconsole:GetBool() then
-		print("[RTX Light Updater] Emergency positioning for light at: " .. tostring(light_origin))
-	end
 	
 	-- Try extremely simple positions with minimal validation
 	local emergency_directions = {
@@ -581,9 +583,6 @@ local function FindEmergencyPosition(light)
 				})
 				
 				if not (trace.Hit or trace.StartSolid) then
-					if debugconsole:GetBool() then
-						print("[RTX Light Updater] Emergency position found at distance " .. distance .. ": " .. tostring(test_pos))
-					end
 					return test_pos
 				end
 			end
@@ -608,10 +607,6 @@ local function FindEmergencyPosition(light)
 			return test_pos
 		end
 	end
-	
-	if debugconsole:GetBool() then
-		print("[RTX Light Updater] Emergency positioning completely failed for: " .. tostring(light_origin))
-	end
 	return nil
 end
 
@@ -626,19 +621,9 @@ local function AddLight(light)
 	-- Skip if we already have this light
 	if known_lights[light_id] then return false end
 	
-	if light.origin and light.angles then
-		local original_pos
-		
-		-- For spot lights, position EXTREMELY close directly in front
-		if light.classname == "light_spot" then
-			local light_dir = light.angles:Forward()
-			original_pos = light.origin + (light_dir * 2) -- EXTREMELY close - 2 units
-		else
-			-- For other lights, position slightly offset (original logic)
-			original_pos = light.origin - (light.angles:Forward() * 8)
-		end
-		
-		local adjusted_pos, was_moved = FindClearPosition(original_pos, {light = light})
+	local original_pos = CalculateInitialPosition(light)
+	if original_pos then
+		local adjusted_pos, was_moved = FindClearPositionSmart(original_pos, {light = light})
 		
 		-- Only create light updater if we found a valid position
 		if adjusted_pos then
@@ -678,10 +663,6 @@ local function AddLight(light)
 				table.insert(lights, light)
 				light_positions[#lights] = emergency_pos
 				
-				if debugconsole:GetBool() then
-					print("[RTX Light Updater] Emergency updater created for " .. (light.classname or "light") .. " at: " .. tostring(emergency_pos))
-				end
-				
 				return true
 			end
 		end
@@ -708,6 +689,9 @@ local function InitializeLights()
 		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_environment" ) or {})
 		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_dynamic" ) or {})
 		
+		-- Shuffle lights to randomize processing order for better distribution
+		lights = shuffle(lights)
+		
 		local total_lights_found = #lights
 		local lights_processed = 0
 		
@@ -720,19 +704,9 @@ local function InitializeLights()
 				all_discovered_lights[light_id] = light
 			end
 			
-			if light.origin and light.angles then
-				local original_pos
-				
-				-- For spot lights, position EXTREMELY close directly in front
-				if light.classname == "light_spot" then
-					local light_dir = light.angles:Forward()
-					original_pos = light.origin + (light_dir * 2) -- EXTREMELY close - 2 units
-				else
-					-- For other lights, position slightly offset (original logic)
-					original_pos = light.origin - (light.angles:Forward() * 8)
-				end
-				
-				local adjusted_pos, was_moved = FindClearPosition(original_pos, {light = light})
+			local original_pos = CalculateInitialPosition(light)
+			if original_pos then
+				local adjusted_pos, was_moved = FindClearPositionSmart(original_pos, {light = light})
 				
 				-- Only create light updater if we found a valid position
 				if adjusted_pos then
@@ -767,10 +741,6 @@ local function InitializeLights()
 								emergency = true -- Mark as emergency positioned
 							}
 						end
-						
-						if debugconsole:GetBool() then
-							print("[RTX Light Updater] Emergency updater created for " .. (light.classname or "light") .. " at: " .. tostring(emergency_pos))
-						end
 					end
 				end
 				-- If adjusted_pos is nil, we skip this light (don't create an updater)
@@ -794,7 +764,7 @@ end
 -- Create the model if needed
 local function InitializeModel()
 	if not IsValid(model) then
-		model = ClientsideModel("models/hunter/plates/plate.mdl")
+		model = ClientsideModel("models/editor/cone_helper.mdl")
 		if not IsValid(model) then
 			return false
 		end
@@ -866,9 +836,36 @@ local function MovetoPositions()
 		end
 		
 		if IsValid(light_model) then
-			render.Model({model = "models/hunter/plates/plate.mdl", pos = light_data.pos}, light_model)
+			render.Model({model = "models/editor/cone_helper.mdl", pos = light_data.pos}, light_model)
 		end
 	end
+end
+
+-- Helper function to draw a circle on screen
+local function DrawScreenCircle(center_x, center_y, radius, color, step)
+	surface.SetDrawColor(color[1], color[2], color[3], color[4])
+	step = step or 10
+	for i = 0, 360, step do
+		local x1 = center_x + math.cos(math.rad(i)) * radius
+		local y1 = center_y + math.sin(math.rad(i)) * radius
+		local x2 = center_x + math.cos(math.rad(i + step)) * radius
+		local y2 = center_y + math.sin(math.rad(i + step)) * radius
+		surface.DrawLine(x1, y1, x2, y2)
+	end
+end
+
+-- Helper function to draw crosshair
+local function DrawScreenCrosshair(center_x, center_y, size, color)
+	surface.SetDrawColor(color[1], color[2], color[3], color[4])
+	surface.DrawLine(center_x - size, center_y, center_x + size, center_y)
+	surface.DrawLine(center_x, center_y - size, center_x, center_y + size)
+end
+
+-- Helper function to draw X marker
+local function DrawScreenX(center_x, center_y, size, color)
+	surface.SetDrawColor(color[1], color[2], color[3], color[4])
+	surface.DrawLine(center_x - size, center_y - size, center_x + size, center_y + size)
+	surface.DrawLine(center_x - size, center_y + size, center_x + size, center_y - size)
 end
 
 -- Draw visual indicators when show lights is enabled
@@ -897,29 +894,13 @@ local function DrawLightIndicators()
 			end
 			
 			-- Draw outer circle
-			surface.SetDrawColor(outer_color[1], outer_color[2], outer_color[3], outer_color[4])
-			for i = 0, 360, 10 do
-				local x1 = screen_pos.x + math.cos(math.rad(i)) * 8
-				local y1 = screen_pos.y + math.sin(math.rad(i)) * 8
-				local x2 = screen_pos.x + math.cos(math.rad(i + 10)) * 8
-				local y2 = screen_pos.y + math.sin(math.rad(i + 10)) * 8
-				surface.DrawLine(x1, y1, x2, y2)
-			end
+			DrawScreenCircle(screen_pos.x, screen_pos.y, 8, outer_color, 10)
 			
 			-- Draw inner circle
-			surface.SetDrawColor(inner_color[1], inner_color[2], inner_color[3], inner_color[4])
-			for i = 0, 360, 15 do
-				local x1 = screen_pos.x + math.cos(math.rad(i)) * 3
-				local y1 = screen_pos.y + math.sin(math.rad(i)) * 3
-				local x2 = screen_pos.x + math.cos(math.rad(i + 15)) * 3
-				local y2 = screen_pos.y + math.sin(math.rad(i + 15)) * 3
-				surface.DrawLine(x1, y1, x2, y2)
-			end
+			DrawScreenCircle(screen_pos.x, screen_pos.y, 3, inner_color, 15)
 			
 			-- Draw crosshair
-			surface.SetDrawColor(255, 255, 255, 255) -- White crosshair
-			surface.DrawLine(screen_pos.x - 12, screen_pos.y, screen_pos.x + 12, screen_pos.y)
-			surface.DrawLine(screen_pos.x, screen_pos.y - 12, screen_pos.x, screen_pos.y + 12)
+			DrawScreenCrosshair(screen_pos.x, screen_pos.y, 12, {255, 255, 255, 255})
 		end
 	end
 end
@@ -941,9 +922,7 @@ local function DrawMovedPositionDebug()
 			
 			-- Draw X marker at original position
 			if original_screen.visible then
-				surface.SetDrawColor(255, 0, 0, 200) -- Red X
-				surface.DrawLine(original_screen.x - 6, original_screen.y - 6, original_screen.x + 6, original_screen.y + 6)
-				surface.DrawLine(original_screen.x - 6, original_screen.y + 6, original_screen.x + 6, original_screen.y - 6)
+				DrawScreenX(original_screen.x, original_screen.y, 6, {255, 0, 0, 200})
 			end
 		end
 	end
@@ -1032,19 +1011,10 @@ local function DrawMissingLightsDebug()
 			
 			if screen_pos.visible then
 				-- Draw a red X marker
-				surface.SetDrawColor(255, 0, 0, 200)
-				local size = 8
-				surface.DrawLine(screen_pos.x - size, screen_pos.y - size, screen_pos.x + size, screen_pos.y + size)
-				surface.DrawLine(screen_pos.x - size, screen_pos.y + size, screen_pos.x + size, screen_pos.y - size)
+				DrawScreenX(screen_pos.x, screen_pos.y, 8, {255, 0, 0, 200})
 				
 				-- Draw a red circle around it
-				for i = 0, 360, 20 do
-					local x1 = screen_pos.x + math.cos(math.rad(i)) * 12
-					local y1 = screen_pos.y + math.sin(math.rad(i)) * 12
-					local x2 = screen_pos.x + math.cos(math.rad(i + 20)) * 12
-					local y2 = screen_pos.y + math.sin(math.rad(i + 20)) * 12
-					surface.DrawLine(x1, y1, x2, y2)
-				end
+				DrawScreenCircle(screen_pos.x, screen_pos.y, 12, {255, 0, 0, 200}, 20)
 				
 				-- Text showing it's missing
 				local class_text = (light.classname or "light") .. " (NO UPDATER)"
@@ -1109,31 +1079,3 @@ hook.Add( "OnEntityCreated", "RTXReady_MapCheck", function(ent)
 		CleanupModel()
 	end
 end)
-
--- Print help information on load
-timer.Simple(1, function()
-	if debugconsole:GetBool() then
-		print("======================================")
-		print("RTX Light Updater Loaded")
-		print("======================================")
-		print("Commands:")
-		print("  rtx_lightupdater 0/1               - Enable/disable system")
-		print("  rtx_lightupdater_show 0/1          - Show/hide visual indicators")
-		print("  rtx_lightupdater_debug 0/1         - Show/hide debug text")
-		print("  rtx_lightupdater_debug_moved 0/1   - Show moved position debug")
-		print("  rtx_lightupdater_debug_missing 0/1 - Show lights without updaters")
-		print("  rtx_lightupdater_force_move 1      - Force recalculate all positions")
-		print("  rtx_lightupdater_force_move_cmd    - Same as above (command)")
-		print("======================================")
-		print("Features:")
-		print("  Automatic emergency positioning - Lights use fallback positioning")
-		print("  when normal validation fails (shown as magenta circles)")
-		print("======================================")
-		print("Visual Legend:")
-		print("  Cyan circles = Normal positioned lights")
-		print("  Orange circles = Moved positioned lights") 
-		print("  Magenta circles = Emergency positioned lights")
-		print("  Red X = Lights without updaters (complete failures)")
-		print("======================================")
-	end
-end)  
