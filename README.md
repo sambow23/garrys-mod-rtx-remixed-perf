@@ -1,7 +1,6 @@
 <img src="https://github.com/user-attachments/assets/fad469d4-b7b2-428c-a093-5b497f02d820" alt="drawing" width="500"/>
 
 ## Features
-### Universal (x86 and x64)
 - Light Updaters
     * Forces Source to render all map lights
 - Water replacer
@@ -41,7 +40,7 @@
 - Some particles will not render (need to change each material from $SpriteCard to $UnlitGeneric to fix)
 - Some maps will be rasterized and have vertex explosions.
 - Some map lights will cull even with Lightupdaters active (investigating)
-- Enabling `r_3dsky` causes rendering issues
+- Enabling `r_3dsky` causes flickering in some maps
 
 ### Addons
 - High vram usage from addons like ARC9 or TFA as they precache textures on map load
