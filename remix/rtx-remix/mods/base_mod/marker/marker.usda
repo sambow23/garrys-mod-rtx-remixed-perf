@@ -3,12 +3,22 @@
     upAxis = "Z"
 )
 
-# Hide the marker when enhancements are on
+# Hide the marker and HDRI cube when enhancements are on
 over "RootNode"
 {
     over "Looks"
     {
         over "mat_FAC1047468E6C5A1"
+        {
+            over "Shader"
+            {
+                custom bool inputs:blend_enabled = 1
+                custom bool inputs:inverted_blend = 1
+                custom bool inputs:use_legacy_alpha_state = 0
+            }
+        }
+
+        over "mat_AA92515D94BD7B11"
         {
             over "Shader"
             {
