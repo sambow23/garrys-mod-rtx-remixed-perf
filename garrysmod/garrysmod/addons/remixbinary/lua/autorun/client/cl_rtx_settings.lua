@@ -67,7 +67,7 @@ local function Show3DSkyWarning()
     
     -- Create the warning panel
     local frame = vgui.Create("DFrame")
-    frame:SetTitle("RTX Meshed World Renderer Warning")
+    frame:SetTitle("RTX Remix Fixes 2")
     frame:SetSize(400, 200)
     frame:Center()
     frame:MakePopup()
