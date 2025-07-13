@@ -6,3 +6,6 @@
 [submodule "public/toggle-cursor-remix"]
 	path = public/toggle-cursor-remix
 	url = https://github.com/sambow23/toggle-cursor-remix.git
+[submodule "garrysmod/garrysmod/addons/niknaks"]
+	path = garrysmod/garrysmod/addons/niknaks
+	url = https://github.com/sambow23/NikNaks-remix.git
