@@ -48,7 +48,7 @@ local function FixupMaterial(filepath)
 	-- if (mat:GetString("$basetexture") == "dev/water" || mat:GetShader() == "Water_DX60" ) then -- this is water, make it water
 	-- 	FixupWaterMaterial(mat, filepath)
 	-- end
-	if (mat:GetString("$addself") != nil) then
+	if (mat:GetString("$addself") ~= nil) then
 		FixupParticleMaterial(mat, filepath)
 	end
 	if (mat:GetString("$basetexture") == nil) then
