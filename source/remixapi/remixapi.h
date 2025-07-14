@@ -233,6 +233,10 @@ namespace RemixAPI {
         bool SetConfigVariable(const std::string& key, const std::string& value);
         std::string GetConfigVariable(const std::string& key);
         
+        // Cache management
+        void CaptureCurrentValues();
+        void SetCachedValue(const std::string& key, const std::string& value);
+        
         // UI State
         remix::UIState GetUIState();
         bool SetUIState(remix::UIState state);

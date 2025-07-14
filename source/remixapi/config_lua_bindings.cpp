@@ -232,6 +232,39 @@ LUA_FUNCTION(RemixConfig_SetVolumetricEnabled) {
     return 1;
 }
 
+// Lua function: RemixConfig.CaptureCurrentValues()
+LUA_FUNCTION(RemixConfig_CaptureCurrentValues) {
+    auto& configManager = RemixAPI::Instance().GetConfigManager();
+    configManager.CaptureCurrentValues();
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
+// Lua function: RemixConfig.SetCachedValue(key, value)
+LUA_FUNCTION(RemixConfig_SetCachedValue) {
+    if (!LUA->IsType(1, Type::String)) {
+        Warning("[RemixConfig] SetCachedValue: Expected string for config key, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
+    }
+    
+    if (!LUA->IsType(2, Type::String)) {
+        Warning("[RemixConfig] SetCachedValue: Expected string for config value, got %s\n", LUA->GetTypeName(LUA->GetType(2)));
+        LUA->PushBool(false);
+        return 1;
+    }
+    
+    std::string key = LUA->GetString(1);
+    std::string value = LUA->GetString(2);
+    
+    auto& configManager = RemixAPI::Instance().GetConfigManager();
+    configManager.SetCachedValue(key, value);
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
 // Initialize Configuration Manager Lua bindings
 void ConfigManager::InitializeLuaBindings() {
     if (!m_lua) return;
@@ -248,6 +281,12 @@ void ConfigManager::InitializeLuaBindings() {
     
     m_lua->PushCFunction(RemixConfig_GetConfigVariable);
     m_lua->SetField(-2, "GetConfigVariable");
+    
+    m_lua->PushCFunction(RemixConfig_CaptureCurrentValues);
+    m_lua->SetField(-2, "CaptureCurrentValues");
+    
+    m_lua->PushCFunction(RemixConfig_SetCachedValue);
+    m_lua->SetField(-2, "SetCachedValue");
     
     // UI state functions
     m_lua->PushCFunction(RemixConfig_GetUIState);

@@ -691,6 +691,9 @@ void LightManager::LogMessage(const char* format, ...) {
 ConfigManager::ConfigManager(remix::Interface* remixInterface, GarrysMod::Lua::ILuaBase* LUA)
     : m_remixInterface(remixInterface)
     , m_lua(LUA) {
+    
+    // Capture default values on initialization
+    CaptureCurrentValues();
 }
 
 ConfigManager::~ConfigManager() {
@@ -730,7 +733,69 @@ std::string ConfigManager::GetConfigVariable(const std::string& key) {
     if (it != m_configCache.end()) {
         return it->second;
     }
+    
+    // Return empty string if not in cache
+    // Note: RTX Remix API doesn't support reading config variables back
+    Warning("[ConfigManager] Config variable '%s' not found in cache. Use CaptureCurrentValues() to populate cache with current settings.\n", key.c_str());
     return "";
+}
+
+void ConfigManager::CaptureCurrentValues() {
+    // Since RTX Remix API doesn't support reading config variables,
+    // we'll populate the cache with reasonable default values that users can then modify
+    
+    // Core lighting defaults
+    m_configCache["rtx.enableRaytracing"] = "True";
+    m_configCache["rtx.enableDirectLighting"] = "True"; 
+    m_configCache["rtx.enableSecondaryBounces"] = "True";
+    m_configCache["rtx.pathMaxBounces"] = "4";
+    m_configCache["rtx.pathMinBounces"] = "1";
+    
+    // Denoising defaults
+    m_configCache["rtx.useDenoiser"] = "True";
+    m_configCache["rtx.denoiseDirectAndIndirectLightingSeparately"] = "True";
+    m_configCache["rtx.denoiserMode"] = "14";
+    
+    // Upscaling defaults
+    m_configCache["rtx.upscalerType"] = "1";
+    m_configCache["rtx.resolutionScale"] = "0.75";
+    m_configCache["rtx.qualityDLSS"] = "2";
+    
+    // Volumetrics defaults
+    m_configCache["rtx.volumetrics.enable"] = "True";
+    m_configCache["rtx.volumetrics.enableAtmosphere"] = "False";
+    m_configCache["rtx.volumetrics.froxelMaxDistanceMeters"] = "100";
+    
+    // Auto exposure defaults
+    m_configCache["rtx.autoExposure.enabled"] = "True";
+    m_configCache["rtx.autoExposure.evMinValue"] = "-2";
+    m_configCache["rtx.autoExposure.evMaxValue"] = "4";
+    
+    // Tonemapping defaults
+    m_configCache["rtx.tonemap.exposureBias"] = "0";
+    m_configCache["rtx.tonemap.dynamicRange"] = "15";
+    m_configCache["rtx.tonemappingMode"] = "1";
+    
+    // Performance defaults
+    m_configCache["rtx.risLightSampleCount"] = "6";
+    m_configCache["rtx.di.initialSampleCount"] = "4";
+    m_configCache["rtx.primaryRayMaxInteractions"] = "32";
+    
+    // Visual effects defaults
+    m_configCache["rtx.bloom.enable"] = "True";
+    m_configCache["rtx.bloom.burnIntensity"] = "1";
+    m_configCache["rtx.postfx.enable"] = "True";
+    m_configCache["rtx.enableFog"] = "False";
+    
+    // UI defaults
+    m_configCache["rtx.defaultToAdvancedUI"] = "True";
+    m_configCache["rtx.showUI"] = "0";
+    
+    Msg("[ConfigManager] Captured default config values into cache\n");
+}
+
+void ConfigManager::SetCachedValue(const std::string& key, const std::string& value) {
+    m_configCache[key] = value;
 }
 
 remix::UIState ConfigManager::GetUIState() {
