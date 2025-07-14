@@ -37,6 +37,7 @@ extern IMaterialSystem* materials = NULL;
 #ifdef _WIN64
 // extern IShaderAPI* g_pShaderAPI = NULL;
 remix::Interface* g_remix = nullptr;
+IDirect3DDevice9Ex* g_d3dDevice = nullptr;
 #endif
 
 using namespace GarrysMod::Lua;
@@ -139,6 +140,9 @@ GMOD_MODULE_OPEN() {
             LUA->ThrowError("[RTXF2 - Binary Module] Failed to find D3D9 device");
             return 0;
         }
+        
+        // Store the device globally for RemixAPI use
+        g_d3dDevice = sourceDevice;
 
         // Initialize Remix
         if (auto interf = remix::lib::loadRemixDllAndInitialize(L"d3d9.dll")) {
@@ -150,23 +154,31 @@ GMOD_MODULE_OPEN() {
 
         g_remix->dxvk_RegisterD3D9Device(sourceDevice);
 
-        // Initialize RTX Light Manager
+        // Initialize the new comprehensive RemixAPI
+        if (!RemixAPI::RemixAPI::Instance().Initialize(g_remix, LUA)) {
+            LUA->ThrowError("[RTXF2 - Binary Module] Failed to initialize RemixAPI");
+            return 0;
+        }
+
+        // Initialize RTX Light Manager (legacy - for backwards compatibility)
         RTXLightManager::Instance().Initialize(g_remix);
+        
+        // Set up entity validator for the new light manager
+        // This allows lights to be automatically cleaned up when entities are removed
+        RemixAPI::RemixAPI::Instance().GetLightManager().SetEntityValidator([](uint64_t entityID) -> bool {
+            // TODO: Implement proper entity validation
+            // For now, assume all entities are valid
+            // In a real implementation, you would check if the entity still exists in the game
+            return true;
+        });
 
-        // Force clean state on startup
-        if (g_remix) {
-            // Set minimum resource settings
-            g_remix->SetConfigVariable("rtx.resourceLimits.maxCacheSize", "256");  // MB
-            g_remix->SetConfigVariable("rtx.resourceLimits.maxVRAM", "1024");     // MB
-            g_remix->SetConfigVariable("rtx.resourceLimits.forceCleanup", "1");
-        }
+        // Configure RTX settings through the new API
+        auto& configManager = RemixAPI::RemixAPI::Instance().GetConfigManager();
+        configManager.SetConfigVariable("rtx.enableAdvancedMode", "1");
+        configManager.SetConfigVariable("rtx.fallbackLightMode", "0");
 
-        // Configure RTX settings
-        if (g_remix) {
-            g_remix->SetConfigVariable("rtx.enableAdvancedMode", "1");
-            g_remix->SetConfigVariable("rtx.fallbackLightMode", "0");
-            Msg("[RTXF2 - Binary Module] Remix configuration set\n");
-        }
+        // Set resource limits
+        RemixAPI::RemixAPI::Instance().GetResourceManager().SetMemoryLimits(256, 1024);
 
         GlobalConvars::InitialiseConVars();
 #endif //_WIN64
@@ -198,7 +210,7 @@ GMOD_MODULE_OPEN() {
 
         // Only register Remix-related Lua functions in 64-bit builds
         #ifdef _WIN64
-            RemixAPI::Initialize(LUA);
+            // The new RemixAPI is already initialized above, no need to call Initialize again
             RTXLightManager::InitializeLuaBindings(LUA);
         #endif // _WIN64    
 
@@ -219,6 +231,8 @@ GMOD_MODULE_CLOSE() {
 
 #ifdef _WIN64
         RTXLightManager::Instance().Shutdown();
+        RemixAPI::RemixAPI::Instance().Shutdown();
+        g_d3dDevice = nullptr;
 #endif // _WIN64
 
 #ifdef HWSKIN_PATCHES
