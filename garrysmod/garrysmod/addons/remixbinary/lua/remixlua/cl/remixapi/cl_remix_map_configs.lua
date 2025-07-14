@@ -172,6 +172,13 @@ local function RestoreBackupConfig()
     
     print("[RTXF2 - Remix API] Restored " .. restoredCount .. " RTX settings from backup")
     
+    -- Clear the backup file after successful restoration
+    if restoredCount > 0 then
+        file.Delete(BACKUP_FILE)
+        DebugPrint("Cleared backup file after successful restoration")
+        print("[RTXF2 - Remix API] Backup file cleared - settings restored to original values")
+    end
+    
     return restoredCount > 0
 end
 
@@ -465,12 +472,10 @@ end
 
 local function OnDisconnect()
     DebugPrint("Disconnecting from server")
-    -- Restore backup when disconnecting and clear it
+    -- Restore backup when disconnecting (backup will be automatically cleared)
     if HasBackup() then
         DebugPrint("Restoring original settings on disconnect")
         RestoreBackupConfig()
-        ClearBackup()
-        print("[RTXF2 - Remix API] Backup restored and cleared on disconnect")
     end
 end
 
