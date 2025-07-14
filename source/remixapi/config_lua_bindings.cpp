@@ -9,13 +9,15 @@ namespace RemixAPI {
 // Lua function: RemixConfig.SetConfigVariable(key, value)
 LUA_FUNCTION(RemixConfig_SetConfigVariable) {
     if (!LUA->IsType(1, Type::String)) {
-        LUA->ThrowError("Expected string for config key");
-        return 0;
+        Warning("[RemixConfig] SetConfigVariable: Expected string for config key, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
     }
     
     if (!LUA->IsType(2, Type::String)) {
-        LUA->ThrowError("Expected string for config value");
-        return 0;
+        Warning("[RemixConfig] SetConfigVariable: Expected string for config value, got %s\n", LUA->GetTypeName(LUA->GetType(2)));
+        LUA->PushBool(false);
+        return 1;
     }
     
     std::string key = LUA->GetString(1);
@@ -31,8 +33,9 @@ LUA_FUNCTION(RemixConfig_SetConfigVariable) {
 // Lua function: RemixConfig.GetConfigVariable(key)
 LUA_FUNCTION(RemixConfig_GetConfigVariable) {
     if (!LUA->IsType(1, Type::String)) {
-        LUA->ThrowError("Expected string for config key");
-        return 0;
+        Warning("[RemixConfig] GetConfigVariable: Expected string for config key, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushString("");
+        return 1;
     }
     
     std::string key = LUA->GetString(1);
@@ -56,8 +59,9 @@ LUA_FUNCTION(RemixConfig_GetUIState) {
 // Lua function: RemixConfig.SetUIState(state)
 LUA_FUNCTION(RemixConfig_SetUIState) {
     if (!LUA->IsType(1, Type::Number)) {
-        LUA->ThrowError("Expected number for UI state");
-        return 0;
+        Warning("[RemixConfig] SetUIState: Expected number for UI state, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
     }
     
     int stateNum = static_cast<int>(LUA->GetNumber(1));
@@ -70,11 +74,29 @@ LUA_FUNCTION(RemixConfig_SetUIState) {
     return 1;
 }
 
+// Lua function: RemixConfig.SetAdvancedUI(enabled)
+LUA_FUNCTION(RemixConfig_SetAdvancedUI) {
+    if (!LUA->IsType(1, Type::Bool)) {
+        Warning("[RemixConfig] SetAdvancedUI: Expected boolean for advanced UI enabled, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
+    }
+    
+    bool enabled = LUA->GetBool(1);
+    
+    auto& configManager = RemixAPI::Instance().GetConfigManager();
+    bool result = configManager.SetConfigVariable("rtx.defaultToAdvancedUI", enabled ? "True" : "False");
+    
+    LUA->PushBool(result);
+    return 1;
+}
+
 // Lua function: RemixConfig.SetRaytracing(enabled)
 LUA_FUNCTION(RemixConfig_SetRaytracing) {
     if (!LUA->IsType(1, Type::Bool)) {
-        LUA->ThrowError("Expected boolean for raytracing state");
-        return 0;
+        Warning("[RemixConfig] SetRaytracing: Expected boolean for raytracing state, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
     }
     
     bool enabled = LUA->GetBool(1);
@@ -90,8 +112,9 @@ LUA_FUNCTION(RemixConfig_SetRaytracing) {
 // Lua function: RemixConfig.SetIgnoreDirectionalLights(enabled)
 LUA_FUNCTION(RemixConfig_SetIgnoreDirectionalLights) {
     if (!LUA->IsType(1, Type::Bool)) {
-        LUA->ThrowError("Expected boolean for ignore directional lights state");
-        return 0;
+        Warning("[RemixConfig] SetIgnoreDirectionalLights: Expected boolean for ignore directional lights state, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
     }
     
     bool enabled = LUA->GetBool(1);
@@ -107,8 +130,9 @@ LUA_FUNCTION(RemixConfig_SetIgnoreDirectionalLights) {
 // Lua function: RemixConfig.SetUpscaler(upscaler)
 LUA_FUNCTION(RemixConfig_SetUpscaler) {
     if (!LUA->IsType(1, Type::String)) {
-        LUA->ThrowError("Expected string for upscaler type");
-        return 0;
+        Warning("[RemixConfig] SetUpscaler: Expected string for upscaler type, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
     }
     
     std::string upscaler = LUA->GetString(1);
@@ -123,8 +147,9 @@ LUA_FUNCTION(RemixConfig_SetUpscaler) {
 // Lua function: RemixConfig.SetDenoiser(denoiser)
 LUA_FUNCTION(RemixConfig_SetDenoiser) {
     if (!LUA->IsType(1, Type::String)) {
-        LUA->ThrowError("Expected string for denoiser type");
-        return 0;
+        Warning("[RemixConfig] SetDenoiser: Expected string for denoiser type, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
     }
     
     std::string denoiser = LUA->GetString(1);
@@ -139,8 +164,9 @@ LUA_FUNCTION(RemixConfig_SetDenoiser) {
 // Lua function: RemixConfig.SetReflectionUpscaler(upscaler)
 LUA_FUNCTION(RemixConfig_SetReflectionUpscaler) {
     if (!LUA->IsType(1, Type::String)) {
-        LUA->ThrowError("Expected string for reflection upscaler type");
-        return 0;
+        Warning("[RemixConfig] SetReflectionUpscaler: Expected string for reflection upscaler type, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
     }
     
     std::string upscaler = LUA->GetString(1);
@@ -155,8 +181,9 @@ LUA_FUNCTION(RemixConfig_SetReflectionUpscaler) {
 // Lua function: RemixConfig.SetRenderResolutionScale(scale)
 LUA_FUNCTION(RemixConfig_SetRenderResolutionScale) {
     if (!LUA->IsType(1, Type::Number)) {
-        LUA->ThrowError("Expected number for render resolution scale");
-        return 0;
+        Warning("[RemixConfig] SetRenderResolutionScale: Expected number for render resolution scale, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
     }
     
     float scale = static_cast<float>(LUA->GetNumber(1));
@@ -172,8 +199,9 @@ LUA_FUNCTION(RemixConfig_SetRenderResolutionScale) {
 // Lua function: RemixConfig.SetMaxBounces(bounces)
 LUA_FUNCTION(RemixConfig_SetMaxBounces) {
     if (!LUA->IsType(1, Type::Number)) {
-        LUA->ThrowError("Expected number for max bounces");
-        return 0;
+        Warning("[RemixConfig] SetMaxBounces: Expected number for max bounces, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
     }
     
     int bounces = static_cast<int>(LUA->GetNumber(1));
@@ -189,8 +217,9 @@ LUA_FUNCTION(RemixConfig_SetMaxBounces) {
 // Lua function: RemixConfig.SetVolumetricEnabled(enabled)
 LUA_FUNCTION(RemixConfig_SetVolumetricEnabled) {
     if (!LUA->IsType(1, Type::Bool)) {
-        LUA->ThrowError("Expected boolean for volumetric enabled state");
-        return 0;
+        Warning("[RemixConfig] SetVolumetricEnabled: Expected boolean for volumetric enabled state, got %s\n", LUA->GetTypeName(LUA->GetType(1)));
+        LUA->PushBool(false);
+        return 1;
     }
     
     bool enabled = LUA->GetBool(1);
@@ -226,6 +255,9 @@ void ConfigManager::InitializeLuaBindings() {
     
     m_lua->PushCFunction(RemixConfig_SetUIState);
     m_lua->SetField(-2, "SetUIState");
+    
+    m_lua->PushCFunction(RemixConfig_SetAdvancedUI);
+    m_lua->SetField(-2, "SetAdvancedUI");
     
     // Common configuration shortcuts
     m_lua->PushCFunction(RemixConfig_SetRaytracing);

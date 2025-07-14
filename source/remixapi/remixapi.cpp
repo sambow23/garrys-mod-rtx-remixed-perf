@@ -261,7 +261,7 @@ bool MeshManager::UpdateMesh(uint64_t meshId, const remix::MeshInfo& info) {
     // TODO: Check if Remix API supports mesh updates
     auto oldHandle = it->second.handle;
     auto result = m_remixInterface->CreateMesh(info);
-    if (!result) {
+        if (!result) {
         Error("[MeshManager] Failed to update mesh ID %llu: %d\n", meshId, result.status());
         return false;
     }
@@ -416,9 +416,9 @@ uint64_t LightManager::CreateRectLight(const remix::LightInfo& baseInfo, const r
     auto result = m_remixInterface->CreateLight(lightInfo);
     if (!result) {
         Error("[LightManager] Failed to create rect light: %d\n", result.status());
-        return 0;
-    }
-
+            return 0;
+        }
+        
     uint64_t lightId = m_nextLightId++;
     ManagedLight light = {
         result.value(),
@@ -442,9 +442,9 @@ uint64_t LightManager::CreateDiskLight(const remix::LightInfo& baseInfo, const r
     auto result = m_remixInterface->CreateLight(lightInfo);
     if (!result) {
         Error("[LightManager] Failed to create disk light: %d\n", result.status());
-        return 0;
-    }
-
+            return 0;
+        }
+        
     uint64_t lightId = m_nextLightId++;
     ManagedLight light = {
         result.value(),
@@ -466,10 +466,10 @@ uint64_t LightManager::CreateCylinderLight(const remix::LightInfo& baseInfo, con
     lightInfo.pNext = const_cast<remix::LightInfoCylinderEXT*>(&cylinderInfo);
 
     auto result = m_remixInterface->CreateLight(lightInfo);
-    if (!result) {
+        if (!result) {
         Error("[LightManager] Failed to create cylinder light: %d\n", result.status());
-        return 0;
-    }
+            return 0;
+        }
 
     uint64_t lightId = m_nextLightId++;
     ManagedLight light = {
@@ -698,6 +698,22 @@ ConfigManager::~ConfigManager() {
 
 bool ConfigManager::SetConfigVariable(const std::string& key, const std::string& value) {
     if (!m_remixInterface) return false;
+
+    // Handle deprecated/invalid config variables with suggestions
+    if (key == "rtx.enableAdvancedMode") {
+        Warning("[ConfigManager] 'rtx.enableAdvancedMode' is not a valid RTX option. Use 'rtx.showUI' (0=Don't Show, 1=Show Simple, 2=Show Advanced) or 'rtx.defaultToAdvancedUI' (True/False) instead.\n");
+        
+        // Auto-convert to the correct option
+        if (value == "1" || value == "true" || value == "True") {
+            // Try to set advanced UI as default
+            auto result = m_remixInterface->SetConfigVariable("rtx.defaultToAdvancedUI", "True");
+            if (result) {
+                m_configCache["rtx.defaultToAdvancedUI"] = "True";
+                return true;
+            }
+        }
+        return false;
+    }
 
     auto result = m_remixInterface->SetConfigVariable(key.c_str(), value.c_str());
     if (!result) {
