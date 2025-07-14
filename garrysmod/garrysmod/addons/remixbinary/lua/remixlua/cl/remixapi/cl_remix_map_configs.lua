@@ -476,7 +476,6 @@ end
 
 -- Hook into map events
 hook.Add("InitPostEntity", "RemixMapConfigs_MapStart", OnMapStart)
-hook.Add("PreCleanupMap", "RemixMapConfigs_MapCleanup", OnMapCleanup)
 hook.Add("Disconnected", "RemixMapConfigs_Disconnect", OnDisconnect)
 
 -- Console commands
