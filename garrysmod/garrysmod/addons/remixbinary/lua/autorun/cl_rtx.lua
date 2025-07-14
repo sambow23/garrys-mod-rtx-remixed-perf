@@ -29,6 +29,7 @@ local function LoadSubAddons()
     -- Load client files when on client
     if CLIENT then
         table.insert(foldersToLoad, "remixlua/cl/")
+        table.insert(foldersToLoad, "remixlua/cl/remixapi/")
     end
     
     -- Load server files when on server
