@@ -2,14 +2,17 @@
 
 ## Features
 - Light Updaters
-    * Forces Source to render all map lights
+    - Forces Source to render all map lights
 - Water replacer
-  * Replaces all map water materials with a single one so it can be replaced in Remix
-- Material Fixer
-    * Fixes some broken UI/game materials and removes detail textures
-- Model fixer
-    * Fixes props having unstable hashes in RTX Remix so they can be replaced in the Remix Toolkit
-    * Allows HL2 RTX mesh replacements to load correctly
+    - Fixes some broken UI/game materials and removes detail textures
+- Model fixes
+    - Fixes some props having unstable hashes in RTX Remix so they can be replaced in the Remix Toolkit
+    - Allows most HL2 RTX mesh replacements to load correctly
+- Remix API support (x64 only)
+    - Lua bindings for addon creation
+       - Lights, materials, config vars
+    - Map-specific Remix settings
+      
 
 ## Installation
 ### This compatibility mod is primarily designed for singleplayer sandbox, it has not been extensively tested for multiplayer. Your milage may vary
@@ -35,12 +38,12 @@
 ## Known issues
 ### Vanilla
 - Shader skyboxes (gm_flatgrass, gm_construct, etc) cannot be interacted with and may have rendering issues
-- Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them) do not appear or behave strangely (investigating)
+- Some render targets (screenshots, whatever addons that rely on them) do not appear or behave strangely (investigating)
 - NPC Eyes do not render as the fixed function rendering fallback no longer exists (investigating)
-- Some particles will not render (need to change each material from $SpriteCard to $UnlitGeneric to fix)
-- Some maps will be rasterized and have vertex explosions.
-- Some map lights will cull even with Lightupdaters active (investigating)
+- Some maps are rasterized and also have vertex explosions.
+- Some map lights will cull
 - Enabling `r_3dsky` causes flickering in some maps
+- Skinned meshes have unstable hashes
 
 ### Addons
 - High vram usage from addons like ARC9 or TFA as they precache textures on map load
@@ -51,7 +54,7 @@
 
 ## Credits
 * [vlazed](https://github.com/vlazed/) for [toggle-cursor](https://github.com/vlazed/toggle-cursor)
-* Yosuke Nathan on the RTX Remix Showcase server for the gmod rtx logo
+* Yosuke Nathan on the RTX Remix Showcase server for making the initial `Garry's Mod Remixed` logo
 * Everyone on the RTX Remix Showcase server
 * NVIDIA for RTX Remix
 * [Nak2](https://github.com/Nak2) for [NikNaks](https://github.com/Nak2/NikNaks)
