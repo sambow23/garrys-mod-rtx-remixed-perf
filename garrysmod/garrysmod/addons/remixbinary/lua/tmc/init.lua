@@ -131,11 +131,11 @@ end
 
 -- Add this Think hook to monitor the Remix UI state
 hook.Add("Think", "TMC_MonitorRemixUI", function()
-    -- Check if the GetRemixUIState function exists (from our module)
-    if not GetRemixUIState then return end
+    -- Check if the RemixConfig API exists (from our module)
+    if not RemixConfig or not RemixConfig.GetUIState then return end
     
     -- Get the current UI state
-    local rtxUiState = GetRemixUIState()
+    local rtxUiState = RemixConfig.GetUIState()
     
     -- Only process if the state has changed
     if rtxUiState ~= previousRtxUiState then
@@ -188,8 +188,8 @@ end)
 
 -- Add a debug command to display current UI state
 concommand.Add("rtx_ui_state", function()
-    if GetRemixUIState then
-        local rtxUiState = GetRemixUIState()
+    if RemixConfig and RemixConfig.GetUIState then
+        local rtxUiState = RemixConfig.GetUIState()
         local stateNames = {
             [UI_STATE_NONE] = "None (UI not visible)",
             [UI_STATE_BASIC] = "Basic UI",
@@ -199,6 +199,6 @@ concommand.Add("rtx_ui_state", function()
         print("Current RTX UI state:", rtxUiState, stateNames[rtxUiState] or "Unknown")
         print("TMC cursor enabled:", enabled)
     else
-        print("GetRemixUIState function not available")
+        print("RemixConfig API not available")
     end
 end)

@@ -126,9 +126,15 @@ if jit.arch == "x64" then
         -- Disable RT if it hasn't already been disabled by us
         if not isRaytracingDisabledBySpawnmenu then
             DebugPrint("[RTXF2] SpawniconGenerated hook: Disabling RT for icon generation...")
-            local success, err = pcall(SetEnableRaytracing, false)
+            local success, err = pcall(function()
+                if RemixConfig and RemixConfig.SetRaytracing then
+                    return RemixConfig.SetRaytracing(false)
+                else
+                    error("RemixConfig API not available")
+                end
+            end)
             if success then
-                DebugPrint("[RTXF2] SpawniconGenerated hook: SetEnableRaytracing(false) call succeeded.")
+                DebugPrint("[RTXF2] SpawniconGenerated hook: RemixConfig.SetRaytracing(false) call succeeded.")
                 isRaytracingDisabledBySpawnmenu = true
             else
                 DebugPrint("[RTXF2] SpawniconGenerated hook: Warning: Failed to disable raytracing. Error: " .. tostring(err))
@@ -140,9 +146,15 @@ if jit.arch == "x64" then
         timer.Create(spawnIconTimerName, 3, 1, function()
             if isRaytracingDisabledBySpawnmenu then
                 DebugPrint("[RTXF2] Timer: Re-enabling RT after icon generation completed...")
-                local success, err = pcall(SetEnableRaytracing, true)
+                local success, err = pcall(function()
+                    if RemixConfig and RemixConfig.SetRaytracing then
+                        return RemixConfig.SetRaytracing(true)
+                    else
+                        error("RemixConfig API not available")
+                    end
+                end)
                 if success then
-                    DebugPrint("[RTXF2] Timer: SetEnableRaytracing(true) call succeeded.")
+                    DebugPrint("[RTXF2] Timer: RemixConfig.SetRaytracing(true) call succeeded.")
                     isRaytracingDisabledBySpawnmenu = false
                 else
                     DebugPrint("[RTXF2] Timer: Warning: Failed to re-enable raytracing. Error: " .. tostring(err))
@@ -165,9 +177,15 @@ if jit.arch == "x64" then
     local function ToggleRaytracingCommand()
         currentRaytracingState = not currentRaytracingState -- Flip the state
         DebugPrint("[RTXF2] Toggling raytracing via command. Setting enabled to: " .. tostring(currentRaytracingState))
-        local success, err = pcall(SetEnableRaytracing, currentRaytracingState) -- Call directly using pcall
+        local success, err = pcall(function()
+            if RemixConfig and RemixConfig.SetRaytracing then
+                return RemixConfig.SetRaytracing(currentRaytracingState)
+            else
+                error("RemixConfig API not available")
+            end
+        end)
         if success then
-            DebugPrint("[RTXF2] Successfully called SetEnableRaytracing.")
+            DebugPrint("[RTXF2] Successfully called RemixConfig.SetRaytracing.")
         else
             DebugPrint("[RTXF2] Warning: Failed to toggle raytracing via command. Error: " .. tostring(err))
             -- Flip state back if the call failed, so the next toggle attempt is correct

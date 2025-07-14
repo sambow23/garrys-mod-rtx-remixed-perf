@@ -50,8 +50,13 @@ local function CleanupRTX()
     -- Force GC to clean up Lua resources
     collectgarbage("collect")
     
-    -- Call native cleanup
-    local success = ClearRTXResources()
+    -- Call native cleanup using new RemixResource API
+    local success = false
+    if RemixResource and RemixResource.ClearResources then
+        success = RemixResource.ClearResources()
+    else
+        DebugMsg("RemixResource API not available")
+    end
     
     if success then
         DebugMsg("RTX cleanup completed successfully")
