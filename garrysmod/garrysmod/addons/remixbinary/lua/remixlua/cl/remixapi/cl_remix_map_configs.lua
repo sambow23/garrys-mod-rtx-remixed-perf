@@ -8,6 +8,7 @@ local RemixMapConfigs = {}
 local CONFIG_DIR = "remix_map_configs"
 local BACKUP_FILE = CONFIG_DIR .. "/backup.txt"
 local DEBUG_MODE = CreateClientConVar("rtx_conf_map_configs_debug", "0", true, false, "Enable debug output for map configs")
+local AUTO_LOAD = CreateClientConVar("rtx_conf_map_configs_autoload", "1", true, false, "Automatically load map configs on map start")
 
 local TRACKED_CONFIGS = {
     ---- Modify this list to add parameters you want to save/load per map.
@@ -27,6 +28,7 @@ local TRACKED_CONFIGS = {
     "rtx.volumetrics.fogRemapMaxDistanceMinMeters",
     "rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMaxMeters",
     "rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMinMeters",
+    "rtx.volumetrics.enableFogRemap",
     "rtx.volumetrics.enableHeterogeneousFog",
     "rtx.volumetrics.noiseFieldDensityExponent",
     "rtx.volumetrics.noiseFieldDensityScale",
@@ -550,6 +552,32 @@ local function OnDisconnect()
     end
 end
 
+-- Auto-loading functions
+local function OnMapStart()
+    -- Check if auto-loading is enabled
+    if not AUTO_LOAD:GetBool() then
+        DebugPrint("Auto-loading disabled, skipping config load")
+        return
+    end
+    
+    -- Small delay to ensure everything is loaded
+    timer.Simple(1, function()
+        local mapName = GetCurrentMap()
+        if mapName and mapName ~= "" then
+            DebugPrint("Auto-loading config for map: " .. mapName)
+            RemixMapConfigs.LoadCurrentMapConfig()
+        end
+    end)
+end
+
+local function OnDisconnect()
+    -- Restore backup when disconnecting/changing maps
+    if HasBackup() then
+        DebugPrint("Restoring backup config on disconnect")
+        RestoreBackupConfig()
+    end
+end
+
 -- Hook into map events
 hook.Add("InitPostEntity", "RemixMapConfigs_MapStart", OnMapStart)
 hook.Add("Disconnected", "RemixMapConfigs_Disconnect", OnDisconnect)
@@ -665,6 +693,17 @@ concommand.Add("rtx_conf_load_default", function()
         print("[RTXF2 - Remix API] Failed to load default config")
     end
 end, nil, "Load the default RTX config immediately")
+
+concommand.Add("rtx_conf_toggle_autoload", function()
+    local currentValue = AUTO_LOAD:GetBool()
+    AUTO_LOAD:SetBool(not currentValue)
+    
+    if AUTO_LOAD:GetBool() then
+        print("[RTXF2 - Remix API] Auto-loading enabled - configs will load automatically on map start")
+    else
+        print("[RTXF2 - Remix API] Auto-loading disabled - use rtx_conf_load_map_config to load manually")
+    end
+end, nil, "Toggle automatic loading of map configs on map start")
 
 -- Make API globally available
 _G.RemixMapConfigs = RemixMapConfigs
