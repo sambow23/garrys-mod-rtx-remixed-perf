@@ -290,37 +290,18 @@ local function SaveMapConfig(mapName)
     return savedCount > 0
 end
 
-local function LoadMapConfig(mapName)
-    if not RemixConfig then
-        DebugPrint("RemixConfig API not available")
-        return false
-    end
-    
-    local filePath = GetConfigPath(mapName)
-    
+local function LoadConfigFromFile(filePath, configName)
     if not file.Exists(filePath, "DATA") then
-        DebugPrint("No config file found for map: " .. mapName)
-        return false
+        return false, 0
     end
-    
-    -- First, parse the config file to see which variables it contains
-    local variablesToChange = ParseConfigFileVariables(mapName)
-    
-    if #variablesToChange == 0 then
-        DebugPrint("No valid config variables found in file: " .. filePath)
-        return false
-    end
-    
-    -- Backup the current values of variables that will be changed
-    BackupConfigVariables(variablesToChange)
     
     local configText = file.Read(filePath, "DATA")
     if not configText then
         DebugPrint("Failed to read config file: " .. filePath)
-        return false
+        return false, 0
     end
     
-    DebugPrint("Loading config for map: " .. mapName)
+    DebugPrint("Loading config: " .. configName)
     
     -- Parse config file and apply settings
     local loadedCount = 0
@@ -347,11 +328,80 @@ local function LoadMapConfig(mapName)
         end
     end
     
-    print("[RTXF2 - Remix API] Loaded " .. loadedCount .. " RTX settings for map: " .. mapName)
-    if HasBackup() then
-        print("[RTXF2 - Remix API] Previous settings backed up and can be restored")
+    return true, loadedCount
+end
+
+local function LoadMapConfig(mapName)
+    if not RemixConfig then
+        DebugPrint("RemixConfig API not available")
+        return false
     end
-    return loadedCount > 0
+    
+    local filePath = GetConfigPath(mapName)
+    local defaultPath = CONFIG_DIR .. "/default.txt"
+    local loadedCount = 0
+    local configSource = ""
+    
+    -- First try to load map-specific config
+    if file.Exists(filePath, "DATA") then
+        -- Parse the config file to see which variables it contains (for backup)
+        local variablesToChange = ParseConfigFileVariables(mapName)
+        
+        if #variablesToChange > 0 then
+            -- Backup the current values of variables that will be changed
+            BackupConfigVariables(variablesToChange)
+            
+            local success, count = LoadConfigFromFile(filePath, "map config for " .. mapName)
+            if success then
+                loadedCount = count
+                configSource = "map-specific config"
+            end
+        else
+            DebugPrint("No valid config variables found in map-specific file: " .. filePath)
+        end
+    end
+    
+    -- If no map-specific config or it failed, try default.txt
+    if loadedCount == 0 then
+        DebugPrint("No map-specific config found, trying default.txt")
+        
+        -- For default config, we need to get the variables it contains for backup
+        local defaultConfigText = file.Read(defaultPath, "DATA")
+        if defaultConfigText then
+            local variablesToChange = {}
+            for line in string.gmatch(defaultConfigText, "[^\r\n]+") do
+                line = string.Trim(line)
+                if line ~= "" and not string.StartWith(line, "#") then
+                    local key = string.match(line, "^(%S+)%s*=")
+                    if key then
+                        table.insert(variablesToChange, key)
+                    end
+                end
+            end
+            
+            if #variablesToChange > 0 then
+                -- Backup the current values
+                BackupConfigVariables(variablesToChange)
+                
+                local success, count = LoadConfigFromFile(defaultPath, "default config")
+                if success then
+                    loadedCount = count
+                    configSource = "default config"
+                end
+            end
+        end
+    end
+    
+    if loadedCount > 0 then
+        print("[RTXF2 - Remix API] Loaded " .. loadedCount .. " RTX settings from " .. configSource .. " for map: " .. mapName)
+        if HasBackup() then
+            print("[RTXF2 - Remix API] Previous settings backed up and can be restored")
+        end
+        return true
+    else
+        DebugPrint("No config file found for map: " .. mapName .. " (tried map-specific and default.txt)")
+        return false
+    end
 end
 
 -- Public API
@@ -415,11 +465,23 @@ function RemixMapConfigs.ListConfigs()
     
     print("[RTXF2 - Remix API] Saved map configs:")
     local mapNames = {}
+    local hasDefault = false
     
     for _, fileName in ipairs(files) do
         local mapName = string.StripExtension(fileName)
         table.insert(mapNames, mapName)
-        print("  - " .. mapName)
+        
+        if mapName == "default" then
+            hasDefault = true
+            print("  - " .. mapName .. " (fallback config for maps without specific configs)")
+        else
+            print("  - " .. mapName)
+        end
+    end
+    
+    if not hasDefault then
+        print("")
+        print("  No default.txt found. Use 'rtx_conf_save_default' to create fallback settings.")
     end
     
     return mapNames
@@ -545,6 +607,64 @@ concommand.Add("rtx_conf_clear_backup", function()
         print("[RTXF2 - Remix API] No backup to clear")
     end
 end, nil, "Clear the current backup without restoring it")
+
+concommand.Add("rtx_conf_save_default", function()
+    if not RemixConfig then
+        print("[RTXF2 - Remix API] RemixConfig API not available")
+        return
+    end
+    
+    EnsureConfigDir()
+    
+    local defaultPath = CONFIG_DIR .. "/default.txt"
+    local configLines = {}
+    
+    -- Add header
+    table.insert(configLines, "# RTX Remix default configuration")
+    table.insert(configLines, "# " .. os.date("%Y-%m-%d %H:%M:%S"))
+    table.insert(configLines, "")
+    table.insert(configLines, "# This file will be loaded for any map that doesn't have its own config.")
+    table.insert(configLines, "# Adjust RTX settings in-game, then run this command to save as defaults.")
+    table.insert(configLines, "")
+    
+    -- Save each tracked config variable
+    local savedCount = 0
+    for _, configKey in ipairs(TRACKED_CONFIGS) do
+        local value = RemixConfig.GetConfigVariable(configKey)
+        if value and value ~= "" then
+            table.insert(configLines, configKey .. " = " .. value)
+            savedCount = savedCount + 1
+        end
+    end
+    
+    -- Write to file
+    local configText = table.concat(configLines, "\n")
+    file.Write(defaultPath, configText)
+    
+    print("[RTXF2 - Remix API] Saved " .. savedCount .. " RTX settings as default config")
+    print("[RTXF2 - Remix API] Default config saved to: " .. defaultPath)
+end, nil, "Save current RTX settings as default config for all maps")
+
+concommand.Add("rtx_conf_load_default", function()
+    if not RemixConfig then
+        print("[RTXF2 - Remix API] RemixConfig API not available")
+        return
+    end
+    
+    local defaultPath = CONFIG_DIR .. "/default.txt"
+    
+    if not file.Exists(defaultPath, "DATA") then
+        print("[RTXF2 - Remix API] No default config file found. Use rtx_conf_save_default to create one.")
+        return
+    end
+    
+    local success, count = LoadConfigFromFile(defaultPath, "default config")
+    if success then
+        print("[RTXF2 - Remix API] Loaded " .. count .. " RTX settings from default config")
+    else
+        print("[RTXF2 - Remix API] Failed to load default config")
+    end
+end, nil, "Load the default RTX config immediately")
 
 -- Make API globally available
 _G.RemixMapConfigs = RemixMapConfigs
