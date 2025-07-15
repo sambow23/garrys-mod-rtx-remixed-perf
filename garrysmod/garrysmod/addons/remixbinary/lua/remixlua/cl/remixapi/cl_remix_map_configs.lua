@@ -514,39 +514,6 @@ concommand.Add("rtx_conf_delete_map_config", function(ply, cmd, args)
     RemixMapConfigs.DeleteMapConfig(args[1])
 end, nil, "Delete config for specified map")
 
-concommand.Add("rtx_conf_capture_values", function()
-    if not RemixConfig then
-        print("[RTXF2 - Remix API] RemixConfig API not available")
-        return
-    end
-    
-    print("[RTXF2 - Remix API] Cache system has been removed. RTX settings are now read directly from config file and defaults.")
-    print("You can save current settings with: remix_save_map_config")
-end, nil, "Info about RTX settings capture (cache system removed)")
-
-concommand.Add("rtx_conf_set_cached_value", function(ply, cmd, args)
-    if not RemixConfig then
-        print("[RTXF2 - Remix API] RemixConfig API not available")
-        return
-    end
-    
-    print("[RTXF2 - Remix API] Cache system has been removed. Use RemixConfig.SetConfigVariable() instead.")
-    
-    if #args >= 2 then
-        local key = args[1]
-        local value = args[2]
-        
-        if RemixConfig.SetConfigVariable(key, value) then
-            print("[RTXF2 - Remix API] Set config variable: " .. key .. " = " .. value)
-        else
-            print("[RTXF2 - Remix API] Failed to set config variable: " .. key)
-        end
-    else
-        print("Usage: rtx_conf_set_cached_value <key> <value>")
-        print("Example: rtx_conf_set_cached_value rtx.pathMaxBounces 6")
-    end
-end, nil, "Set a config variable directly (cache system removed)")
-
 concommand.Add("rtx_conf_restore_backup", function()
     if RemixMapConfigs.HasBackup() then
         RemixMapConfigs.RestoreBackup()
