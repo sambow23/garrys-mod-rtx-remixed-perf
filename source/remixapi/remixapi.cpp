@@ -1,8 +1,11 @@
 #ifdef _WIN64
 #include "remixapi.h"
+#include "rtx_option_defaults.h"
 #include <tier0/dbg.h>
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 
 // Lua bindings are implemented in separate .cpp files that are compiled independently
 // No need to include them here since they define their own functions
@@ -691,9 +694,6 @@ void LightManager::LogMessage(const char* format, ...) {
 ConfigManager::ConfigManager(remix::Interface* remixInterface, GarrysMod::Lua::ILuaBase* LUA)
     : m_remixInterface(remixInterface)
     , m_lua(LUA) {
-    
-    // Capture default values on initialization
-    CaptureCurrentValues();
 }
 
 ConfigManager::~ConfigManager() {
@@ -711,7 +711,6 @@ bool ConfigManager::SetConfigVariable(const std::string& key, const std::string&
             // Try to set advanced UI as default
             auto result = m_remixInterface->SetConfigVariable("rtx.defaultToAdvancedUI", "True");
             if (result) {
-                m_configCache["rtx.defaultToAdvancedUI"] = "True";
                 return true;
             }
         }
@@ -724,79 +723,33 @@ bool ConfigManager::SetConfigVariable(const std::string& key, const std::string&
         return false;
     }
     
-    m_configCache[key] = value;
     return true;
 }
 
 std::string ConfigManager::GetConfigVariable(const std::string& key) {
-    auto it = m_configCache.find(key);
-    if (it != m_configCache.end()) {
-        return it->second;
+    // Try to read from rtx.conf file first
+    std::string confPath = FindRtxConfPath();
+    if (!confPath.empty() && std::filesystem::exists(confPath)) {
+        std::unordered_map<std::string, std::string> fileConfig = ParseConfigFile(confPath);
+        auto fileIt = fileConfig.find(key);
+        if (fileIt != fileConfig.end()) {
+            return fileIt->second;
+        }
     }
     
-    // Return empty string if not in cache
+    // If not found in file, return default value from RTX options
+    std::string defaultValue = GetDefaultValueFromRtxOptions(key);
+    if (!defaultValue.empty()) {
+        return defaultValue;
+    }
+    
+    // If no default found, return empty string
     // Note: RTX Remix API doesn't support reading config variables back
-    Warning("[ConfigManager] Config variable '%s' not found in cache. Use CaptureCurrentValues() to populate cache with current settings.\n", key.c_str());
+    Warning("[ConfigManager] Config variable '%s' not found in config file or defaults.\n", key.c_str());
     return "";
 }
 
-void ConfigManager::CaptureCurrentValues() {
-    // Since RTX Remix API doesn't support reading config variables,
-    // we'll populate the cache with reasonable default values that users can then modify
-    
-    // Core lighting defaults
-    m_configCache["rtx.enableRaytracing"] = "True";
-    m_configCache["rtx.enableDirectLighting"] = "True"; 
-    m_configCache["rtx.enableSecondaryBounces"] = "True";
-    m_configCache["rtx.pathMaxBounces"] = "4";
-    m_configCache["rtx.pathMinBounces"] = "1";
-    
-    // Denoising defaults
-    m_configCache["rtx.useDenoiser"] = "True";
-    m_configCache["rtx.denoiseDirectAndIndirectLightingSeparately"] = "True";
-    m_configCache["rtx.denoiserMode"] = "14";
-    
-    // Upscaling defaults
-    m_configCache["rtx.upscalerType"] = "1";
-    m_configCache["rtx.resolutionScale"] = "0.75";
-    m_configCache["rtx.qualityDLSS"] = "2";
-    
-    // Volumetrics defaults
-    m_configCache["rtx.volumetrics.enable"] = "True";
-    m_configCache["rtx.volumetrics.enableAtmosphere"] = "False";
-    m_configCache["rtx.volumetrics.froxelMaxDistanceMeters"] = "100";
-    
-    // Auto exposure defaults
-    m_configCache["rtx.autoExposure.enabled"] = "True";
-    m_configCache["rtx.autoExposure.evMinValue"] = "-2";
-    m_configCache["rtx.autoExposure.evMaxValue"] = "4";
-    
-    // Tonemapping defaults
-    m_configCache["rtx.tonemap.exposureBias"] = "0";
-    m_configCache["rtx.tonemap.dynamicRange"] = "15";
-    m_configCache["rtx.tonemappingMode"] = "1";
-    
-    // Performance defaults
-    m_configCache["rtx.risLightSampleCount"] = "6";
-    m_configCache["rtx.di.initialSampleCount"] = "4";
-    m_configCache["rtx.primaryRayMaxInteractions"] = "32";
-    
-    // Visual effects defaults
-    m_configCache["rtx.bloom.enable"] = "True";
-    m_configCache["rtx.bloom.burnIntensity"] = "1";
-    m_configCache["rtx.postfx.enable"] = "True";
-    m_configCache["rtx.enableFog"] = "False";
-    
-    // UI defaults
-    m_configCache["rtx.defaultToAdvancedUI"] = "True";
-    m_configCache["rtx.showUI"] = "0";
-    
-    Msg("[ConfigManager] Captured default config values into cache\n");
-}
 
-void ConfigManager::SetCachedValue(const std::string& key, const std::string& value) {
-    m_configCache[key] = value;
-}
 
 remix::UIState ConfigManager::GetUIState() {
     if (!m_remixInterface) return remix::UIState::None;
@@ -820,6 +773,113 @@ bool ConfigManager::SetUIState(remix::UIState state) {
     }
     
     return true;
+}
+
+std::string ConfigManager::FindGameDirectory() const {
+    // Get the path to the current DLL (which should be in bin/win64/)
+    HMODULE hModule = GetModuleHandle(nullptr);
+    if (!hModule) {
+        hModule = GetModuleHandle("stdshader_dx6.dll"); // this can be any dll in the executable directory
+    }
+    
+    if (!hModule) {
+        return "";
+    }
+    
+    char dllPath[MAX_PATH];
+    if (GetModuleFileName(hModule, dllPath, sizeof(dllPath)) == 0) {
+        return "";
+    }
+    
+    // Convert to filesystem path
+    std::filesystem::path path(dllPath);
+    
+    // Navigate from bin/win64/ to the game root
+    // Expected structure: GameRoot/bin/win64/stdshader_dx6.dll
+    auto gameRoot = path.parent_path().parent_path().parent_path();
+    
+    return gameRoot.string();
+}
+
+std::string ConfigManager::FindRtxConfPath() const {
+    std::string gameDir = FindGameDirectory();
+    if (gameDir.empty()) {
+        return "";
+    }
+    
+    // RTX config is typically in the game root directory
+    std::filesystem::path confPath = std::filesystem::path(gameDir) / "rtx.conf";
+    return confPath.string();
+}
+
+std::unordered_map<std::string, std::string> ConfigManager::ParseConfigFile(const std::string& filePath) const {
+    std::unordered_map<std::string, std::string> config;
+    
+    std::ifstream file(filePath);
+    if (!file.is_open()) {
+        Msg("[ConfigManager] Could not open config file: %s\n", filePath.c_str());
+        return config;
+    }
+    
+    std::string line;
+    while (std::getline(file, line)) {
+        // Skip empty lines and comments
+        if (line.empty() || line[0] == '#' || line[0] == ';') {
+            continue;
+        }
+        
+        // Find the equals sign
+        size_t equalPos = line.find('=');
+        if (equalPos == std::string::npos) {
+            continue;
+        }
+        
+        std::string key = line.substr(0, equalPos);
+        std::string value = line.substr(equalPos + 1);
+        
+        // Trim whitespace
+        key.erase(0, key.find_first_not_of(" \t"));
+        key.erase(key.find_last_not_of(" \t") + 1);
+        value.erase(0, value.find_first_not_of(" \t"));
+        value.erase(value.find_last_not_of(" \t") + 1);
+        
+        // Remove quotes if present
+        if (value.length() >= 2 && value[0] == '"' && value[value.length()-1] == '"') {
+            value = value.substr(1, value.length()-2);
+        }
+        
+        config[key] = value;
+    }
+    
+    Msg("[ConfigManager] Parsed %zu config entries from %s\n", config.size(), filePath.c_str());
+    return config;
+}
+
+std::string ConfigManager::GetDefaultValueFromRtxOptions(const std::string& key) const {
+    // Look up the exact default value from the extracted RTX options defaults
+    auto it = RTX_OPTION_DEFAULTS.find(key);
+    if (it != RTX_OPTION_DEFAULTS.end()) {
+        return it->second;
+    }
+    
+    // Fallback for unknown keys - use pattern-based guessing as last resort
+    if (key.find("enable") != std::string::npos || key.find("Enable") != std::string::npos) {
+        return "True";
+    }
+    if (key.find("Color") != std::string::npos || key.find("Albedo") != std::string::npos) {
+        return "1.0, 1.0, 1.0";
+    }
+    if (key.find("Scale") != std::string::npos || key.find("Factor") != std::string::npos) {
+        return "1.0";
+    }
+    
+    return "1.0"; // Ultimate fallback
+}
+
+std::string ConfigManager::ExtractDefaultFromPattern(const std::string& line, const std::string& key) const {
+    // This method could be enhanced to parse actual RTX_OPTION declarations from rtx_options.h
+    // For now, just return the pattern-based default
+    return GetDefaultValueFromRtxOptions(key);
 }
 
 //=============================================================================

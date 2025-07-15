@@ -233,10 +233,6 @@ namespace RemixAPI {
         bool SetConfigVariable(const std::string& key, const std::string& value);
         std::string GetConfigVariable(const std::string& key);
         
-        // Cache management
-        void CaptureCurrentValues();
-        void SetCachedValue(const std::string& key, const std::string& value);
-        
         // UI State
         remix::UIState GetUIState();
         bool SetUIState(remix::UIState state);
@@ -247,7 +243,13 @@ namespace RemixAPI {
     private:
         remix::Interface* m_remixInterface;
         GarrysMod::Lua::ILuaBase* m_lua;
-        std::unordered_map<std::string, std::string> m_configCache;
+        
+        // Config file parsing
+        std::string FindGameDirectory() const;
+        std::string FindRtxConfPath() const;
+        std::unordered_map<std::string, std::string> ParseConfigFile(const std::string& filePath) const;
+        std::string GetDefaultValueFromRtxOptions(const std::string& key) const;
+        std::string ExtractDefaultFromPattern(const std::string& line, const std::string& key) const;
     };
 
     // Resource Management

@@ -9,56 +9,66 @@ local CONFIG_DIR = "remix_map_configs"
 local BACKUP_FILE = CONFIG_DIR .. "/backup.txt"
 local DEBUG_MODE = CreateClientConVar("rtx_conf_map_configs_debug", "0", true, false, "Enable debug output for map configs")
 
--- Important RTX config variables to save/load per map
 local TRACKED_CONFIGS = {
-    ---- These are just examples, you can put anything inside the actual (mapname).txt file.
+    ---- Modify this list to add parameters you want to save/load per map.
     
-    -- Lighting
-    "rtx.enableRaytracing",
-    "rtx.enableDirectLighting", 
-    "rtx.enableSecondaryBounces",
-    "rtx.pathMaxBounces",
-    "rtx.pathMinBounces",
-    
-    -- Denoising
-    "rtx.useDenoiser",
-    "rtx.denoiseDirectAndIndirectLightingSeparately",
-    "rtx.denoiserMode",
-    
-    -- Upscaling
-    "rtx.upscalerType",
-    "rtx.resolutionScale",
-    "rtx.qualityDLSS",
-    
-    -- Volumetrics
     "rtx.volumetrics.enable",
     "rtx.volumetrics.enableAtmosphere",
+    "rtx.volumetrics.anisotropy",
+    "rtx.volumetrics.depthOffset",
+    "rtx.volumetrics.atmosphereHeightMeters",
+    "rtx.volumetrics.atmosphereInverted",
+    "rtx.volumetrics.atmospherePlanetRadiusMeters",
+    "rtx.volumetrics.enableFogRemap",
+    "rtx.volumetrics.enableFogColorRemap",
+    "rtx.volumetrics.enableFogMaxDistanceRemap",
+    "rtx.volumetrics.fogRemapColorMultiscatteringScale",
+    "rtx.volumetrics.fogRemapMaxDistanceMaxMeters",
+    "rtx.volumetrics.fogRemapMaxDistanceMinMeters",
+    "rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMaxMeters",
+    "rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMinMeters",
+    "rtx.volumetrics.enableHeterogeneousFog",
+    "rtx.volumetrics.noiseFieldDensityExponent",
+    "rtx.volumetrics.noiseFieldDensityScale",
+    "rtx.volumetrics.noiseFieldGain",
+    "rtx.volumetrics.noiseFieldInitialFrequencyPerMeter",
+    "rtx.volumetrics.noiseFieldLacunarity",
+    "rtx.volumetrics.noiseFieldOctaves",
+    "rtx.volumetrics.noiseFieldSubStepSizeMeters",
+    "rtx.volumetrics.noiseFieldTimeScale",
     "rtx.volumetrics.froxelMaxDistanceMeters",
-    
-    -- Auto exposure
+    "rtx.volumetrics.froxelDepthSlices",
+    "rtx.volumetrics.froxelDepthSliceDistributionExponent",
+    "rtx.volumetrics.froxelGridResolutionScale",
+    "rtx.volumetrics.froxelFireflyFilteringLuminanceThreshold",
+    "rtx.volumetrics.enableSpatialResampling",
+    "rtx.volumetrics.enableTemporalResampling",
+    "rtx.volumetrics.enableInitialVisibility",
+    "rtx.volumetrics.visibilityReuse",
+    "rtx.volumetrics.initialRISSampleCount",
+    "rtx.volumetrics.maxAccumulationFrames",
+    "rtx.volumetrics.restirFroxelDepthSlices",
+    "rtx.volumetrics.restirGridGuardBandFactor",
+    "rtx.volumetrics.restirGridScale",
+    "rtx.volumetrics.spatialReuseMaxSampleCount",
+    "rtx.volumetrics.spatialReuseSamplingRadius",
+    "rtx.volumetrics.temporalReuseMaxSampleCount",
+    "rtx.volumetrics.singleScatteringAlbedo",
+    "rtx.volumetrics.transmittanceColor",
+    "rtx.volumetrics.transmittanceMeasurementDistanceMeters",
+    "rtx.volumetrics.enableInPortals",
+    "rtx.volumetrics.enableReferenceMode",
+    "rtx.volumetrics.debugDisableRadianceScaling",
     "rtx.autoExposure.enabled",
     "rtx.autoExposure.evMinValue",
     "rtx.autoExposure.evMaxValue",
-    
-    -- Tonemapping
     "rtx.tonemap.exposureBias",
     "rtx.tonemap.dynamicRange",
     "rtx.tonemappingMode",
-    
-    -- Performance
-    "rtx.risLightSampleCount",
-    "rtx.di.initialSampleCount",
-    "rtx.primaryRayMaxInteractions",
-    
-    -- Visual effects
     "rtx.bloom.enable",
     "rtx.bloom.burnIntensity",
     "rtx.postfx.enable",
-    "rtx.enableFog",
-    
-    -- UI
-    "rtx.defaultToAdvancedUI",
-    "rtx.showUI"
+    "rtx.enableFog"
 }
 
 -- Current map name
@@ -236,9 +246,8 @@ local function SaveMapConfig(mapName)
     
     EnsureConfigDir()
     
-    -- First, capture current values to populate the cache
-    DebugPrint("Capturing current config values...")
-    RemixConfig.CaptureCurrentValues()
+    -- GetConfigVariable now reads directly from config file and defaults
+    DebugPrint("Getting current config values...")
     
     local configData = {}
     local configLines = {}
@@ -247,8 +256,8 @@ local function SaveMapConfig(mapName)
     table.insert(configLines, "# RTX Remix configuration for map: " .. mapName)
     table.insert(configLines, "# " .. os.date("%Y-%m-%d %H:%M:%S"))
     table.insert(configLines, "")
-    table.insert(configLines, "# Note: These are default/cached values. Adjust RTX settings in-game,")
-    table.insert(configLines, "# then use RemixConfig.SetCachedValue() or modify this file directly.")
+    table.insert(configLines, "# Note: These are current config values. Adjust RTX settings in-game,")
+    table.insert(configLines, "# then save again or modify this file directly.")
     table.insert(configLines, "")
     
     -- Save each tracked config variable
@@ -511,10 +520,9 @@ concommand.Add("rtx_conf_capture_values", function()
         return
     end
     
-    RemixConfig.CaptureCurrentValues()
-    print("[RTXF2 - Remix API] Captured current RTX settings into cache")
-    print("You can now save these settings with: remix_save_map_config")
-end, nil, "Capture current RTX settings for saving")
+    print("[RTXF2 - Remix API] Cache system has been removed. RTX settings are now read directly from config file and defaults.")
+    print("You can save current settings with: remix_save_map_config")
+end, nil, "Info about RTX settings capture (cache system removed)")
 
 concommand.Add("rtx_conf_set_cached_value", function(ply, cmd, args)
     if not RemixConfig then
@@ -522,18 +530,22 @@ concommand.Add("rtx_conf_set_cached_value", function(ply, cmd, args)
         return
     end
     
-    if #args < 2 then
-        print("Usage: remix_set_cached_value <key> <value>")
-        print("Example: remix_set_cached_value rtx.pathMaxBounces 6")
-        return
+    print("[RTXF2 - Remix API] Cache system has been removed. Use RemixConfig.SetConfigVariable() instead.")
+    
+    if #args >= 2 then
+        local key = args[1]
+        local value = args[2]
+        
+        if RemixConfig.SetConfigVariable(key, value) then
+            print("[RTXF2 - Remix API] Set config variable: " .. key .. " = " .. value)
+        else
+            print("[RTXF2 - Remix API] Failed to set config variable: " .. key)
+        end
+    else
+        print("Usage: rtx_conf_set_cached_value <key> <value>")
+        print("Example: rtx_conf_set_cached_value rtx.pathMaxBounces 6")
     end
-    
-    local key = args[1]
-    local value = args[2]
-    
-    RemixConfig.SetCachedValue(key, value)
-    print("[RTXF2 - Remix API] Set cached value: " .. key .. " = " .. value)
-end, nil, "Set a cached config value for saving")
+end, nil, "Set a config variable directly (cache system removed)")
 
 concommand.Add("rtx_conf_restore_backup", function()
     if RemixMapConfigs.HasBackup() then
