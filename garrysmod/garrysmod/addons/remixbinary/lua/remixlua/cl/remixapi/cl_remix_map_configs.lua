@@ -28,7 +28,10 @@ local TRACKED_CONFIGS = {
     "rtx.volumetrics.fogRemapMaxDistanceMinMeters",
     "rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMaxMeters",
     "rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMinMeters",
+    "rtx.volumetrics.fogRemapColorMultiscatteringScale",
     "rtx.volumetrics.enableFogRemap",
+    "rtx.volumetrics.enableFogColorRemap",
+    "rtx.volumetrics.enableFogMaxDistanceRemap",
     "rtx.volumetrics.enableHeterogeneousFog",
     "rtx.volumetrics.noiseFieldDensityExponent",
     "rtx.volumetrics.noiseFieldDensityScale",
@@ -61,16 +64,9 @@ local TRACKED_CONFIGS = {
     "rtx.volumetrics.enableInPortals",
     "rtx.volumetrics.enableReferenceMode",
     "rtx.volumetrics.debugDisableRadianceScaling",
-    "rtx.autoExposure.enabled",
-    "rtx.autoExposure.evMinValue",
-    "rtx.autoExposure.evMaxValue",
-    "rtx.tonemap.exposureBias",
-    "rtx.tonemap.dynamicRange",
-    "rtx.tonemappingMode",
     "rtx.bloom.enable",
     "rtx.bloom.burnIntensity",
-    "rtx.postfx.enable",
-    "rtx.enableFog"
+    "rtx.skyBrightness"
 }
 
 -- Current map name
