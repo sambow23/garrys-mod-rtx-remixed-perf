@@ -66,10 +66,6 @@ local function RTXLoad()
     local pseudoply = ents.CreateClientside("rtx_pseudoplayer")
     pseudoply:Spawn()
 
-    local flashlightent = ents.CreateClientside("rtx_flashlight_ent")
-    flashlightent:SetOwner(LocalPlayer())
-    flashlightent:Spawn()
-
     -- Initialize systems
     FixupEntities()
     halo.Add = function() end
