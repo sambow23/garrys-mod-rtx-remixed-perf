@@ -19,7 +19,6 @@
 #ifdef _WIN64
 #include <remix/remix.h>
 #include <remix/remix_c.h>
-#include "remixapi/rtx_light_manager.h"
 #include "remixapi/remixapi.h"
 #endif // _WIN64
 
@@ -160,18 +159,6 @@ GMOD_MODULE_OPEN() {
             return 0;
         }
 
-        // Initialize RTX Light Manager (legacy - for backwards compatibility)
-        RTXLightManager::Instance().Initialize(g_remix);
-        
-        // Set up entity validator for the new light manager
-        // This allows lights to be automatically cleaned up when entities are removed
-        RemixAPI::RemixAPI::Instance().GetLightManager().SetEntityValidator([](uint64_t entityID) -> bool {
-            // TODO: Implement proper entity validation
-            // For now, assume all entities are valid
-            // In a real implementation, you would check if the entity still exists in the game
-            return true;
-        });
-
         // Configure RTX settings through the new API
         auto& configManager = RemixAPI::RemixAPI::Instance().GetConfigManager();
         configManager.SetConfigVariable("rtx.enableAdvancedMode", "1");
@@ -211,7 +198,7 @@ GMOD_MODULE_OPEN() {
         // Only register Remix-related Lua functions in 64-bit builds
         #ifdef _WIN64
             // The new RemixAPI is already initialized above, no need to call Initialize again
-            RTXLightManager::InitializeLuaBindings(LUA);
+
         #endif // _WIN64    
 
         LUA->Pop();
@@ -230,7 +217,6 @@ GMOD_MODULE_CLOSE() {
         Msg("[RTXF2 - Binary Module] Shutting down module...\n");
 
 #ifdef _WIN64
-        RTXLightManager::Instance().Shutdown();
         RemixAPI::RemixAPI::Instance().Shutdown();
         g_d3dDevice = nullptr;
 #endif // _WIN64

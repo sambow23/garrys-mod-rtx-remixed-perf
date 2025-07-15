@@ -20,7 +20,6 @@ namespace RemixAPI {
     class MeshManager;
     class CameraManager;
     class InstanceManager;
-    class LightManager;
     class ConfigManager;
     class ResourceManager;
 
@@ -38,7 +37,6 @@ namespace RemixAPI {
         MeshManager& GetMeshManager() { return *m_meshManager; }
         CameraManager& GetCameraManager() { return *m_cameraManager; }
         InstanceManager& GetInstanceManager() { return *m_instanceManager; }
-        LightManager& GetLightManager() { return *m_lightManager; }
         ConfigManager& GetConfigManager() { return *m_configManager; }
         ResourceManager& GetResourceManager() { return *m_resourceManager; }
         
@@ -61,7 +59,6 @@ namespace RemixAPI {
         std::unique_ptr<MeshManager> m_meshManager;
         std::unique_ptr<CameraManager> m_cameraManager;
         std::unique_ptr<InstanceManager> m_instanceManager;
-        std::unique_ptr<LightManager> m_lightManager;
         std::unique_ptr<ConfigManager> m_configManager;
         std::unique_ptr<ResourceManager> m_resourceManager;
         
@@ -162,65 +159,6 @@ namespace RemixAPI {
     private:
         remix::Interface* m_remixInterface;
         GarrysMod::Lua::ILuaBase* m_lua;
-    };
-
-    // Light Management
-    class LightManager {
-    public:
-        LightManager(remix::Interface* remixInterface, GarrysMod::Lua::ILuaBase* LUA);
-        ~LightManager();
-        
-        // Light creation functions
-        uint64_t CreateSphereLight(const remix::LightInfo& baseInfo, const remix::LightInfoSphereEXT& sphereInfo, uint64_t entityID = 0);
-        uint64_t CreateRectLight(const remix::LightInfo& baseInfo, const remix::LightInfoRectEXT& rectInfo, uint64_t entityID = 0);
-        uint64_t CreateDiskLight(const remix::LightInfo& baseInfo, const remix::LightInfoDiskEXT& diskInfo, uint64_t entityID = 0);
-        uint64_t CreateCylinderLight(const remix::LightInfo& baseInfo, const remix::LightInfoCylinderEXT& cylinderInfo, uint64_t entityID = 0);
-        uint64_t CreateDistantLight(const remix::LightInfo& baseInfo, const remix::LightInfoDistantEXT& distantInfo, uint64_t entityID = 0);
-        uint64_t CreateDomeLight(const remix::LightInfo& baseInfo, const remix::LightInfoDomeEXT& domeInfo, uint64_t entityID = 0);
-        
-        // Light management
-        bool UpdateLight(uint64_t lightId, const remix::LightInfo& baseInfo);
-        bool DestroyLight(uint64_t lightId);
-        bool HasLight(uint64_t lightId) const;
-        
-        // Entity-based operations
-        bool HasLightForEntity(uint64_t entityID) const;
-        std::vector<uint64_t> GetLightsForEntity(uint64_t entityID) const;
-        void DestroyLightsForEntity(uint64_t entityID);
-        
-        // Entity validation
-        void SetEntityValidator(std::function<bool(uint64_t)> validator);
-        void CleanupInvalidEntities();
-        
-        // Frame management
-        void BeginFrame();
-        void EndFrame();
-        void DrawLights();
-        
-        // Utility
-        size_t GetLightCount() const;
-        void ClearAllLights();
-        
-        // Lua bindings
-        void InitializeLuaBindings();
-        
-    private:
-        struct ManagedLight {
-            remixapi_LightHandle handle;
-            remix::LightInfo baseInfo;
-            std::string lightType; // "sphere", "rect", "disk", "cylinder", "distant", "dome"
-            uint64_t entityID;
-            uint64_t hash; // For identification
-        };
-        
-        remix::Interface* m_remixInterface;
-        GarrysMod::Lua::ILuaBase* m_lua;
-        std::unordered_map<uint64_t, ManagedLight> m_lights;
-        std::function<bool(uint64_t)> m_entityValidator;
-        uint64_t m_nextLightId;
-        
-        // Helper functions
-        void LogMessage(const char* format, ...);
     };
 
     // Configuration Management
