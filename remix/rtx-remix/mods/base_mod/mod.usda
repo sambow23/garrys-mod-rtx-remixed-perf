@@ -10,6 +10,7 @@
         @./water/replacements.usda@,
         @./mirrors/replacements.usda@,
         @./marker/marker.usda@,
+		@./breakable_glass/glass.usda@,
 		@./flashlight/flashlight.usda@
     ]
     timeCodesPerSecond = 24
