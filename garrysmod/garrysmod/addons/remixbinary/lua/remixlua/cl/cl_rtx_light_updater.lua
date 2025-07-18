@@ -16,6 +16,8 @@ local debugmoved = CreateConVar( "rtx_lightupdater_debug_moved", 0,  FCVAR_ARCHI
 local debugconsole = CreateConVar( "rtx_lightupdater_debug_console", 1,  FCVAR_ARCHIVE )
 local debugmissing = CreateConVar( "rtx_lightupdater_debug_missing", 0,  FCVAR_ARCHIVE )
 local forcemove = CreateConVar( "rtx_lightupdater_force_move", 0, FCVAR_NONE )
+local dynamicscan = CreateConVar( "rtx_lightupdater_dynamic_scan", 1, FCVAR_ARCHIVE )
+local dynamicupdate = CreateConVar( "rtx_lightupdater_dynamic_update", 1, FCVAR_ARCHIVE )
 
 local function shuffle(tbl)
 	for i = #tbl, 2, -1 do
@@ -55,8 +57,15 @@ end
 -- Generate unique ID for a light based on its position and type
 local function GetLightID(light)
 	if not light.origin then return nil end
-	return string.format("%s_%.2f_%.2f_%.2f", light.classname or "unknown", 
-		light.origin.x, light.origin.y, light.origin.z)
+	
+	-- For dynamic entities, use entity index for more stable ID
+	if light.entity and IsValid(light.entity) then
+		return string.format("%s_%d", light.classname or "unknown", light.entity:EntIndex())
+	else
+		-- For static map lights, use position-based ID
+		return string.format("%s_%.2f_%.2f_%.2f", light.classname or "unknown", 
+			light.origin.x, light.origin.y, light.origin.z)
+	end
 end
 
 -- Proper world bounds check using NikNaks BSP data
@@ -683,17 +692,48 @@ local function InitializeLights()
 	end
 	
 	if lights == nil then
+		-- Find static map lights using NikNaks
 		lights = NikNaks.CurrentMap:FindByClass( "light" ) or {}
 		
 		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_spot" ) or {})
 		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_environment" ) or {})
 		lights = TableConcat(lights, NikNaks.CurrentMap:FindByClass( "light_dynamic" ) or {})
 		
+		-- Find dynamic GMod light entities
+		local gmod_lights = ents.FindByClass("gmod_light") or {}
+		local gmod_lamps = ents.FindByClass("gmod_lamp") or {}
+		
+		-- Convert dynamic entities to light data format
+		for _, ent in ipairs(gmod_lights) do
+			if IsValid(ent) then
+				local light_data = {
+					origin = ent:GetPos(),
+					angles = ent:GetAngles(),
+					classname = "gmod_light",
+					entity = ent -- Keep reference to the entity
+				}
+				table.insert(lights, light_data)
+			end
+		end
+		
+		for _, ent in ipairs(gmod_lamps) do
+			if IsValid(ent) then
+				local light_data = {
+					origin = ent:GetPos(),
+					angles = ent:GetAngles(),
+					classname = "gmod_lamp",
+					entity = ent -- Keep reference to the entity
+				}
+				table.insert(lights, light_data)
+			end
+		end
+		
 		-- Shuffle lights to randomize processing order for better distribution
 		lights = shuffle(lights)
 		
 		local total_lights_found = #lights
 		local lights_processed = 0
+		local static_lights = total_lights_found - #gmod_lights - #gmod_lamps
 		
 		-- Pre-calculate all positions and add to known lights
 		light_positions = {}
@@ -751,6 +791,7 @@ local function InitializeLights()
 		if debugconsole:GetBool() or lights_processed < total_lights_found then
 			if debugconsole:GetBool() then
 				print("[RTX Light Updater] Processed " .. lights_processed .. " / " .. total_lights_found .. " lights")
+				print("[RTX Light Updater] Found " .. static_lights .. " static lights, " .. #gmod_lights .. " gmod_lights, " .. #gmod_lamps .. " gmod_lamps")
 			end
 			if lights_processed < total_lights_found and debugconsole:GetBool() then
 				print("[RTX Light Updater] " .. (total_lights_found - lights_processed) .. " lights were skipped (couldn't find valid positions)")
@@ -760,6 +801,77 @@ local function InitializeLights()
 	
 	return true
 end
+
+-- Check for new dynamic lights and add them
+local function ScanForNewDynamicLights()
+	if not updatelights:GetBool() or not dynamicscan:GetBool() then return end
+	
+	local new_lights_added = 0
+	
+	-- Scan for new gmod_light entities
+	local gmod_lights = ents.FindByClass("gmod_light") or {}
+	for _, ent in ipairs(gmod_lights) do
+		if IsValid(ent) then
+			local light_data = {
+				origin = ent:GetPos(),
+				angles = ent:GetAngles(),
+				classname = "gmod_light",
+				entity = ent
+			}
+			
+			if AddLight(light_data) then
+				new_lights_added = new_lights_added + 1
+			end
+		end
+	end
+	
+	-- Scan for new gmod_lamp entities
+	local gmod_lamps = ents.FindByClass("gmod_lamp") or {}
+	for _, ent in ipairs(gmod_lamps) do
+		if IsValid(ent) then
+			local light_data = {
+				origin = ent:GetPos(),
+				angles = ent:GetAngles(),
+				classname = "gmod_lamp",
+				entity = ent
+			}
+			
+			if AddLight(light_data) then
+				new_lights_added = new_lights_added + 1
+			end
+		end
+	end
+	
+	-- Clean up updaters for removed dynamic lights
+	local removed_lights = 0
+	for light_id, light_data in pairs(known_lights) do
+		if light_data.light.entity and not IsValid(light_data.light.entity) then
+			-- Remove the light model
+			if light_models[light_id] and IsValid(light_models[light_id]) then
+				light_models[light_id]:Remove()
+				light_models[light_id] = nil
+			end
+			
+			-- Remove from tracking
+			known_lights[light_id] = nil
+			all_discovered_lights[light_id] = nil
+			removed_lights = removed_lights + 1
+		end
+	end
+	
+	-- Report new lights found
+	if new_lights_added > 0 and debugconsole:GetBool() then
+		print("[RTX Light Updater] Added " .. new_lights_added .. " new dynamic lights")
+	end
+	
+	if removed_lights > 0 and debugconsole:GetBool() then
+		print("[RTX Light Updater] Removed " .. removed_lights .. " deleted dynamic lights")
+	end
+end
+
+-- Timer to periodically scan for new dynamic lights
+local next_dynamic_scan = 0
+local dynamic_scan_interval = 2 -- Scan every 2 seconds
 
 -- Create the model if needed
 local function InitializeModel()
@@ -829,6 +941,13 @@ local function MovetoPositions()
 	
 	if not InitializeModel() then return end
 
+	-- Periodically scan for new dynamic lights
+	local current_time = CurTime()
+	if dynamicscan:GetBool() and current_time >= next_dynamic_scan then
+		ScanForNewDynamicLights()
+		next_dynamic_scan = current_time + dynamic_scan_interval
+	end
+	
 	for light_id, light_data in pairs(known_lights) do
 		local light_model = light_models[light_id]
 		if not IsValid(light_model) then
@@ -837,6 +956,67 @@ local function MovetoPositions()
 		
 		if IsValid(light_model) then
 			render.Model({model = "models/editor/cone_helper.mdl", pos = light_data.pos}, light_model)
+		end
+	end
+end
+
+-- Dedicated Think hook for tracking dynamic entity movements
+local function UpdateDynamicLightPositions()
+	if not dynamicupdate:GetBool() or not updatelights:GetBool() then return end
+	if not known_lights then return end
+	
+	for light_id, light_data in pairs(known_lights) do
+		-- Only check dynamic entities (ones with entity references)
+		if light_data.light.entity and IsValid(light_data.light.entity) then
+			local current_pos = light_data.light.entity:GetPos()
+			local current_angles = light_data.light.entity:GetAngles()
+			
+			-- Use distance check for more reliable position comparison
+			local pos_changed = light_data.light.origin:DistToSqr(current_pos) > 1 -- More than 1 unit difference
+			local angle_changed = false
+			
+			-- Check if angles have changed significantly
+			if light_data.light.angles then
+				local angle_diff = math.abs(light_data.light.angles.pitch - current_angles.pitch) + 
+				                  math.abs(light_data.light.angles.yaw - current_angles.yaw) + 
+				                  math.abs(light_data.light.angles.roll - current_angles.roll)
+				angle_changed = angle_diff > 1 -- More than 1 degree difference
+			end
+			
+			-- Update if position or angles have changed
+			if pos_changed or angle_changed then
+				-- Update the light data
+				light_data.light.origin = current_pos
+				light_data.light.angles = current_angles
+				
+				-- Recalculate updater position
+				local original_pos = CalculateInitialPosition(light_data.light)
+				if original_pos then
+					local adjusted_pos, was_moved = FindClearPositionSmart(original_pos, {light = light_data.light})
+					if adjusted_pos then
+						light_data.original_pos = original_pos
+						light_data.pos = adjusted_pos
+						light_data.was_moved = was_moved
+						
+						if debugconsole:GetBool() then
+							print("[RTX Light Updater] Updated position for moved " .. light_data.classname .. " at " .. tostring(current_pos))
+						end
+					else
+						-- Try emergency positioning if smart positioning fails
+						local emergency_pos = FindEmergencyPosition(light_data.light)
+						if emergency_pos then
+							light_data.original_pos = original_pos
+							light_data.pos = emergency_pos
+							light_data.was_moved = true
+							light_data.emergency = true
+							
+							if debugconsole:GetBool() then
+								print("[RTX Light Updater] Emergency repositioned moved " .. light_data.classname .. " at " .. tostring(current_pos))
+							end
+						end
+					end
+				end
+			end
 		end
 	end
 end
@@ -1054,6 +1234,8 @@ local function Cleanup()
 	CleanupModel()
 	-- Reset force move cvar on cleanup
 	forcemove:SetBool(false)
+	-- Reset dynamic scan timer
+	next_dynamic_scan = 0
 end
 
 -- Console command for easier access to force move
@@ -1064,10 +1246,29 @@ local function ForceMoveLightsCommand()
 	end
 end
 
--- Register console command
+-- Console command for manual dynamic light scanning
+local function ScanDynamicLightsCommand()
+	ScanForNewDynamicLights()
+	if debugconsole:GetBool() then
+		print("[RTX Light Updater] Manual dynamic light scan completed")
+	end
+end
+
+-- Console command for manual dynamic light position update
+local function UpdateDynamicLightsCommand()
+	UpdateDynamicLightPositions()
+	if debugconsole:GetBool() then
+		print("[RTX Light Updater] Manual dynamic light position update completed")
+	end
+end
+
+-- Register console commands
 concommand.Add("rtx_lightupdater_force_move_cmd", ForceMoveLightsCommand, nil, "Force recalculate all RTX light updater positions")
+concommand.Add("rtx_lightupdater_scan_dynamic_cmd", ScanDynamicLightsCommand, nil, "Manually scan for new gmod_light and gmod_lamp entities")
+concommand.Add("rtx_lightupdater_update_dynamic_cmd", UpdateDynamicLightsCommand, nil, "Manually update positions for moved dynamic lights")
 
 hook.Add( "Think", "RTXReady_PropHashFixer", RTXLightUpdater)
+hook.Add( "Think", "RTXReady_DynamicLightUpdater", UpdateDynamicLightPositions)
 hook.Add( "HUDPaint", "RTXReady_LightIndicators", DrawLightIndicators)
 hook.Add( "HUDPaint", "RTXReady_MovedDebug", DrawMovedPositionDebug)
 hook.Add( "HUDPaint", "RTXReady_DebugText", DrawDebugText)
