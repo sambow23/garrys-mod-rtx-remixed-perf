@@ -5,7 +5,6 @@ local RemixMapConfigs = {}
 
 -- Configuration
 local CONFIG_DIR = "remix_map_configs"
-local BACKUP_FILE = CONFIG_DIR .. "/backup.txt"
 local DEBUG_MODE = CreateClientConVar("rtx_conf_map_configs_debug", "0", true, false, "Enable debug output for map configs")
 local AUTO_LOAD = CreateClientConVar("rtx_conf_map_configs_autoload", "1", true, false, "Automatically load map configs on map start")
 
@@ -22,7 +21,6 @@ local TRACKED_CONFIGS = {
     "rtx.volumetrics.enableFogRemap",
     "rtx.volumetrics.enableFogColorRemap",
     "rtx.volumetrics.enableFogMaxDistanceRemap",
-    "rtx.volumetrics.fogRemapColorMultiscatteringScale",
     "rtx.volumetrics.fogRemapMaxDistanceMaxMeters",
     "rtx.volumetrics.fogRemapMaxDistanceMinMeters",
     "rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMaxMeters",
@@ -84,8 +82,6 @@ local TRACKED_SOURCE_COMMANDS = {
     "r_3dsky"
 }
 
--- These probably shouldnt be hardcoded, but this will be changed later. // CR
-
 -- Current map name
 local currentMap = ""
 
@@ -110,183 +106,6 @@ local function EnsureConfigDir()
         file.CreateDir(CONFIG_DIR)
         DebugPrint("Created config directory: " .. CONFIG_DIR)
     end
-end
-
--- Backup and restore functions
-local function BackupConfigVariables(rtxVariablesToBackup, sourceVariablesToBackup)
-    EnsureConfigDir()
-    
-    local backupLines = {}
-    local backupCount = 0
-    
-    -- Add header
-    table.insert(backupLines, "# RTX Remix and Source engine settings backup")
-    table.insert(backupLines, "# Created: " .. os.date("%Y-%m-%d %H:%M:%S"))
-    table.insert(backupLines, "# Settings backed up before applying map-specific config")
-    table.insert(backupLines, "")
-    
-    -- Backup RTX variables
-    if RemixConfig and rtxVariablesToBackup and #rtxVariablesToBackup > 0 then
-        table.insert(backupLines, "# RTX Remix Settings")
-        for _, configKey in ipairs(rtxVariablesToBackup) do
-            local currentValue = RemixConfig.GetConfigVariable(configKey)
-            if currentValue and currentValue ~= "" then
-                table.insert(backupLines, "rtx:" .. configKey .. " = " .. currentValue)
-                DebugPrint("Backed up RTX " .. configKey .. " = " .. currentValue)
-                backupCount = backupCount + 1
-            end
-        end
-        table.insert(backupLines, "")
-    end
-    
-    -- Backup Source engine variables
-    if sourceVariablesToBackup and #sourceVariablesToBackup > 0 then
-        table.insert(backupLines, "# Source Engine Settings")
-        for _, cvarName in ipairs(sourceVariablesToBackup) do
-            local cvar = GetConVar(cvarName)
-            if cvar then
-                local currentValue = cvar:GetString()
-                if currentValue and currentValue ~= "" then
-                    table.insert(backupLines, "src:" .. cvarName .. " = " .. currentValue)
-                    DebugPrint("Backed up Source " .. cvarName .. " = " .. currentValue)
-                    backupCount = backupCount + 1
-                end
-            end
-        end
-        table.insert(backupLines, "")
-    end
-    
-    if backupCount > 0 then
-        local backupText = table.concat(backupLines, "\n")
-        file.Write(BACKUP_FILE, backupText)
-        DebugPrint("Backed up " .. backupCount .. " config variables to " .. BACKUP_FILE)
-        print("[RTXF2 - Remix API] Backed up " .. backupCount .. " RTX and Source settings to backup file")
-        return true
-    else
-        DebugPrint("No variables to backup")
-        return false
-    end
-end
-
-local function RestoreBackupConfig()
-    if not file.Exists(BACKUP_FILE, "DATA") then
-        DebugPrint("No backup file found: " .. BACKUP_FILE)
-        return false
-    end
-    
-    local backupText = file.Read(BACKUP_FILE, "DATA")
-    if not backupText then
-        DebugPrint("Failed to read backup file: " .. BACKUP_FILE)
-        return false
-    end
-    
-    DebugPrint("Restoring settings from backup file")
-    
-    local restoredCount = 0
-    for line in string.gmatch(backupText, "[^\r\n]+") do
-        line = string.Trim(line)
-        
-        -- Skip comments and empty lines
-        if line ~= "" and not string.StartWith(line, "#") then
-            -- Parse key = value
-            local key, value = string.match(line, "^(%S+)%s*=%s*(.+)$")
-            if key and value then
-                -- Remove any trailing comments
-                value = string.match(value, "^([^#]+)") or value
-                value = string.Trim(value)
-                
-                -- Handle RTX config variables
-                if string.StartWith(key, "rtx:") then
-                    local rtxKey = string.sub(key, 5) -- Remove "rtx:" prefix
-                    if RemixConfig and RemixConfig.SetConfigVariable(rtxKey, value) then
-                        DebugPrint("Restored RTX " .. rtxKey .. " = " .. value)
-                        restoredCount = restoredCount + 1
-                    else
-                        DebugPrint("Failed to restore RTX " .. rtxKey .. " = " .. value)
-                    end
-                -- Handle Source engine commands
-                elseif string.StartWith(key, "src:") then
-                    local cvarName = string.sub(key, 5) -- Remove "src:" prefix
-                    RunConsoleCommand(cvarName, value)
-                    DebugPrint("Restored Source " .. cvarName .. " = " .. value)
-                    restoredCount = restoredCount + 1
-                -- Handle legacy format (backwards compatibility)
-                else
-                    if RemixConfig and RemixConfig.SetConfigVariable(key, value) then
-                        DebugPrint("Restored (legacy) " .. key .. " = " .. value)
-                        restoredCount = restoredCount + 1
-                    else
-                        DebugPrint("Failed to restore (legacy) " .. key .. " = " .. value)
-                    end
-                end
-            end
-        end
-    end
-    
-    print("[RTXF2 - Remix API] Restored " .. restoredCount .. " RTX and Source settings from backup")
-    
-    -- Clear the backup file after successful restoration
-    if restoredCount > 0 then
-        file.Delete(BACKUP_FILE)
-        DebugPrint("Cleared backup file after successful restoration")
-        print("[RTXF2 - Remix API] Backup file cleared - settings restored to original values")
-    end
-    
-    return restoredCount > 0
-end
-
-local function ClearBackup()
-    if file.Exists(BACKUP_FILE, "DATA") then
-        file.Delete(BACKUP_FILE)
-        DebugPrint("Deleted backup file: " .. BACKUP_FILE)
-        print("[RTXF2 - Remix API] Backup file cleared")
-        return true
-    else
-        DebugPrint("No backup file to clear")
-        return false
-    end
-end
-
-local function HasBackup()
-    return file.Exists(BACKUP_FILE, "DATA")
-end
-
-local function ParseConfigFileVariables(mapName)
-    local filePath = GetConfigPath(mapName)
-    
-    if not file.Exists(filePath, "DATA") then
-        return {}, {}
-    end
-    
-    local configText = file.Read(filePath, "DATA")
-    if not configText then
-        return {}, {}
-    end
-    
-    local rtxVariables = {}
-    local sourceVariables = {}
-    
-    for line in string.gmatch(configText, "[^\r\n]+") do
-        line = string.Trim(line)
-        
-        -- Skip comments and empty lines
-        if line ~= "" and not string.StartWith(line, "#") then
-            -- Parse key = value to get the key
-            local key = string.match(line, "^(%S+)%s*=")
-            if key then
-                if string.StartWith(key, "rtx:") then
-                    table.insert(rtxVariables, string.sub(key, 5)) -- Remove "rtx:" prefix
-                elseif string.StartWith(key, "src:") then
-                    table.insert(sourceVariables, string.sub(key, 5)) -- Remove "src:" prefix
-                else
-                    -- Legacy format - assume RTX
-                    table.insert(rtxVariables, key)
-                end
-            end
-        end
-    end
-    
-    return rtxVariables, sourceVariables
 end
 
 -- File I/O functions
@@ -430,20 +249,10 @@ local function LoadMapConfig(mapName)
     
     -- First try to load map-specific config
     if file.Exists(filePath, "DATA") then
-        -- Parse the config file to see which variables it contains (for backup)
-        local rtxVariables, sourceVariables = ParseConfigFileVariables(mapName)
-        
-        if #rtxVariables > 0 or #sourceVariables > 0 then
-            -- Backup the current values of variables that will be changed
-            BackupConfigVariables(rtxVariables, sourceVariables)
-            
-            local success, count = LoadConfigFromFile(filePath, "map config for " .. mapName)
-            if success then
-                loadedCount = count
-                configSource = "map-specific config"
-            end
-        else
-            DebugPrint("No valid config variables found in map-specific file: " .. filePath)
+        local success, count = LoadConfigFromFile(filePath, "map config for " .. mapName)
+        if success then
+            loadedCount = count
+            configSource = "map-specific config"
         end
     end
     
@@ -451,49 +260,17 @@ local function LoadMapConfig(mapName)
     if loadedCount == 0 then
         DebugPrint("No map-specific config found, trying default.txt")
         
-        -- For default config, we need to get the variables it contains for backup
         if file.Exists(defaultPath, "DATA") then
-            local defaultConfigText = file.Read(defaultPath, "DATA")
-            if defaultConfigText then
-                local rtxVariables = {}
-                local sourceVariables = {}
-                
-                for line in string.gmatch(defaultConfigText, "[^\r\n]+") do
-                    line = string.Trim(line)
-                    if line ~= "" and not string.StartWith(line, "#") then
-                        local key = string.match(line, "^(%S+)%s*=")
-                        if key then
-                            if string.StartWith(key, "rtx:") then
-                                table.insert(rtxVariables, string.sub(key, 5)) -- Remove "rtx:" prefix
-                            elseif string.StartWith(key, "src:") then
-                                table.insert(sourceVariables, string.sub(key, 5)) -- Remove "src:" prefix
-                            else
-                                -- Legacy format - assume RTX
-                                table.insert(rtxVariables, key)
-                            end
-                        end
-                    end
-                end
-                
-                if #rtxVariables > 0 or #sourceVariables > 0 then
-                    -- Backup the current values
-                    BackupConfigVariables(rtxVariables, sourceVariables)
-                    
-                    local success, count = LoadConfigFromFile(defaultPath, "default config")
-                    if success then
-                        loadedCount = count
-                        configSource = "default config"
-                    end
-                end
+            local success, count = LoadConfigFromFile(defaultPath, "default config")
+            if success then
+                loadedCount = count
+                configSource = "default config"
             end
         end
     end
     
     if loadedCount > 0 then
         print("[RTXF2 - Remix API] Loaded " .. loadedCount .. " RTX and Source settings from " .. configSource .. " for map: " .. mapName)
-        if HasBackup() then
-            print("[RTXF2 - Remix API] Previous settings backed up and can be restored")
-        end
         return true
     else
         DebugPrint("No config file found for map: " .. mapName .. " (tried map-specific and default.txt)")
@@ -538,18 +315,6 @@ function RemixMapConfigs.LoadMapConfig(mapName)
     end
     
     return LoadMapConfig(mapName)
-end
-
-function RemixMapConfigs.RestoreBackup()
-    return RestoreBackupConfig()
-end
-
-function RemixMapConfigs.HasBackup()
-    return HasBackup()
-end
-
-function RemixMapConfigs.ClearBackup()
-    return ClearBackup()
 end
 
 function RemixMapConfigs.ListConfigs()
@@ -602,51 +367,6 @@ function RemixMapConfigs.DeleteMapConfig(mapName)
     return true
 end
 
--- Event handlers
-local function OnMapStart()
-    timer.Simple(1, function() -- Wait a moment for everything to load
-        local newMap = GetCurrentMap()
-        DebugPrint("Map started: " .. newMap)
-        
-        local hasBackupFile = HasBackup()
-        local hasMapConfig = file.Exists(GetConfigPath(newMap), "DATA")
-        
-        currentMap = newMap
-        
-        if hasMapConfig then
-            -- Map has config file
-            DebugPrint("Map has config file: " .. currentMap)
-            
-            -- First, restore backup to get back to original settings (if we have one)
-            if hasBackupFile then
-                DebugPrint("Restoring original settings before applying map config")
-                RestoreBackupConfig()
-            end
-            
-            -- Then load the map config (this will backup the variables it's about to change)
-            DebugPrint("Loading config for map: " .. currentMap)
-            LoadMapConfig(currentMap)
-        else
-            -- Map has no config - just restore backup if we have one
-            if hasBackupFile then
-                DebugPrint("No config for map: " .. currentMap .. " - restoring backup settings")
-                RestoreBackupConfig()
-            else
-                DebugPrint("No config file and no backup for map: " .. currentMap .. " - using current RTX settings")
-            end
-        end
-    end)
-end
-
-local function OnDisconnect()
-    DebugPrint("Disconnecting from server")
-    -- Restore backup when disconnecting (backup will be automatically cleared)
-    if HasBackup() then
-        DebugPrint("Restoring original settings on disconnect")
-        RestoreBackupConfig()
-    end
-end
-
 -- Auto-loading functions
 local function OnMapStart()
     -- Check if auto-loading is enabled
@@ -665,17 +385,8 @@ local function OnMapStart()
     end)
 end
 
-local function OnDisconnect()
-    -- Restore backup when disconnecting/changing maps
-    if HasBackup() then
-        DebugPrint("Restoring backup config on disconnect")
-        RestoreBackupConfig()
-    end
-end
-
 -- Hook into map events
 hook.Add("InitPostEntity", "RemixMapConfigs_MapStart", OnMapStart)
-hook.Add("Disconnected", "RemixMapConfigs_Disconnect", OnDisconnect)
 
 -- Console commands
 concommand.Add("rtx_conf_save_map_config", function()
@@ -698,38 +409,6 @@ concommand.Add("rtx_conf_delete_map_config", function(ply, cmd, args)
     
     RemixMapConfigs.DeleteMapConfig(args[1])
 end, nil, "Delete config for specified map")
-
-concommand.Add("rtx_conf_restore_backup", function()
-    if RemixMapConfigs.HasBackup() then
-        RemixMapConfigs.RestoreBackup()
-    else
-        print("[RTXF2 - Remix API] No backup available to restore")
-    end
-end, nil, "Restore RTX and Source engine settings from backup")
-
-concommand.Add("rtx_conf_backup_status", function()
-    if RemixMapConfigs.HasBackup() then
-        local backupText = file.Read(BACKUP_FILE, "DATA")
-        if backupText then
-            print("[RTXF2 - Remix API] Backup file contents:")
-            print("----------------------------------------")
-            print(backupText)
-            print("----------------------------------------")
-        else
-            print("[RTXF2 - Remix API] Backup file exists but couldn't be read")
-        end
-    else
-        print("[RTXF2 - Remix API] No backup currently available")
-    end
-end, nil, "Show current backup status and contents")
-
-concommand.Add("rtx_conf_clear_backup", function()
-    if RemixMapConfigs.ClearBackup() then
-        print("[RTXF2 - Remix API] Backup cleared")
-    else
-        print("[RTXF2 - Remix API] No backup to clear")
-    end
-end, nil, "Clear the current backup without restoring it")
 
 concommand.Add("rtx_conf_default_save", function()
     EnsureConfigDir()
