@@ -1,0 +1,70 @@
+# RTX Remix and Source Engine configuration for map: gm_construct_rtx
+# 2025-07-18 09:52:32
+
+# Note: These are current config values. Adjust RTX settings in-game,
+# modify Source engine cvars, then save again or modify this file directly.
+
+# RTX Remix Settings
+rtx:rtx.volumetrics.enable = True
+rtx:rtx.volumetrics.enableAtmosphere = True
+rtx:rtx.volumetrics.anisotropy = -0.1
+rtx:rtx.volumetrics.depthOffset = 0.5
+rtx:rtx.volumetrics.atmosphereHeightMeters = -100
+rtx:rtx.volumetrics.atmosphereInverted = False
+rtx:rtx.volumetrics.atmospherePlanetRadiusMeters = 1000
+rtx:rtx.volumetrics.enableFogRemap = True
+rtx:rtx.volumetrics.enableFogColorRemap = True
+rtx:rtx.volumetrics.enableFogMaxDistanceRemap = True
+rtx:rtx.volumetrics.fogRemapMaxDistanceMaxMeters = 10000
+rtx:rtx.volumetrics.fogRemapMaxDistanceMinMeters = 0
+rtx:rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMaxMeters = 1
+rtx:rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMinMeters = 1000
+rtx:rtx.volumetrics.fogRemapColorMultiscatteringScale = 0.5
+rtx:rtx.volumetrics.enableFogRemap = True
+rtx:rtx.volumetrics.enableFogColorRemap = True
+rtx:rtx.volumetrics.enableFogMaxDistanceRemap = True
+rtx:rtx.volumetrics.enableHeterogeneousFog = True
+rtx:rtx.volumetrics.noiseFieldDensityExponent = 1
+rtx:rtx.volumetrics.noiseFieldDensityScale = 1
+rtx:rtx.volumetrics.noiseFieldGain = 1
+rtx:rtx.volumetrics.noiseFieldInitialFrequencyPerMeter = 1
+rtx:rtx.volumetrics.noiseFieldLacunarity = 1
+rtx:rtx.volumetrics.noiseFieldOctaves = 1
+rtx:rtx.volumetrics.noiseFieldSubStepSizeMeters = 1
+rtx:rtx.volumetrics.noiseFieldTimeScale = 1
+rtx:rtx.volumetrics.froxelMaxDistanceMeters = 100
+rtx:rtx.volumetrics.froxelDepthSlices = 48
+rtx:rtx.volumetrics.froxelDepthSliceDistributionExponent = 2
+rtx:rtx.volumetrics.froxelGridResolutionScale = 32
+rtx:rtx.volumetrics.froxelFireflyFilteringLuminanceThreshold = 1000
+rtx:rtx.volumetrics.enableSpatialResampling = True
+rtx:rtx.volumetrics.enableTemporalResampling = True
+rtx:rtx.volumetrics.enableInitialVisibility = True
+rtx:rtx.volumetrics.visibilityReuse = True
+rtx:rtx.volumetrics.initialRISSampleCount = 1
+rtx:rtx.volumetrics.maxAccumulationFrames = 32
+rtx:rtx.volumetrics.restirFroxelDepthSlices = 1
+rtx:rtx.volumetrics.restirGridGuardBandFactor = 1
+rtx:rtx.volumetrics.restirGridScale = 1
+rtx:rtx.volumetrics.spatialReuseMaxSampleCount = 1
+rtx:rtx.volumetrics.spatialReuseSamplingRadius = 1
+rtx:rtx.volumetrics.temporalReuseMaxSampleCount = 1
+rtx:rtx.volumetrics.singleScatteringAlbedo = 0.95, 0.95, 0.95
+rtx:rtx.volumetrics.transmittanceColor = 0.93, 0.93, 0.93
+rtx:rtx.volumetrics.transmittanceMeasurementDistanceMeters = 125
+rtx:rtx.volumetrics.enableInPortals = True
+rtx:rtx.bloom.enable = True
+rtx:rtx.bloom.burnIntensity = 0.2
+rtx:rtx.autoExposure.enabled = True
+rtx:rtx.autoExposure.evMinValue = -2
+rtx:rtx.autoExposure.evMaxValue = 4
+rtx:rtx.tonemap.exposureBias = 0
+rtx:rtx.tonemap.dynamicRange = 15
+rtx:rtx.tonemappingMode = 1
+rtx:rtx.ignoreGamePointLights = False
+rtx:rtx.ignoreGameSpotLights = False
+rtx:rtx.ignoreGameDirectionalLights = False
+rtx:rtx.skyBrightness = 1
+
+# Source Engine Settings
+src:r_3dsky = 0
