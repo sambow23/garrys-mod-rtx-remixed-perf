@@ -66,6 +66,15 @@ local TRACKED_CONFIGS = {
     "rtx.volumetrics.debugDisableRadianceScaling",
     "rtx.bloom.enable",
     "rtx.bloom.burnIntensity",
+    "rtx.autoExposure.enabled",
+    "rtx.autoExposure.evMinValue",
+    "rtx.autoExposure.evMaxValue", 
+    "rtx.tonemap.exposureBias",
+    "rtx.tonemap.dynamicRange",
+    "rtx.tonemappingMode",
+    "rtx.ignoreGamePointLights",
+    "rtx.ignoreGameSpotLights",
+    "rtx.ignoreGameDirectionalLights",
     "rtx.skyBrightness"
 }
 
