@@ -407,15 +407,8 @@ std::string ConfigManager::GetConfigVariable(const std::string& key) {
         }
     }
     
-    // If not found in file, return default value from RTX options
-    std::string defaultValue = GetDefaultValueFromRtxOptions(key);
-    if (!defaultValue.empty()) {
-        return defaultValue;
-    }
-    
-    // If no default found, return empty string
+    // If not found in file, return empty string (no default fallback)
     // Note: RTX Remix API doesn't support reading config variables back
-    Warning("[ConfigManager] Config variable '%s' not found in config file or defaults.\n", key.c_str());
     return "";
 }
 
