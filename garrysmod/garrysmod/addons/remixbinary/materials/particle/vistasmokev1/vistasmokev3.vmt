@@ -1,0 +1,6 @@
+"UnlitGeneric"
+{
+	$basetexture "particle/vistaSmokeV1/vistasmokev1"
+	$depthblend 1
+	$blendframes 0
+}

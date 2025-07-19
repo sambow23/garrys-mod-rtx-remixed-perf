@@ -1,28 +1,25 @@
-# Garry's Mod RTX Fixes 2
+<img src="https://github.com/user-attachments/assets/fad469d4-b7b2-428c-a093-5b497f02d820" alt="drawing" width="500"/>
+
 ## Features
-### Universal (x86 and x64)
 - Light Updaters
-    * Forces Source to render all map lights
+    - Forces Source to render all map lights
 - Water replacer
-  * Replaces all map water materials with a single one so it can be replaced in Remix
-- Material Fixer
-    * Fixes some broken UI/game materials and removes detail textures
-- Model fixer
-    * Fixes props having unstable hashes in RTX Remix so they can be replaced in the Remix Toolkit
-    * Allows HL2 RTX mesh replacements to load correctly
- 
-### x64 Only
-- Custom World Renderer (required as x64's culling patches are not complete)
-  * Renders map geometry with meshed chunks to prevent PVS/Frustrum culling of brush faces
-- View Frustrum Forcing (required as x64's culling patches are not complete)
-  * Modifies render bounds of static props and light updaters to prevent them getting culled by the view frustrum
+    - Fixes some broken UI/game materials and removes detail textures
+- Model fixes
+    - Fixes some props having unstable hashes in RTX Remix so they can be replaced in the Remix Toolkit
+    - Allows most HL2 RTX mesh replacements to load correctly
+- Remix API support (x64 only)
+    - Lua bindings for addon creation
+       - Lights, materials, config vars
+    - Map-specific Remix settings
+      
 
 ## Installation
-1. Subscribe to [NikNaks](https://steamcommunity.com/sharedfiles/filedetails/?id=2861839844) on the Steam Workshop.
-2. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
-3. Put `RTXLauncher.exe` in an empty folder, run it as an Administrator.
-4. Select `Run Quick Install` on the main screen and follow the prompts when asked.
-5. Profit.
+### This compatibility mod is primarily designed for singleplayer sandbox, it has not been extensively tested for multiplayer. Your milage may vary
+1. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
+2. Put `RTXLauncher.exe` in an empty folder (not in the same place as your game), run it as an <ins>**Administrator**</ins>.
+3. Select `Run Quick Install` on the main screen and follow the prompts when asked.
+4. Once it's finished, press `Launch Game` at the bottom of the launcher.
 
 ## Incompatible Addons
 * (Map) [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) (Breaks other shader-skybox maps)
@@ -35,34 +32,31 @@
 
 * (Addon) [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860)
    - Consumes a lot of vram, most likely precaching
+* (Addon) [CS:GO Weapons](https://steamcommunity.com/sharedfiles/filedetails/?id=2193997180)
+   - Makes game freeze up on `Starting lua...` when loading into a map
 
 ## Known issues
 ### Vanilla
 - Shader skyboxes (gm_flatgrass, gm_construct, etc) cannot be interacted with and may have rendering issues
-- Some render targets (spawnmenu icons, screenshots, whatever addons that rely on them) do not appear or behave strangely (investigating)
+- Some render targets (screenshots, whatever addons that rely on them) do not appear or behave strangely (investigating)
 - NPC Eyes do not render as the fixed function rendering fallback no longer exists (investigating)
-- Some particles will not render (need to change each material from $SpriteCard to $UnlitGeneric to fix)
-- HDR maps have no lighting (mat_fullbright 1 is forced if the SM isnt high enough)
-- Some meshes will not render (limitation of FF rendering)
-- Some maps will be rasterized and have vertex explosions.
-- Some map lights will cull even with Lightupdaters active (investigating)
-- Some func_ entities will cull in strange ways (investigating)
-- Maps that don't extensively use PVS will have poor performance
+- Some maps are rasterized and also have vertex explosions.
+- Some map lights will cull
+- Enabling `r_3dsky` causes flickering in some maps
+- Skinned meshes have unstable hashes
 
 ### Addons
-- High vram usage with a lot of addons (most likely from ARC9 or TFA precaching textures on map load)
+- High vram usage from addons like ARC9 or TFA as they precache textures on map load
 - Tactical RP scopes become invisible when using ADS
 
-## Recommended Resources and Addons
-[Garry's Mod RTX Launcher and Installer](https://github.com/Xenthio/RTXLauncher)
-
+## Recommended Resources
 [HDRI Editor](https://github.com/sambow23/hdri_cube/blob/main/README.md)
 
-[Garry's Mod RTX 32-bit installer by Skurtyyskirts](https://github.com/skurtyyskirts/GmodRTX)
-
 ## Credits
-* [@vlazed](https://github.com/vlazed/) for [toggle-cursor](https://github.com/vlazed/toggle-cursor)
-* Yosuke Nathan on the RTX Remix Showcase server for the gmod rtx logo
+* [vlazed](https://github.com/vlazed/) for [toggle-cursor](https://github.com/vlazed/toggle-cursor)
+* Yosuke Nathan on the RTX Remix Showcase server for making the initial `Garry's Mod Remixed` logo
 * Everyone on the RTX Remix Showcase server
 * NVIDIA for RTX Remix
-* [@BlueAmulet](https://github.com/BlueAmulet) for [SourceRTXTweaks](https://github.com/BlueAmulet/SourceRTXTweaks)  (We use this for game binary patching; Major thank you to BlueAmulet for their hard work)
+* [Nak2](https://github.com/Nak2) for [NikNaks](https://github.com/Nak2/NikNaks)
+* [BlueAmulet](https://github.com/BlueAmulet) for [SourceRTXTweaks](https://github.com/BlueAmulet/SourceRTXTweaks)
+* [0xNULLderef](https://github.com/0xNULLderef) and [Wolƒe Strider Shoσter](https://github.com/wolfestridershooter) for additional x64 patches (culling and HDR map lighting)

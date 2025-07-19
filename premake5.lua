@@ -37,12 +37,8 @@ CreateWorkspace({name = "RTXFixesBinary", abi_compatible = false, path = ""})
 
 		
 		files {
-			"source/rtx_lights/*",
-			"source/shader_fixes/*",
-			"source/entity_manager/*",
-			"source/interfaces/*",
-			"source/math/*",
-			"source/mwr/*",
+			"source/remixapi/*",
+			"source/remixapi/rtxlights/*",
 		} 
 
 

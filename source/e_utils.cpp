@@ -6,6 +6,7 @@
 #include <Windows.h>
 #include <scanning/symbolfinder.hpp>
 #include <detouring/hook.hpp>
+#include <tier0/dbg.h>
 
 bool GetLibraryInfo(const void* handle, DynLibInfo& lib)
 {
@@ -83,3 +84,38 @@ void* ScanSign(const void* handle, const char* sig, size_t len, const void* star
 
 	return nullptr;
 }
+
+#ifdef _WIN64
+// Find the D3D9 device used by Source engine
+void* FindD3D9Device() {
+    auto shaderapidx = GetModuleHandle("shaderapidx9.dll");
+    if (!shaderapidx) {
+        Warning("[RTXF2 - Binary Module] Failed to get shaderapidx9.dll module\n");
+        return nullptr;
+    }
+
+    Msg("[RTXF2 - Binary Module] shaderapidx9.dll module: %p\n", shaderapidx);
+
+    static const char sign[] = "BA E1 0D 74 5E 48 89 1D ?? ?? ?? ??";
+    auto ptr = ScanSign(shaderapidx, sign, sizeof(sign) - 1);
+    if (!ptr) {
+        Warning("[RTXF2 - Binary Module] Failed to find D3D9Device signature\n");
+        return nullptr;
+    }
+
+    auto offset = ((uint32_t*)ptr)[2];
+    auto device = *(void**)((char*)ptr + offset + 12);
+    if (!device) {
+        Warning("[RTXF2 - Binary Module] D3D9Device pointer is null\n");
+        return nullptr;
+    }
+
+    return device;
+}
+#else
+// 32-bit version not implemented yet
+void* FindD3D9Device() {
+    Warning("[RTXF2 - Binary Module] FindD3D9Device not implemented for 32-bit\n");
+    return nullptr;
+}
+#endif
