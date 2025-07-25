@@ -496,10 +496,6 @@ local function FindClearPositionSmart(original_pos, light_data)
 	
 	-- Fallback: if all strict validation fails, try more lenient approach
 	-- This ensures we don't lose lights that were previously working
-	if debugconsole:GetBool() then
-		print("[RTX Light Updater] Using lenient fallback for light at: " .. tostring(light_origin))
-	end
-	
 	-- Try very simple positioning with minimal validation
 	for _, distance in ipairs({2, 4, 6, 8}) do
 		for _, direction in ipairs(sample_directions) do
@@ -514,15 +510,12 @@ local function FindClearPositionSmart(original_pos, light_data)
 	
 	-- Final emergency: place at light origin if it's in world (even if not ideal)
 	if IsInWorld(light_origin) then
-		if debugconsole:GetBool() then
-			print("[RTX Light Updater] Emergency fallback: placing at light origin")
-		end
 		return light_origin, true
 	end
 	
 	-- Complete failure: don't create an updater for this light
 	if debugconsole:GetBool() then
-		print("[RTX Light Updater] Failed to find any valid position for light at: " .. tostring(light_origin))
+		print("[RTXF2 - Lightupdater] Failed to find any valid position for light at: " .. tostring(light_origin))
 	end
 	return nil, false
 end
@@ -610,9 +603,6 @@ local function FindEmergencyPosition(light)
 		-- Absolute minimal check - just make sure coordinates aren't completely insane
 		if math.abs(test_pos.x) < 20000 and math.abs(test_pos.y) < 20000 and math.abs(test_pos.z) < 20000 then
 			-- Don't even check collision for these emergency positions
-			if debugconsole:GetBool() then
-				print("[RTX Light Updater] Ultra-emergency position (minimal validation): " .. tostring(test_pos))
-			end
 			return test_pos
 		end
 	end
@@ -790,11 +780,11 @@ local function InitializeLights()
 		-- Report processing results
 		if debugconsole:GetBool() or lights_processed < total_lights_found then
 			if debugconsole:GetBool() then
-				print("[RTX Light Updater] Processed " .. lights_processed .. " / " .. total_lights_found .. " lights")
-				print("[RTX Light Updater] Found " .. static_lights .. " static lights, " .. #gmod_lights .. " gmod_lights, " .. #gmod_lamps .. " gmod_lamps")
+				print("[RTXF2 - Lightupdater] Processed " .. lights_processed .. " / " .. total_lights_found .. " lights")
+				print("[RTXF2 - Lightupdater] Found " .. static_lights .. " static lights, " .. #gmod_lights .. " gmod_lights, " .. #gmod_lamps .. " gmod_lamps")
 			end
 			if lights_processed < total_lights_found and debugconsole:GetBool() then
-				print("[RTX Light Updater] " .. (total_lights_found - lights_processed) .. " lights were skipped (couldn't find valid positions)")
+				print("[RTXF2 - Lightupdater] " .. (total_lights_found - lights_processed) .. " lights were skipped (couldn't find valid positions)")
 			end
 		end
 	end
@@ -861,11 +851,11 @@ local function ScanForNewDynamicLights()
 	
 	-- Report new lights found
 	if new_lights_added > 0 and debugconsole:GetBool() then
-		print("[RTX Light Updater] Added " .. new_lights_added .. " new dynamic lights")
+		print("[RTXF2 - Lightupdater] Added " .. new_lights_added .. " new dynamic lights")
 	end
 	
 	if removed_lights > 0 and debugconsole:GetBool() then
-		print("[RTX Light Updater] Removed " .. removed_lights .. " deleted dynamic lights")
+		print("[RTXF2 - Lightupdater] Removed " .. removed_lights .. " deleted dynamic lights")
 	end
 end
 
@@ -912,16 +902,16 @@ local function ForceRecalculateAllLights()
 		
 		local new_count = table.Count(known_lights)
 		if debugconsole:GetBool() then
-			print("[RTX Light Updater] Force moved all lights - " .. new_count .. " lights repositioned (was " .. old_count .. ")")
+			print("[RTXF2 - Lightupdater] Force moved all lights - " .. new_count .. " lights repositioned (was " .. old_count .. ")")
 			
 			if new_count < old_count then
-				print("[RTX Light Updater] WARNING: Lost " .. (old_count - new_count) .. " light updaters during repositioning")
-				print("[RTX Light Updater] Enable rtx_lightupdater_debug_console 1 for more details")
+				print("[RTXF2 - Lightupdater] WARNING: Lost " .. (old_count - new_count) .. " light updaters during repositioning")
+				print("[RTXF2 - Lightupdater] Enable rtx_lightupdater_debug_console 1 for more details")
 			end
 		end
 	else
 		if debugconsole:GetBool() then
-			print("[RTX Light Updater] Failed to force move lights - initialization failed")
+			print("[RTXF2 - Lightupdater] Failed to force move lights - initialization failed")
 		end
 	end
 end
@@ -997,10 +987,6 @@ local function UpdateDynamicLightPositions()
 						light_data.original_pos = original_pos
 						light_data.pos = adjusted_pos
 						light_data.was_moved = was_moved
-						
-						if debugconsole:GetBool() then
-							print("[RTX Light Updater] Updated position for moved " .. light_data.classname .. " at " .. tostring(current_pos))
-						end
 					else
 						-- Try emergency positioning if smart positioning fails
 						local emergency_pos = FindEmergencyPosition(light_data.light)
@@ -1009,10 +995,6 @@ local function UpdateDynamicLightPositions()
 							light_data.pos = emergency_pos
 							light_data.was_moved = true
 							light_data.emergency = true
-							
-							if debugconsole:GetBool() then
-								print("[RTX Light Updater] Emergency repositioned moved " .. light_data.classname .. " at " .. tostring(current_pos))
-							end
 						end
 					end
 				end
@@ -1242,7 +1224,7 @@ end
 local function ForceMoveLightsCommand()
 	forcemove:SetBool(true)
 	if debugconsole:GetBool() then
-		print("[RTX Light Updater] Force move requested - all light positions will be recalculated next frame")
+		print("[RTXF2 - Lightupdater] Force move requested - all light positions will be recalculated next frame")
 	end
 end
 
@@ -1250,7 +1232,7 @@ end
 local function ScanDynamicLightsCommand()
 	ScanForNewDynamicLights()
 	if debugconsole:GetBool() then
-		print("[RTX Light Updater] Manual dynamic light scan completed")
+		print("[RTXF2 - Lightupdater] Manual dynamic light scan completed")
 	end
 end
 
@@ -1258,7 +1240,7 @@ end
 local function UpdateDynamicLightsCommand()
 	UpdateDynamicLightPositions()
 	if debugconsole:GetBool() then
-		print("[RTX Light Updater] Manual dynamic light position update completed")
+		print("[RTXF2 - Lightupdater] Manual dynamic light position update completed")
 	end
 end
 

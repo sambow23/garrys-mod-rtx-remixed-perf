@@ -1,4 +1,10 @@
 if CLIENT then
+    -- Verify FlashlightOverride is properly loaded
+    if not FlashlightOverride or not FlashlightOverride.Config or not FlashlightOverride.Utils then
+        error("[RTXF2 - Flashlight] ERROR: Shared configuration not loaded! This indicates a loading order problem.")
+        return
+    end
+
     local flashlight_enabled = false
     local flashlight_mesh_id = nil
     local flashlight_attachment_offset = Vector(20, 5, -5) -- Offset from player's eye position
@@ -172,5 +178,5 @@ if CLIENT then
     hook.Add("ShutDown", "FlashlightMeshCleanup", CleanupFlashlightMesh)
     hook.Add("OnReloaded", "FlashlightMeshCleanup", CleanupFlashlightMesh)
     
-    print("[Flashlight Override] Client-side flashlight mesh override loaded!")
+    print("[RTXF2 - Flashlight] Client-side flashlight mesh override loaded!")
 end 

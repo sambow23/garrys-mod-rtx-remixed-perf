@@ -21,23 +21,8 @@ function DebugPrint(message)
 end
 
 local function LoadSubAddons()
-    local foldersToLoad = {}
-    
-    -- Always load shared files first
-    table.insert(foldersToLoad, "remixlua/sh/")
-    
-    -- Load client files when on client
-    if CLIENT then
-        table.insert(foldersToLoad, "remixlua/cl/")
-        table.insert(foldersToLoad, "remixlua/cl/remixapi/")
-    end
-    
-    -- Load server files when on server
-    if SERVER then
-        table.insert(foldersToLoad, "remixlua/sv/")
-    end
-    
-    for _, folder in ipairs(foldersToLoad) do
+    -- Helper function to load files from a specific folder
+    local function LoadFilesFromFolder(folder)
         local files, _ = file.Find(folder .. "*.lua", "LUA")
         
         if files then
@@ -56,6 +41,28 @@ local function LoadSubAddons()
         else
             DebugPrint("[RTXF2] No files found in " .. folder)
         end
+    end
+
+    -- Load client files when on client
+    if CLIENT then
+        -- Wait a moment to ensure shared files have loaded
+        timer.Simple(0.1, function()
+            DebugPrint("[RTXF2] Loading client files...")
+            
+            -- Verify shared files loaded correctly
+            if not FlashlightOverride then
+                DebugPrint("[RTXF2] WARNING: FlashlightOverride not found - shared files may not have loaded!")
+            end
+            
+            LoadFilesFromFolder("remixlua/cl/")
+            LoadFilesFromFolder("remixlua/cl/remixapi/")
+        end)
+    end
+    
+    -- Load server files when on server (shouldn't happen in cl_rtx.lua but kept for safety)
+    if SERVER then
+        DebugPrint("[RTXF2] Loading server files...")
+        LoadFilesFromFolder("remixlua/sv/")
     end
 end
 

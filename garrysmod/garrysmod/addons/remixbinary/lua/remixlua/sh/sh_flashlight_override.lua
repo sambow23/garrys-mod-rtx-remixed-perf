@@ -7,8 +7,8 @@ FlashlightOverride.Config = {
     
     -- Sound effects
     sounds = {
-        on = "buttons/button15.wav",
-        off = "buttons/button16.wav"
+        on = "items/flashlight1.wav",
+        off = "items/flashlight1.wav"
     },
     
     -- Chat messages
@@ -16,7 +16,7 @@ FlashlightOverride.Config = {
         enabled = true,
         prefix_color = Color(255, 255, 0),
         text_color = Color(255, 255, 255),
-        prefix = "[Flashlight Override]"
+        prefix = "[RTXF2 - Flashlight]"
     },
     
     -- Mesh settings
@@ -73,7 +73,7 @@ function FlashlightOverride.Utils.PlaySound(sound_name)
 end
 
 if CLIENT then
-    print("[Flashlight Override] Shared configuration loaded (Client)")
+    print("[RTXF2 - Flashlight] Shared configuration loaded (Client)")
 elseif SERVER then
-    print("[Flashlight Override] Shared configuration loaded (Server)")
+    print("[RTXF2 - Flashlight] Shared configuration loaded (Server)")
 end 
