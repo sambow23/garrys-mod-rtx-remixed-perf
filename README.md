@@ -10,7 +10,7 @@
     - Allows most HL2 RTX mesh replacements to load correctly
 - Remix API support (x64 only)
     - Lua bindings for addon creation
-       - Lights, materials, config vars
+       - Materials, config vars
     - Map-specific Remix settings
       
 
