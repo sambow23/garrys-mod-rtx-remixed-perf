@@ -119,7 +119,15 @@ Define_method_Hook(void, IStudioRender_DrawModel, void*,
     callCount++;
     
     if (callCount <= 5) { // Only log first 5 calls to avoid spam
-        Msg("[RTXF2] Dynamic DrawModel hook called #%d: _this=0x%p, info=0x%p, flags=0x%X, m_bStaticLighting=%d\n", callCount, _this, &info, flags, info.m_bStaticLighting);
+        // Safely access m_bStaticLighting with validation
+        bool staticLighting = false;
+        __try {
+            staticLighting = info.m_bStaticLighting;
+        }
+        __except(EXCEPTION_EXECUTE_HANDLER) {
+            staticLighting = false; // Default value if access fails
+        }
+        Msg("[RTXF2] Dynamic DrawModel hook called #%d: _this=0x%p, info=0x%p, flags=0x%X, m_bStaticLighting=%d\n", callCount, _this, &info, flags, staticLighting);
     }
 
     // If hook is disabled, just call original
@@ -129,23 +137,34 @@ Define_method_Hook(void, IStudioRender_DrawModel, void*,
 
     // Use the ConVar-aware function to check if static lighting should be forced
     if (GetForceStaticLighting()) {
-        // Create a modifiable copy of the info structure
-        DrawModelInfo_t modifiedInfo = info;
+        // Validate the info parameter before accessing it
+        __try {
+            // First, safely check if we can read the m_bStaticLighting field
+            bool testRead = info.m_bStaticLighting;
+            (void)testRead; // Suppress unused variable warning
+            
+            // Create a modifiable copy of the info structure
+            DrawModelInfo_t modifiedInfo = info;
+            
+            // Force static lighting on in the structure
+            bool originalStaticLighting = modifiedInfo.m_bStaticLighting;
+            modifiedInfo.m_bStaticLighting = true;
+            
+            // Also add the static lighting flag to the flags parameter for good measure
+            int modifiedFlags = flags | STUDIORENDER_DRAW_STATIC_LIGHTING;
         
-        // Force static lighting on in the structure
-        bool originalStaticLighting = modifiedInfo.m_bStaticLighting;
-        modifiedInfo.m_bStaticLighting = true;
-        
-        // Also add the static lighting flag to the flags parameter for good measure
-        int modifiedFlags = flags | STUDIORENDER_DRAW_STATIC_LIGHTING;
-        
-        if (callCount <= 5) {
-            Msg("[RTXF2] Dynamic Modified: m_bStaticLighting %d->%d, flags 0x%X->0x%X\n", 
-                originalStaticLighting, modifiedInfo.m_bStaticLighting, flags, modifiedFlags);
+            if (callCount <= 5) {
+                Msg("[RTXF2] Dynamic Modified: m_bStaticLighting %d->%d, flags 0x%X->0x%X\n", 
+                    originalStaticLighting, modifiedInfo.m_bStaticLighting, flags, modifiedFlags);
+            }
+            
+            // Call original function with modified info and flags
+            return IStudioRender_DrawModel_trampoline()(_this, pResults, modifiedInfo, pBoneToWorld, pFlexWeights, pFlexDelayedWeights, modelOrigin, modifiedFlags);
         }
-        
-        // Call original function with modified info and flags
-        return IStudioRender_DrawModel_trampoline()(_this, pResults, modifiedInfo, pBoneToWorld, pFlexWeights, pFlexDelayedWeights, modelOrigin, modifiedFlags);
+        __except(EXCEPTION_EXECUTE_HANDLER) {
+            Warning("[RTXF2] Exception accessing DrawModelInfo_t structure (info=0x%p), calling original function\n", &info);
+            // Fall through to call original function without modifications
+        }
     }
 
     // Call original function if not forcing static lighting
