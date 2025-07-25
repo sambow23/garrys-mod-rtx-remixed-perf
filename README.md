@@ -10,7 +10,7 @@
     - Allows most HL2 RTX mesh replacements to load correctly
 - Remix API support (x64 only)
     - Lua bindings for addon creation
-       - Lights, materials, config vars
+       - Materials, config vars
     - Map-specific Remix settings
       
 
@@ -22,18 +22,15 @@
 4. Once it's finished, press `Launch Game` at the bottom of the launcher.
 
 ## Incompatible Addons
-* (Map) [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) (Breaks other shader-skybox maps)
+| Type | Name | Reason |
+| -------- | ------- | ------- |
+| Map | [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) | Breaks other shader-skybox maps |
+| Map | [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364) | Rasterized |
+| Map | [gm_bigcity_improved](https://steamcommunity.com/workshop/filedetails/?id=815782148) | Rasterized |
+| Addon | [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860) | Consumes a lot of vram, most likely precaching |
+| Addon | [CS:GO Weapons](https://steamcommunity.com/sharedfiles/filedetails/?id=2193997180) | Game freezes up on `Starting lua...` when loading into a map |
+| Addon | [ARC9 Weapon Base](https://steamcommunity.com/workshop/filedetails/?id=2910505837) | Game crashes when firing weapon |
 
-* (Map) [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364) (rasterized)
-
-* (Map) [gm_hinamizawa](https://steamcommunity.com/sharedfiles/filedetails/?id=3298456705) (vertex explosions and untextured draw calls)
-
-* (Map) [gm_bigcity_improved](https://steamcommunity.com/workshop/filedetails/?id=815782148) (rasterized)
-
-* (Addon) [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860)
-   - Consumes a lot of vram, most likely precaching
-* (Addon) [CS:GO Weapons](https://steamcommunity.com/sharedfiles/filedetails/?id=2193997180)
-   - Makes game freeze up on `Starting lua...` when loading into a map
 
 ## Known issues
 ### Vanilla
