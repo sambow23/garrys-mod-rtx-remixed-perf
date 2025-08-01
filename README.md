@@ -3,8 +3,9 @@
 ## Features
 - Light Updaters
     - Forces Source to render all map lights
-- Water replacer
+- Material fixes
     - Fixes some broken UI/game materials and removes detail textures
+    - Change all water textures to a single one to simplify replacements in Remix
 - Model fixes
     - Fixes some props having unstable hashes in RTX Remix so they can be replaced in the Remix Toolkit
     - Allows most HL2 RTX mesh replacements to load correctly
