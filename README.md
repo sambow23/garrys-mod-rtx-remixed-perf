@@ -15,11 +15,15 @@
       
 
 ## Installation
-### This compatibility mod is primarily designed for singleplayer sandbox, it has not been extensively tested for multiplayer. Your milage may vary
 1. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
 2. Put `RTXLauncher.exe` in an empty folder (not in the same place as your game), run it as an <ins>**Administrator**</ins>.
 3. Select `Run Quick Install` on the main screen and follow the prompts when asked.
 4. Once it's finished, press `Launch Game` at the bottom of the launcher.
+
+## Multiplayer
+Multiplayer works best when the server/host has this addon and the cvar `sv_allowcslua 1` set.
+
+You can join servers without the addon but you ***will*** experience visual issues.
 
 ## Incompatible Addons
 | Type | Name | Reason |
