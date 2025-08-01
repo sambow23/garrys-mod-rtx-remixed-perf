@@ -8,79 +8,70 @@ local CONFIG_DIR = "remix_map_configs"
 local DEBUG_MODE = CreateClientConVar("rtx_conf_map_configs_debug", "0", true, false, "Enable debug output for map configs")
 local AUTO_LOAD = CreateClientConVar("rtx_conf_map_configs_autoload", "1", true, false, "Automatically load map configs on map start")
 
-local TRACKED_CONFIGS = {
-    ---- Modify this list to add RTX parameters you want to save/load per map.
-    
-    "rtx.volumetrics.enable",
-    "rtx.volumetrics.enableAtmosphere",
-    "rtx.volumetrics.anisotropy",
-    "rtx.volumetrics.depthOffset",
-    "rtx.volumetrics.atmosphereHeightMeters",
-    "rtx.volumetrics.atmosphereInverted",
-    "rtx.volumetrics.atmospherePlanetRadiusMeters",
-    "rtx.volumetrics.enableFogRemap",
-    "rtx.volumetrics.enableFogColorRemap",
-    "rtx.volumetrics.enableFogMaxDistanceRemap",
-    "rtx.volumetrics.fogRemapMaxDistanceMaxMeters",
-    "rtx.volumetrics.fogRemapMaxDistanceMinMeters",
-    "rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMaxMeters",
-    "rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMinMeters",
-    "rtx.volumetrics.fogRemapColorMultiscatteringScale",
-    "rtx.volumetrics.enableFogRemap",
-    "rtx.volumetrics.enableFogColorRemap",
-    "rtx.volumetrics.enableFogMaxDistanceRemap",
-    "rtx.volumetrics.enableHeterogeneousFog",
-    "rtx.volumetrics.noiseFieldDensityExponent",
-    "rtx.volumetrics.noiseFieldDensityScale",
-    "rtx.volumetrics.noiseFieldGain",
-    "rtx.volumetrics.noiseFieldInitialFrequencyPerMeter",
-    "rtx.volumetrics.noiseFieldLacunarity",
-    "rtx.volumetrics.noiseFieldOctaves",
-    "rtx.volumetrics.noiseFieldSubStepSizeMeters",
-    "rtx.volumetrics.noiseFieldTimeScale",
-    "rtx.volumetrics.froxelMaxDistanceMeters",
-    "rtx.volumetrics.froxelDepthSlices",
-    "rtx.volumetrics.froxelDepthSliceDistributionExponent",
-    "rtx.volumetrics.froxelGridResolutionScale",
-    "rtx.volumetrics.froxelFireflyFilteringLuminanceThreshold",
-    "rtx.volumetrics.enableSpatialResampling",
-    "rtx.volumetrics.enableTemporalResampling",
-    "rtx.volumetrics.enableInitialVisibility",
-    "rtx.volumetrics.visibilityReuse",
-    "rtx.volumetrics.initialRISSampleCount",
-    "rtx.volumetrics.maxAccumulationFrames",
-    "rtx.volumetrics.restirFroxelDepthSlices",
-    "rtx.volumetrics.restirGridGuardBandFactor",
-    "rtx.volumetrics.restirGridScale",
-    "rtx.volumetrics.spatialReuseMaxSampleCount",
-    "rtx.volumetrics.spatialReuseSamplingRadius",
-    "rtx.volumetrics.temporalReuseMaxSampleCount",
-    "rtx.volumetrics.singleScatteringAlbedo",
-    "rtx.volumetrics.transmittanceColor",
-    "rtx.volumetrics.transmittanceMeasurementDistanceMeters",
-    "rtx.volumetrics.enableInPortals",
-    "rtx.volumetrics.enableReferenceMode",
-    "rtx.volumetrics.debugDisableRadianceScaling",
-    "rtx.bloom.enable",
-    "rtx.bloom.burnIntensity",
-    "rtx.autoExposure.enabled",
-    "rtx.autoExposure.evMinValue",
-    "rtx.autoExposure.evMaxValue", 
-    "rtx.tonemap.exposureBias",
-    "rtx.tonemap.dynamicRange",
-    "rtx.tonemappingMode",
-    "rtx.ignoreGamePointLights",
-    "rtx.ignoreGameSpotLights",
-    "rtx.ignoreGameDirectionalLights",
-    "rtx.skyBrightness"
-}
+-- Dynamic arrays populated from default.txt
+local TRACKED_CONFIGS = {}
+local TRACKED_SOURCE_COMMANDS = {}
 
-local TRACKED_SOURCE_COMMANDS = {
-    ---- Modify this list to add Source engine console variables you want to save/load per map.
-    ---- These are regular Source engine cvars like mat_*, r_*, fps_max, etc.
+-- Function to load tracked parameters from default.txt
+local function LoadTrackedParameters()
+    local defaultPath = CONFIG_DIR .. "/default.txt"
     
-    "r_3dsky"
-}
+    -- Clear existing arrays
+    TRACKED_CONFIGS = {}
+    TRACKED_SOURCE_COMMANDS = {}
+    
+    if not file.Exists(defaultPath, "DATA") then
+        DebugPrint("No default.txt found, using empty tracking lists")
+        return
+    end
+    
+    local configText = file.Read(defaultPath, "DATA")
+    if not configText then
+        DebugPrint("Failed to read default.txt for tracking parameters")
+        return
+    end
+    
+    DebugPrint("Loading tracked parameters from default.txt...")
+    
+    -- Parse default.txt and extract parameter names
+    local rtxCount = 0
+    local srcCount = 0
+    
+    for line in string.gmatch(configText, "[^\r\n]+") do
+        line = string.Trim(line)
+        
+        -- Skip comments and empty lines
+        if line ~= "" and not string.StartWith(line, "#") then
+            -- Parse key = value
+            local key, value = string.match(line, "^(%S+)%s*=%s*(.+)$")
+            if key and value then
+                -- Handle RTX config variables
+                if string.StartWith(key, "rtx:") then
+                    local rtxKey = string.sub(key, 5) -- Remove "rtx:" prefix
+                    table.insert(TRACKED_CONFIGS, rtxKey)
+                    rtxCount = rtxCount + 1
+                    DebugPrint("Added RTX parameter: " .. rtxKey)
+                -- Handle Source engine commands
+                elseif string.StartWith(key, "src:") then
+                    local cvarName = string.sub(key, 5) -- Remove "src:" prefix
+                    table.insert(TRACKED_SOURCE_COMMANDS, cvarName)
+                    srcCount = srcCount + 1
+                    DebugPrint("Added Source parameter: " .. cvarName)
+                -- Handle legacy format (backwards compatibility)
+                else
+                    table.insert(TRACKED_CONFIGS, key)
+                    rtxCount = rtxCount + 1
+                    DebugPrint("Added legacy parameter: " .. key)
+                end
+            end
+        end
+    end
+    
+    DebugPrint("Loaded " .. rtxCount .. " RTX parameters and " .. srcCount .. " Source parameters from default.txt")
+end
+
+-- Load tracked parameters on addon initialization
+LoadTrackedParameters()
 
 -- Current map name
 local currentMap = ""
@@ -111,6 +102,9 @@ end
 -- File I/O functions
 local function SaveMapConfig(mapName)
     EnsureConfigDir()
+    
+    -- Reload tracked parameters from default.txt
+    LoadTrackedParameters()
     
     -- GetConfigVariable now reads directly from config file and defaults
     DebugPrint("Getting current config values...")
@@ -242,6 +236,9 @@ local function LoadConfigFromFile(filePath, configName)
 end
 
 local function LoadMapConfig(mapName)
+    -- Reload tracked parameters from default.txt
+    LoadTrackedParameters()
+    
     local filePath = GetConfigPath(mapName)
     local defaultPath = CONFIG_DIR .. "/default.txt"
     local loadedCount = 0
@@ -413,6 +410,9 @@ end, nil, "Delete config for specified map")
 concommand.Add("rtx_conf_default_save", function()
     EnsureConfigDir()
     
+    -- Reload tracked parameters from current default.txt (if it exists)
+    LoadTrackedParameters()
+    
     local defaultPath = CONFIG_DIR .. "/default.txt"
     local configLines = {}
     
@@ -489,6 +489,12 @@ concommand.Add("rtx_conf_toggle_autoload", function()
         print("[RTXF2 - Remix API] Auto-loading disabled - use rtx_conf_load_map_config to load manually")
     end
 end, nil, "Toggle automatic loading of map configs on map start")
+
+concommand.Add("rtx_conf_reload_tracked_params", function()
+    LoadTrackedParameters()
+    print("[RTXF2 - Remix API] Reloaded tracked parameters from default.txt")
+    print("[RTXF2 - Remix API] Now tracking " .. #TRACKED_CONFIGS .. " RTX parameters and " .. #TRACKED_SOURCE_COMMANDS .. " Source parameters")
+end, nil, "Reload the list of tracked parameters from default.txt")
 
 -- Make API globally available
 _G.RemixMapConfigs = RemixMapConfigs
