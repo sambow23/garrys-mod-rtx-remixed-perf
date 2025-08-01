@@ -1,32 +1,24 @@
 # RTX Remix and Source Engine default configuration
-# 2025-07-18 09:24:10
+# 2025-07-31 21:36:46
 
 # This file will be loaded for any map that doesn't have its own config.
 # Adjust RTX settings in-game and Source cvars, then run this command to save as defaults.
+#
+# IMPORTANT: Any parameter listed in this file will be automatically tracked for all maps.
+# To add new RTX parameters to track: Add them as "rtx:parameter.name = value"
+# To add new Source cvars to track: Add them as "src:cvar_name = value"
+# Use "rtx_conf_reload_tracked_params" console command to reload after editing this file.
 
 # RTX Remix Settings
-rtx:rtx.volumetrics.enable = True
-rtx:rtx.volumetrics.enableAtmosphere = True
-rtx:rtx.volumetrics.anisotropy = -0.1
-rtx:rtx.volumetrics.depthOffset = 0.5
-rtx:rtx.volumetrics.atmosphereHeightMeters = -100
-rtx:rtx.volumetrics.atmosphereInverted = False
+rtx:rtx.volumetrics.enable = False
+rtx:rtx.volumetrics.atmosphereHeightMeters = 50
 rtx:rtx.volumetrics.atmospherePlanetRadiusMeters = 1000
-rtx:rtx.volumetrics.enableFogRemap = True
-rtx:rtx.volumetrics.enableFogColorRemap = True
-rtx:rtx.volumetrics.enableFogMaxDistanceRemap = True
-rtx:rtx.volumetrics.fogRemapColorMultiscatteringScale = 1
 rtx:rtx.volumetrics.fogRemapMaxDistanceMaxMeters = 10000
 rtx:rtx.volumetrics.fogRemapMaxDistanceMinMeters = 0
 rtx:rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMaxMeters = 1
-rtx:rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMinMeters = 1000
-rtx:rtx.volumetrics.fogRemapColorMultiscatteringScale = 1
-rtx:rtx.volumetrics.enableFogRemap = True
-rtx:rtx.volumetrics.enableFogColorRemap = True
-rtx:rtx.volumetrics.enableFogMaxDistanceRemap = True
-rtx:rtx.volumetrics.enableHeterogeneousFog = True
+rtx:rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMinMeters = 2.75
+rtx:rtx.volumetrics.fogRemapColorMultiscatteringScale = 0.5
 rtx:rtx.volumetrics.noiseFieldDensityExponent = 1
-rtx:rtx.volumetrics.noiseFieldDensityScale = 1
 rtx:rtx.volumetrics.noiseFieldGain = 1
 rtx:rtx.volumetrics.noiseFieldInitialFrequencyPerMeter = 1
 rtx:rtx.volumetrics.noiseFieldLacunarity = 1
@@ -35,13 +27,7 @@ rtx:rtx.volumetrics.noiseFieldSubStepSizeMeters = 1
 rtx:rtx.volumetrics.noiseFieldTimeScale = 1
 rtx:rtx.volumetrics.froxelMaxDistanceMeters = 100
 rtx:rtx.volumetrics.froxelDepthSlices = 48
-rtx:rtx.volumetrics.froxelDepthSliceDistributionExponent = 2
-rtx:rtx.volumetrics.froxelGridResolutionScale = 32
-rtx:rtx.volumetrics.froxelFireflyFilteringLuminanceThreshold = 1000
-rtx:rtx.volumetrics.enableSpatialResampling = True
-rtx:rtx.volumetrics.enableTemporalResampling = True
-rtx:rtx.volumetrics.enableInitialVisibility = True
-rtx:rtx.volumetrics.visibilityReuse = True
+rtx:rtx.volumetrics.froxelGridResolutionScale = 3
 rtx:rtx.volumetrics.initialRISSampleCount = 1
 rtx:rtx.volumetrics.maxAccumulationFrames = 32
 rtx:rtx.volumetrics.restirFroxelDepthSlices = 1
@@ -50,9 +36,6 @@ rtx:rtx.volumetrics.restirGridScale = 1
 rtx:rtx.volumetrics.spatialReuseMaxSampleCount = 1
 rtx:rtx.volumetrics.spatialReuseSamplingRadius = 1
 rtx:rtx.volumetrics.temporalReuseMaxSampleCount = 1
-rtx:rtx.volumetrics.singleScatteringAlbedo = 0.95, 0.95, 0.95
-rtx:rtx.volumetrics.transmittanceColor = 0.93, 0.93, 0.93
-rtx:rtx.volumetrics.transmittanceMeasurementDistanceMeters = 125
 rtx:rtx.volumetrics.enableInPortals = True
 rtx:rtx.bloom.enable = True
 rtx:rtx.bloom.burnIntensity = 0.2
