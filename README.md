@@ -17,9 +17,11 @@
 
 ## Installation
 1. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
-2. Put `RTXLauncher.exe` in an empty folder (not in the same place as your game), run it as an <ins>**Administrator**</ins>.
-3. Select `Run Quick Install` on the main screen and follow the prompts when asked.
-4. Once it's finished, press `Launch Game` at the bottom of the launcher.
+2. Put `RTXLauncher.exe` in an empty folder, run it as an <ins>**Administrator**</ins>
+   - Do not place in the same place as your vanilla game
+   - Do not place it in a OneDrive synced folder (Documents, Desktop, etc), the game will not launch if you do so
+4. Select `Run Quick Install` on the main screen and follow the prompts when asked.
+5. Once it's finished, press `Launch Game` at the bottom of the launcher.
 
 ## Multiplayer
 Multiplayer works best when the server/host has this addon and the cvar `sv_allowcslua 1` set.
