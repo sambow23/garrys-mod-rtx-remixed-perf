@@ -17,4 +17,7 @@
 	"arc9_fx_inspectblur"		"0"
 	"arc9_fx_rtvm"		"0"
 	"arc9_ignore_dx"		"1"
+	"arc9_breath_hud"		"0"
+	"arc9_breath_pp"		"0"
+	"arc9_breath_sfx"		"1"
 }

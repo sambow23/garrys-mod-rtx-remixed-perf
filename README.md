@@ -3,8 +3,9 @@
 ## Features
 - Light Updaters
     - Forces Source to render all map lights
-- Water replacer
+- Material fixes
     - Fixes some broken UI/game materials and removes detail textures
+    - Change all water textures to a single one to simplify replacements in Remix
 - Model fixes
     - Fixes some props having unstable hashes in RTX Remix so they can be replaced in the Remix Toolkit
     - Allows most HL2 RTX mesh replacements to load correctly
@@ -15,11 +16,17 @@
       
 
 ## Installation
-### This compatibility mod is primarily designed for singleplayer sandbox, it has not been extensively tested for multiplayer. Your milage may vary
 1. Download [RTXLauncher](https://github.com/Xenthio/RTXLauncher/releases/latest).
-2. Put `RTXLauncher.exe` in an empty folder (not in the same place as your game), run it as an <ins>**Administrator**</ins>.
-3. Select `Run Quick Install` on the main screen and follow the prompts when asked.
-4. Once it's finished, press `Launch Game` at the bottom of the launcher.
+2. Put `RTXLauncher.exe` in an empty folder, run it as an <ins>**Administrator**</ins>
+   - Do not place in the same place as your vanilla game
+   - Do not place it in a OneDrive synced folder (Documents, Desktop, etc), the game will not launch if you do so
+4. Select `Run Quick Install` on the main screen and follow the prompts when asked.
+5. Once it's finished, press `Launch Game` at the bottom of the launcher.
+
+## Multiplayer
+Multiplayer works best when the server/host has this addon and the cvar `sv_allowcslua 1` set.
+
+You can join servers without the addon but you ***will*** experience visual issues.
 
 ## Incompatible Addons
 | Type | Name | Reason |
@@ -28,7 +35,8 @@
 | Map | [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364) | Rasterized |
 | Map | [gm_bigcity_improved](https://steamcommunity.com/workshop/filedetails/?id=815782148) | Rasterized |
 | Addon | [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860) | Consumes a lot of vram, most likely precaching |
-| Addon | [CS:GO Weapons](https://steamcommunity.com/sharedfiles/filedetails/?id=2193997180) | Game freezes up on `Starting lua...` when loading into a map. <br>(can be worked around by typing `mat_dxlevel 95` in the console ingame, causes other issues though) |
+| Addon | [CS:GO Weapons](https://steamcommunity.com/sharedfiles/filedetails/?id=2193997180) | Game freezes up on `Starting lua...` when loading into a map. <br>(can be worked around by typing `mat_dxlevel 95` in the console ingame, may cause other issues though) |
+| Addon | [[ARC9] Gunsmith Reloaded](https://steamcommunity.com/sharedfiles/filedetails/?id=2910537020) | Game freezes up on `Starting lua...` when loading into a map. <br>(can be worked around by typing `mat_dxlevel 95` in the console ingame, may cause other issues though) |
 
 
 ## Known issues
