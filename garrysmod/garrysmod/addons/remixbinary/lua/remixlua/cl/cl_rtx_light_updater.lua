@@ -3,11 +3,9 @@ require("niknaks")
 
 local lights
 local light_positions -- Cache calculated positions
-local light_models = {} -- Track individual models for each light
 local known_lights = {} -- Track all lights we've encountered
 local all_discovered_lights = {} -- Track ALL lights found from NikNaks and dynamic scanning
 local stash
-local model
 local current_map_name
 local showlights = CreateConVar( "rtx_lightupdater_show", 0,  FCVAR_ARCHIVE )
 local updatelights = CreateConVar( "rtx_lightupdater", 1,  FCVAR_ARCHIVE )
@@ -18,6 +16,57 @@ local debugmissing = CreateConVar( "rtx_lightupdater_debug_missing", 0,  FCVAR_A
 local forcemove = CreateConVar( "rtx_lightupdater_force_move", 0, FCVAR_NONE )
 local dynamicscan = CreateConVar( "rtx_lightupdater_dynamic_scan", 1, FCVAR_ARCHIVE )
 local dynamicupdate = CreateConVar( "rtx_lightupdater_dynamic_update", 1, FCVAR_ARCHIVE )
+
+-- Cached world bounds and helpers (refreshed per map)
+local cached_world_min, cached_world_max
+local cached_bounds_valid = false
+local outside_check_failed = false
+
+-- Precomputed direction sets (built once)
+local PRECOMP_SAMPLE_DIRECTIONS = {}
+do
+    -- Horizontal ring
+    for i = 0, 7 do
+        local angle = i * 45
+        local x = math.cos(math.rad(angle))
+        local y = math.sin(math.rad(angle))
+        table.insert(PRECOMP_SAMPLE_DIRECTIONS, Vector(x, y, 0):GetNormalized())
+    end
+    -- Upper hemisphere
+    for i = 0, 7 do
+        local angle = i * 45
+        local x = math.cos(math.rad(angle)) * 0.7
+        local y = math.sin(math.rad(angle)) * 0.7
+        local z = 0.5
+        table.insert(PRECOMP_SAMPLE_DIRECTIONS, Vector(x, y, z):GetNormalized())
+    end
+    -- Lower hemisphere
+    for i = 0, 7 do
+        local angle = i * 45
+        local x = math.cos(math.rad(angle)) * 0.7
+        local y = math.sin(math.rad(angle)) * 0.7
+        local z = -0.5
+        table.insert(PRECOMP_SAMPLE_DIRECTIONS, Vector(x, y, z):GetNormalized())
+    end
+end
+
+local PRECOMP_EMERGENCY_DIRECTIONS = {
+    Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0),
+    Vector(0, 0, 1), Vector(0, 0, -1),
+    Vector(1, 1, 0):GetNormalized(), Vector(-1, -1, 0):GetNormalized(),
+    Vector(1, -1, 0):GetNormalized(), Vector(-1, 1, 0):GetNormalized()
+}
+
+local PRECOMP_TINY_OFFSETS = {
+    Vector(0.5, 0, 0), Vector(-0.5, 0, 0), Vector(0, 0.5, 0), Vector(0, -0.5, 0),
+    Vector(0, 0, 0.5), Vector(0, 0, -0.5), Vector(0, 0, 0)
+}
+
+-- Throttling for dynamic updates
+local next_dynamic_update = 0
+local dynamic_update_interval = 0.15 -- seconds
+
+local zero_angle = Angle(0, 0, 0)
 
 local function shuffle(tbl)
 	for i = #tbl, 2, -1 do
@@ -36,22 +85,13 @@ end
 
 -- Clean up existing model and reset data
 local function CleanupModel()
-	if IsValid(model) then
-		model:Remove()
-	end
-	model = nil
-	
-	-- Clean up individual light models
-	for id, light_model in pairs(light_models) do
-		if IsValid(light_model) then
-			light_model:Remove()
-		end
-	end
-	light_models = {}
 	known_lights = {}
 	all_discovered_lights = {}
 	lights = nil
 	light_positions = nil
+    cached_world_min, cached_world_max = nil, nil
+    cached_bounds_valid = false
+    outside_check_failed = false
 end
 
 -- Generate unique ID for a light based on its position and type
@@ -76,17 +116,22 @@ local function IsInWorld(pos)
 		return false
 	end
 	
-	if not NikNaks or not NikNaks.CurrentMap then
+    if not NikNaks or not NikNaks.CurrentMap then
 		-- More conservative fallback if NikNaks unavailable
 		local fallback_max = 4096
 		return not (math.abs(pos.x) > fallback_max or math.abs(pos.y) > fallback_max or math.abs(pos.z) > fallback_max)
 	end
 	
-	-- Get actual world bounds from BSP
-	local worldMin, worldMax = NikNaks.CurrentMap:GetBrushBounds()
-	
-	-- Validate that we got valid bounds
-	if not worldMin or not worldMax then
+    -- Use cached world bounds if available
+    local worldMin, worldMax = cached_world_min, cached_world_max
+    if not cached_bounds_valid then
+        worldMin, worldMax = NikNaks.CurrentMap:GetBrushBounds()
+        cached_world_min, cached_world_max = worldMin, worldMax
+        cached_bounds_valid = worldMin ~= nil and worldMax ~= nil
+    end
+    
+    -- Validate that we got valid bounds
+    if not worldMin or not worldMax then
 		-- Fallback to conservative bounds if BSP data is invalid
 		local fallback_max = 4096
 		return not (math.abs(pos.x) > fallback_max or math.abs(pos.y) > fallback_max or math.abs(pos.z) > fallback_max)
@@ -109,20 +154,17 @@ local function IsInWorld(pos)
 	local test_min = pos - Vector(small_offset, small_offset, small_offset)
 	local test_max = pos + Vector(small_offset, small_offset, small_offset)
 	
-	-- Protect against BSP function failures
-	local success, result = pcall(function()
-		return NikNaks.CurrentMap:IsAABBOutsideMap(test_min, test_max)
-	end)
-	
-	if not success then
-		-- If BSP check fails, be conservative and reject extreme positions
-		return false
-	end
-	
-	-- Check if any part of this small AABB is outside the map
-	if result then
-		return false
-	end
+    -- Check if any part of this small AABB is outside the map (fail closed once errors are observed)
+    if not outside_check_failed and NikNaks.CurrentMap.IsAABBOutsideMap then
+        local ok, result = pcall(function()
+            return NikNaks.CurrentMap:IsAABBOutsideMap(test_min, test_max)
+        end)
+        if not ok then
+            outside_check_failed = true
+        elseif result then
+            return false
+        end
+    end
 	
 	return true
 end
@@ -200,7 +242,12 @@ local function IsPositionReasonable(pos, light_origin)
 	-- Check if position is significantly below reasonable ground level
 	-- Use BSP world bounds for more accurate ground estimation
 	if NikNaks and NikNaks.CurrentMap then
-		local worldMin, worldMax = NikNaks.CurrentMap:GetBrushBounds()
+        local worldMin, worldMax = cached_world_min, cached_world_max
+        if not cached_bounds_valid then
+            worldMin, worldMax = NikNaks.CurrentMap:GetBrushBounds()
+            cached_world_min, cached_world_max = worldMin, worldMax
+            cached_bounds_valid = worldMin ~= nil and worldMax ~= nil
+        end
 		if worldMin and worldMax then
 			local reasonable_min_z = worldMin.z - 256 -- Reduced from 512
 			local reasonable_max_z = worldMax.z + 256 -- Also check ceiling
@@ -390,34 +437,8 @@ local function FindClearPositionSmart(original_pos, light_data)
 		return influenced_pos, true
 	end
 	
-	-- Create comprehensive set of directions to sample
-	local sample_directions = {}
-	
-	-- Horizontal ring (good for most lights)
-	for i = 0, 7 do
-		local angle = i * 45
-		local x = math.cos(math.rad(angle))
-		local y = math.sin(math.rad(angle))
-		table.insert(sample_directions, Vector(x, y, 0):GetNormalized())
-	end
-	
-	-- Upper hemisphere (for lights near ground)
-	for i = 0, 7 do
-		local angle = i * 45
-		local x = math.cos(math.rad(angle)) * 0.7 -- Slightly angled up
-		local y = math.sin(math.rad(angle)) * 0.7
-		local z = 0.5
-		table.insert(sample_directions, Vector(x, y, z):GetNormalized())
-	end
-	
-	-- Lower hemisphere (for ceiling lights)
-	for i = 0, 7 do
-		local angle = i * 45
-		local x = math.cos(math.rad(angle)) * 0.7 -- Slightly angled down
-		local y = math.sin(math.rad(angle)) * 0.7
-		local z = -0.5
-		table.insert(sample_directions, Vector(x, y, z):GetNormalized())
-	end
+    -- Use precomputed directions to avoid per-call allocation
+    local sample_directions = PRECOMP_SAMPLE_DIRECTIONS
 	
 	-- Find the direction with the most empty space
 	local best_direction, available_distance = FindBestDirection(light_origin, 32, sample_directions) -- Reduced from 64
@@ -534,21 +555,6 @@ local function CalculateInitialPosition(light)
 	end
 end
 
--- Create a model for a specific light
-local function CreateLightModel(light_id, pos)
-	local light_model = ClientsideModel("models/editor/cone_helper.mdl")
-	if not IsValid(light_model) then
-		return nil
-	end
-	
-	light_model:Spawn()
-	light_model:SetRenderMode(2) -- Always invisible
-	light_model:SetColor(Color(255,255,255,1))
-	
-	light_models[light_id] = light_model
-	return light_model
-end
-
 -- Emergency positioning for lights that fail normal validation
 local function FindEmergencyPosition(light)
 	if not light.origin then return nil end
@@ -556,18 +562,11 @@ local function FindEmergencyPosition(light)
 	local light_origin = light.origin
 	
 	-- Try extremely simple positions with minimal validation
-	local emergency_directions = {
-		Vector(1, 0, 0), Vector(-1, 0, 0), Vector(0, 1, 0), Vector(0, -1, 0),
-		Vector(0, 0, 1), Vector(0, 0, -1), -- Up/down
-		Vector(1, 1, 0):GetNormalized(), Vector(-1, -1, 0):GetNormalized(),
-		Vector(1, -1, 0):GetNormalized(), Vector(-1, 1, 0):GetNormalized()
-	}
-	
 	-- Try very close distances first
 	local emergency_distances = {1, 2, 3, 4, 6, 8, 12, 16}
 	
 	for _, distance in ipairs(emergency_distances) do
-		for _, direction in ipairs(emergency_directions) do
+        for _, direction in ipairs(PRECOMP_EMERGENCY_DIRECTIONS) do
 			local test_pos = light_origin + (direction * distance)
 			
 			-- VERY minimal validation - just check it's not in solid geometry and somewhat reasonable
@@ -592,12 +591,7 @@ local function FindEmergencyPosition(light)
 	end
 	
 	-- Last resort: try positions directly at light origin with small offsets
-	local tiny_offsets = {
-		Vector(0.5, 0, 0), Vector(-0.5, 0, 0), Vector(0, 0.5, 0), Vector(0, -0.5, 0),
-		Vector(0, 0, 0.5), Vector(0, 0, -0.5), Vector(0, 0, 0) -- Even try exactly at origin
-	}
-	
-	for _, offset in ipairs(tiny_offsets) do
+    for _, offset in ipairs(PRECOMP_TINY_OFFSETS) do
 		local test_pos = light_origin + offset
 		
 		-- Absolute minimal check - just make sure coordinates aren't completely insane
@@ -833,15 +827,9 @@ local function ScanForNewDynamicLights()
 	end
 	
 	-- Clean up updaters for removed dynamic lights
-	local removed_lights = 0
-	for light_id, light_data in pairs(known_lights) do
+    local removed_lights = 0
+    for light_id, light_data in pairs(known_lights) do
 		if light_data.light.entity and not IsValid(light_data.light.entity) then
-			-- Remove the light model
-			if light_models[light_id] and IsValid(light_models[light_id]) then
-				light_models[light_id]:Remove()
-				light_models[light_id] = nil
-			end
-			
 			-- Remove from tracking
 			known_lights[light_id] = nil
 			all_discovered_lights[light_id] = nil
@@ -863,32 +851,8 @@ end
 local next_dynamic_scan = 0
 local dynamic_scan_interval = 2 -- Scan every 2 seconds
 
--- Create the model if needed
-local function InitializeModel()
-	if not IsValid(model) then
-		model = ClientsideModel("models/editor/cone_helper.mdl")
-		if not IsValid(model) then
-			return false
-		end
-		
-		model:Spawn()
-		model:SetRenderMode(2) -- Always invisible
-		model:SetColor(Color(255,255,255,1))
-	end
-	
-	return true
-end
-
 -- Force recalculate all light positions
 local function ForceRecalculateAllLights()
-	-- Clean up all existing light models
-	for id, light_model in pairs(light_models) do
-		if IsValid(light_model) then
-			light_model:Remove()
-		end
-	end
-	light_models = {}
-	
 	-- Clear the known lights cache to force recalculation
 	local old_known_lights = known_lights
 	local old_count = table.Count(old_known_lights)
@@ -927,9 +891,7 @@ local function MovetoPositions()
 	end
 	
 	-- Initialize lights if needed (only runs once per map)
-	if not InitializeLights() then return end
-	
-	if not InitializeModel() then return end
+    if not InitializeLights() then return end
 
 	-- Periodically scan for new dynamic lights
 	local current_time = CurTime()
@@ -938,22 +900,16 @@ local function MovetoPositions()
 		next_dynamic_scan = current_time + dynamic_scan_interval
 	end
 	
-	for light_id, light_data in pairs(known_lights) do
-		local light_model = light_models[light_id]
-		if not IsValid(light_model) then
-			light_model = CreateLightModel(light_id, light_data.pos)
-		end
-		
-		if IsValid(light_model) then
-			render.Model({model = "models/editor/cone_helper.mdl", pos = light_data.pos}, light_model)
-		end
-	end
+    -- Rendering is handled in a dedicated render hook every frame
 end
 
 -- Dedicated Think hook for tracking dynamic entity movements
 local function UpdateDynamicLightPositions()
 	if not dynamicupdate:GetBool() or not updatelights:GetBool() then return end
 	if not known_lights then return end
+    local ct = CurTime()
+    if ct < next_dynamic_update then return end
+    next_dynamic_update = ct + dynamic_update_interval
 	
 	for light_id, light_data in pairs(known_lights) do
 		-- Only check dynamic entities (ones with entity references)
@@ -961,8 +917,8 @@ local function UpdateDynamicLightPositions()
 			local current_pos = light_data.light.entity:GetPos()
 			local current_angles = light_data.light.entity:GetAngles()
 			
-			-- Use distance check for more reliable position comparison
-			local pos_changed = light_data.light.origin:DistToSqr(current_pos) > 1 -- More than 1 unit difference
+            -- Use distance check for more reliable position comparison (add deadzone)
+            local pos_changed = light_data.light.origin:DistToSqr(current_pos) > 9 -- > 3 units difference
 			local angle_changed = false
 			
 			-- Check if angles have changed significantly
@@ -970,7 +926,7 @@ local function UpdateDynamicLightPositions()
 				local angle_diff = math.abs(light_data.light.angles.pitch - current_angles.pitch) + 
 				                  math.abs(light_data.light.angles.yaw - current_angles.yaw) + 
 				                  math.abs(light_data.light.angles.roll - current_angles.roll)
-				angle_changed = angle_diff > 1 -- More than 1 degree difference
+                angle_changed = angle_diff > 3 -- More than 3 degrees difference
 			end
 			
 			-- Update if position or angles have changed
@@ -1001,6 +957,16 @@ local function UpdateDynamicLightPositions()
 			end
 		end
 	end
+end
+
+-- Stateless, per-frame rendering of helper models
+local function RenderLightUpdaters()
+    if not updatelights:GetBool() or not known_lights then return end
+    -- Ensure lights are initialized
+    if not InitializeLights() then return end
+    for _, light_data in pairs(known_lights) do
+        render.Model({ model = "models/editor/cone_helper.mdl", pos = light_data.pos, angle = zero_angle })
+    end
 end
 
 -- Helper function to draw a circle on screen
@@ -1251,6 +1217,7 @@ concommand.Add("rtx_lightupdater_update_dynamic_cmd", UpdateDynamicLightsCommand
 
 hook.Add( "Think", "RTXReady_PropHashFixer", RTXLightUpdater)
 hook.Add( "Think", "RTXReady_DynamicLightUpdater", UpdateDynamicLightPositions)
+hook.Add( "PostDrawTranslucentRenderables", "RTXReady_RenderLightUpdaters", RenderLightUpdaters)
 hook.Add( "HUDPaint", "RTXReady_LightIndicators", DrawLightIndicators)
 hook.Add( "HUDPaint", "RTXReady_MovedDebug", DrawMovedPositionDebug)
 hook.Add( "HUDPaint", "RTXReady_DebugText", DrawDebugText)
