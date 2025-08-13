@@ -11,6 +11,18 @@
 #include "icliententity.h" // Add this include to resolve the incomplete type error
 #include <c_baseanimating.h>
 #include "engine/ivmodelinfo.h"
+#include <tier0/dbg.h>
+#include <cstdio>
+
+#ifndef Msg
+#define Msg(...) do { std::printf(__VA_ARGS__); } while (0)
+#endif
+#ifndef Warning
+#define Warning(...) do { std::printf(__VA_ARGS__); } while (0)
+#endif
+#ifndef Error
+#define Error(...) do { std::printf(__VA_ARGS__); } while (0)
+#endif
 
 using namespace GarrysMod::Lua;
 
@@ -68,44 +80,50 @@ Define_method_Hook(IMaterial*, R_StudioSetupSkinAndLighting, void*, IMatRenderCo
             }
             
             if (unknown) {
-                C_BaseEntity* baseEntity = nullptr;
-                
+                // Attempt to resolve model without touching the base entity first
+                const model_t* mdl = nullptr;
+
                 __try {
-                    baseEntity = unknown->GetBaseEntity();
+                    mdl = pClientRenderable->GetModel();
                 }
                 __except(EXCEPTION_EXECUTE_HANDLER) {
-                    baseEntity = nullptr;
+                    mdl = nullptr;
                 }
-                
-                if (baseEntity) {
-                    // Use const model_t* to match the return type of GetModel()
-                    const model_t* mdl = nullptr;
-                    
+
+                // Only fall back to GetBaseEntity if we still don't have a model
+                if (!mdl) {
+                    C_BaseEntity* baseEntity = nullptr;
+
                     __try {
-                        mdl = pClientRenderable->GetModel();
-                        if (!mdl && baseEntity) {
-                            mdl = baseEntity->GetModel();
-                        }
+                        baseEntity = unknown->GetBaseEntity();
                     }
                     __except(EXCEPTION_EXECUTE_HANDLER) {
-                        mdl = nullptr;
+                        baseEntity = nullptr;
                     }
-                    
-                    if (mdl && pModelInfo) {
-                        // Handle const correctly
-                        const studiohdr_t* pStudioHdr = nullptr;
-                        
+
+                    if (baseEntity) {
                         __try {
-                            pStudioHdr = pModelInfo->GetStudiomodel(mdl);
+                            mdl = baseEntity->GetModel();
                         }
                         __except(EXCEPTION_EXECUTE_HANDLER) {
-                            pStudioHdr = nullptr;
+                            mdl = nullptr;
                         }
-                        
-                        // Check for simple models (not ragdolls or complex animations)
-                        if (pStudioHdr && !(pStudioHdr->numbones > 1)) {
-                            lighting = 0; // LIGHTING_HARDWARE 
-                        }
+                    }
+                }
+
+                if (mdl && pModelInfo) {
+                    const studiohdr_t* pStudioHdr = nullptr;
+
+                    __try {
+                        pStudioHdr = pModelInfo->GetStudiomodel(mdl);
+                    }
+                    __except(EXCEPTION_EXECUTE_HANDLER) {
+                        pStudioHdr = nullptr;
+                    }
+
+                    // Check for simple models (not ragdolls or complex animations)
+                    if (pStudioHdr && !(pStudioHdr->numbones > 1)) {
+                        lighting = 0; // LIGHTING_HARDWARE 
                     }
                 }
             }
