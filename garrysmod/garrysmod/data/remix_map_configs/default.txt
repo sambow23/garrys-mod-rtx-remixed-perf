@@ -1,5 +1,4 @@
 # RTX Remix and Source Engine default configuration
-# 2025-07-31 21:36:46
 
 # This file will be loaded for any map that doesn't have its own config.
 # Adjust RTX settings in-game and Source cvars, then run this command to save as defaults.
@@ -18,14 +17,7 @@ rtx:rtx.volumetrics.atmosphereHeightMeters = 50
 rtx:rtx.volumetrics.atmospherePlanetRadiusMeters = 1000
 rtx:rtx.volumetrics.fogRemapMaxDistanceMaxMeters = 10000
 rtx:rtx.volumetrics.fogRemapMaxDistanceMinMeters = 0
-rtx:rtx.volumetrics.noiseFieldLacunarity = 1
-rtx:rtx.volumetrics.noiseFieldDensityExponent = 1
-rtx:rtx.volumetrics.noiseFieldGain = 1
-rtx:rtx.volumetrics.noiseFieldTimeScale = 1
 rtx:rtx.volumetrics.singleScatteringAlbedo = 0.95, 0.95, 0.95
-rtx:rtx.volumetrics.noiseFieldOctaves = 1
-rtx:rtx.volumetrics.noiseFieldInitialFrequencyPerMeter = 1
-rtx:rtx.volumetrics.noiseFieldSubStepSizeMeters = 1
 rtx:rtx.volumetrics.enableInPortals = True
 rtx:rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMaxMeters = 1
 rtx:rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMinMeters = 2.75
@@ -41,7 +33,7 @@ rtx:rtx.volumetrics.froxelMaxDistanceMeters = 100
 rtx:rtx.volumetrics.froxelDepthSlices = 48
 
 
-### Post AA
+### Post FX
 rtx:rtx.bloom.luminanceThreshold = 0.5
 rtx:rtx.bloom.enable = True
 rtx:rtx.bloom.burnIntensity = 1
