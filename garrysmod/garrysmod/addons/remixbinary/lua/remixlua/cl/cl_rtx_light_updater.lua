@@ -1215,13 +1215,31 @@ concommand.Add("rtx_lightupdater_force_move_cmd", ForceMoveLightsCommand, nil, "
 concommand.Add("rtx_lightupdater_scan_dynamic_cmd", ScanDynamicLightsCommand, nil, "Manually scan for new gmod_light and gmod_lamp entities")
 concommand.Add("rtx_lightupdater_update_dynamic_cmd", UpdateDynamicLightsCommand, nil, "Manually update positions for moved dynamic lights")
 
-hook.Add( "Think", "RTXReady_PropHashFixer", RTXLightUpdater)
-hook.Add( "Think", "RTXReady_DynamicLightUpdater", UpdateDynamicLightPositions)
-hook.Add( "PostDrawTranslucentRenderables", "RTXReady_RenderLightUpdaters", RenderLightUpdaters)
-hook.Add( "HUDPaint", "RTXReady_LightIndicators", DrawLightIndicators)
-hook.Add( "HUDPaint", "RTXReady_MovedDebug", DrawMovedPositionDebug)
-hook.Add( "HUDPaint", "RTXReady_DebugText", DrawDebugText)
-hook.Add( "HUDPaint", "RTXReady_MissingLightsDebug", DrawMissingLightsDebug)
+-- Helper to add/remove optional hooks based on cvars
+local function ToggleHook(enabled, hookName, id, fn)
+	if enabled then
+		hook.Add(hookName, id, fn)
+	else
+		hook.Remove(hookName, id)
+	end
+end
+
+local function EvaluateOptionalHooks()
+	local enabled = updatelights:GetBool()
+
+	-- Optional/non-core hooks
+	ToggleHook(enabled and dynamicupdate:GetBool(), "Think", "RTXReady_DynamicLightUpdater", UpdateDynamicLightPositions)
+	ToggleHook(enabled, "PostDrawTranslucentRenderables", "RTXReady_RenderLightUpdaters", RenderLightUpdaters)
+	ToggleHook(enabled and showlights:GetBool(), "HUDPaint", "RTXReady_LightIndicators", DrawLightIndicators)
+	ToggleHook(enabled and debugmoved:GetBool(), "HUDPaint", "RTXReady_MovedDebug", DrawMovedPositionDebug)
+	ToggleHook(enabled and debugtext:GetBool(), "HUDPaint", "RTXReady_DebugText", DrawDebugText)
+	ToggleHook(enabled and debugmissing:GetBool(), "HUDPaint", "RTXReady_MissingLightsDebug", DrawMissingLightsDebug)
+end
+
+-- Main/core hook remains always registered (checks master cvar internally)
+hook.Add( "Think", "RTXReady_RTXLightUpdater", RTXLightUpdater)
+
+-- Always keep cleanup and map reset hooks
 hook.Add( "ShutDown", "RTXReady_Cleanup", Cleanup)
 hook.Add( "OnEntityCreated", "RTXReady_MapCheck", function(ent)
 	-- Reset when worldspawn is created (new map)
@@ -1229,3 +1247,31 @@ hook.Add( "OnEntityCreated", "RTXReady_MapCheck", function(ent)
 		CleanupModel()
 	end
 end)
+
+-- React to cvar changes to add/remove optional hooks dynamically
+cvars.AddChangeCallback("rtx_lightupdater", function()
+	EvaluateOptionalHooks()
+end, "RTXReady_HookToggle_updatelights")
+
+cvars.AddChangeCallback("rtx_lightupdater_dynamic_update", function()
+	EvaluateOptionalHooks()
+end, "RTXReady_HookToggle_dynamicupdate")
+
+cvars.AddChangeCallback("rtx_lightupdater_show", function()
+	EvaluateOptionalHooks()
+end, "RTXReady_HookToggle_show")
+
+cvars.AddChangeCallback("rtx_lightupdater_debug_moved", function()
+	EvaluateOptionalHooks()
+end, "RTXReady_HookToggle_debugmoved")
+
+cvars.AddChangeCallback("rtx_lightupdater_debug", function()
+	EvaluateOptionalHooks()
+end, "RTXReady_HookToggle_debugtext")
+
+cvars.AddChangeCallback("rtx_lightupdater_debug_missing", function()
+	EvaluateOptionalHooks()
+end, "RTXReady_HookToggle_debugmissing")
+
+-- Initial evaluation at load
+EvaluateOptionalHooks()
