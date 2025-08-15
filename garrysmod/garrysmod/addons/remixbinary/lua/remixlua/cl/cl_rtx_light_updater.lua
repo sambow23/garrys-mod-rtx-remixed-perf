@@ -964,8 +964,17 @@ local function RenderLightUpdaters()
     if not updatelights:GetBool() or not known_lights then return end
     -- Ensure lights are initialized
     if not InitializeLights() then return end
+    local alpha = debugtext:GetBool() and 1 or 0.001
+    local prevR, prevG, prevB = render.GetColorModulation()
+    local prevBlend = render.GetBlend()
+    render.SetColorModulation(1, 1, 1)
+    render.SetBlend(alpha)
     for _, light_data in pairs(known_lights) do
         render.Model({ model = "models/editor/cone_helper.mdl", pos = light_data.pos, angle = zero_angle })
+    end
+    render.SetBlend(prevBlend or 1)
+    if prevR and prevG and prevB then
+        render.SetColorModulation(prevR, prevG, prevB)
     end
 end
 
