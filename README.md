@@ -37,6 +37,7 @@ You can join servers without the addon but you ***will*** experience visual issu
 | Addon | [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860) | Consumes a lot of vram, most likely precaching |
 | Addon | [CS:GO Weapons](https://steamcommunity.com/sharedfiles/filedetails/?id=2193997180) | Game freezes up on `Starting lua...` when loading into a map. <br>(can be worked around by typing `mat_dxlevel 95` in the console ingame, may cause other issues though) |
 | Addon | [[ARC9] Gunsmith Reloaded](https://steamcommunity.com/sharedfiles/filedetails/?id=2910537020) | Game freezes up on `Starting lua...` when loading into a map. <br>(can be worked around by typing `mat_dxlevel 95` in the console ingame, may cause other issues though) |
+| Addon | [[TFA] Left 4 Dead 2 - HQ Weapons Pack](https://steamcommunity.com/sharedfiles/filedetails/?id=3349875996) | Game freezes up on `Starting lua...` when loading into a map. <br>(can be worked around by typing `mat_dxlevel 95` in the console ingame, may cause other issues though) | 
 
 
 ## Known issues
