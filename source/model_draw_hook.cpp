@@ -118,7 +118,6 @@ Define_method_Hook(void, IStudioRender_DrawModel, void*,
         __except(EXCEPTION_EXECUTE_HANDLER) {
             staticLighting = false; // Default value if access fails
         }
-        Msg("[gmRTX] Dynamic DrawModel hook called #%d: _this=0x%p, info=0x%p, flags=0x%X, m_bStaticLighting=%d\n", callCount, _this, &info, flags, staticLighting);
     }
 
     // If hook is disabled, just call original
@@ -143,11 +142,6 @@ Define_method_Hook(void, IStudioRender_DrawModel, void*,
             
             // Also add the static lighting flag to the flags parameter for good measure
             int modifiedFlags = flags | STUDIORENDER_DRAW_STATIC_LIGHTING;
-        
-            if (callCount <= 5) {
-                Msg("[gmRTX] Dynamic Modified: m_bStaticLighting %d->%d, flags 0x%X->0x%X\n", 
-                    originalStaticLighting, modifiedInfo.m_bStaticLighting, flags, modifiedFlags);
-            }
             
             // Call original function with modified info and flags
             return IStudioRender_DrawModel_trampoline()(_this, pResults, modifiedInfo, pBoneToWorld, pFlexWeights, pFlexDelayedWeights, modelOrigin, modifiedFlags);
@@ -167,10 +161,6 @@ Define_method_Hook(void, IVModelRender_DrawModelExecute, void*, const DrawModelS
 {
     static int callCount = 0;
     callCount++;
-    
-    if (callCount <= 5) { // Only log first 5 calls to avoid spam
-        Msg("[gmRTX] DrawModelExecute hook called #%d: _this=0x%p, state=0x%p, m_drawFlags=0x%X\n", callCount, _this, &state, state.m_drawFlags);
-    }
 
     // If hook is disabled, just call original
     if (!g_hookEnabled) {
@@ -186,11 +176,6 @@ Define_method_Hook(void, IVModelRender_DrawModelExecute, void*, const DrawModelS
         // Looking at the Source SDK, STUDIO_STATIC_LIGHTING is 0x10
         int originalFlags = modifiedState.m_drawFlags;
         modifiedState.m_drawFlags |= 0x10; // STUDIO_STATIC_LIGHTING
-        
-        if (callCount <= 5) {
-            Msg("[gmRTX] DrawModelExecute Modified: m_drawFlags 0x%X->0x%X\n", 
-                originalFlags, modifiedState.m_drawFlags);
-        }
         
         // Call original function with modified state
         return IVModelRender_DrawModelExecute_trampoline()(_this, modifiedState, pInfo, pCustomBoneToWorld);
