@@ -10,9 +10,11 @@
         @./water/replacements.usda@,
         @./mirrors/replacements.usda@,
         @./marker/marker.usda@,
-		@./breakable_glass/glass.usda@,
-		@./flashlight/flashlight.usda@
+        @./breakable_glass/glass.usda@,
+        @./flashlight/flashlight.usda@,
+        @./maps/gm_construct_rtx.usda@
     ]
     timeCodesPerSecond = 24
     upAxis = "Z"
 )
+
