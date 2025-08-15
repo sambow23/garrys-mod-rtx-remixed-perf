@@ -358,7 +358,7 @@ hook.Add("InitPostEntity", "RemoveDetailTexturesOnMapLoad", function()
                 print("[G] Waiting for NikNaks to fully load...")
                 timer.Simple(2, function()
                     if not NikNaks or not NikNaks.CurrentMap then
-                        error("[RTXF2 - RDT] NikNaks or CurrentMap not available after waiting")
+                        error("[gmRTX - RDT] NikNaks or CurrentMap not available after waiting")
                         return
                     end
                     local found = RemoveDetailTextures(true, true) -- Use thorough method for initial scan
@@ -392,4 +392,4 @@ concommand.Add("rtx_rdt_remove", function()
     notification.AddLegacy("Replaced " .. newCount .. " new detail textures", NOTIFY_GENERIC, 3)
 end)
 
-print("[RTXF2 - RDT] Addon loaded. Will replace detail textures with " .. replacementTexture)
+print("[gmRTX - RDT] Addon loaded. Will replace detail textures with " .. replacementTexture)

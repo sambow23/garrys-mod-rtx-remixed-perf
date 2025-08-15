@@ -16,7 +16,7 @@ FlashlightOverride.Config = {
         enabled = true,
         prefix_color = Color(255, 255, 0),
         text_color = Color(255, 255, 255),
-        prefix = "[RTXF2 - Flashlight]"
+        prefix = "[gmRTX - Flashlight]"
     },
     
     -- Mesh settings
@@ -73,7 +73,7 @@ function FlashlightOverride.Utils.PlaySound(sound_name)
 end
 
 if CLIENT then
-    print("[RTXF2 - Flashlight] Shared configuration loaded (Client)")
+    print("[gmRTX - Flashlight] Shared configuration loaded (Client)")
 elseif SERVER then
-    print("[RTXF2 - Flashlight] Shared configuration loaded (Server)")
+    print("[gmRTX - Flashlight] Shared configuration loaded (Server)")
 end 

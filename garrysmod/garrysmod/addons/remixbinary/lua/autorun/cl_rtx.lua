@@ -41,20 +41,20 @@ local function LoadSubAddons()
         local files, _ = file.Find(folder .. "*.lua", "LUA")
         
         if files then
-            DebugPrint("[RTXF2] Found " .. #files .. " files in " .. folder)
+            DebugPrint("[gmRTX] Found " .. #files .. " files in " .. folder)
             
             for _, fileName in ipairs(files) do
                 local filePath = folder .. fileName
                 local success, err = pcall(include, filePath)
                 
                 if not success then
-                    DebugPrint("[RTXF2] Warning: Failed to load sub-addon: " .. filePath .. " - Error: " .. tostring(err))
+                    DebugPrint("[gmRTX] Warning: Failed to load sub-addon: " .. filePath .. " - Error: " .. tostring(err))
                 else
-                    DebugPrint("[RTXF2] Successfully loaded sub-addon: " .. filePath)
+                    DebugPrint("[gmRTX] Successfully loaded sub-addon: " .. filePath)
                 end
             end
         else
-            DebugPrint("[RTXF2] No files found in " .. folder)
+            DebugPrint("[gmRTX] No files found in " .. folder)
         end
     end
 end

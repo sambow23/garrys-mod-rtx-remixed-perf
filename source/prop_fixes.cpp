@@ -155,45 +155,45 @@ void ModelRenderHooks::Initialize() {
 		// config stuff
 		//Sys_LoadInterface CRASHES for some reason on win32?????
 #ifdef _WIN32
-		Msg("[RTXF2 - Binary Module] - Loading studiorender\n");
+		Msg("[gmRTX - Binary Module] - Loading studiorender\n");
 
 		HMODULE studiorenderLib = LoadLibraryA("studiorender.dll");
 		if (!studiorenderLib) {
-			Warning("[RTXF2] - Failed to load studiorender.dll: error code %d\n", GetLastError());
+			Warning("[gmRTX] - Failed to load studiorender.dll: error code %d\n", GetLastError());
 			return;
 		}
 
 		using CreateInterfaceFn = void* (*)(const char* pName, int* pReturnCode);
 		CreateInterfaceFn createInterface = (CreateInterfaceFn)GetProcAddress(studiorenderLib, "CreateInterface");
 		if (!createInterface) {
-			Warning("[RTXF2] - Could not get CreateInterface from studiorender.dll\n");
+			Warning("[gmRTX] - Could not get CreateInterface from studiorender.dll\n");
 			return;
 		}
 		g_pStudioRender = (IStudioRender*)createInterface(STUDIO_RENDER_INTERFACE_VERSION, nullptr);
 
 		HMODULE engineLib = LoadLibraryA("engine.dll");
 		if (!engineLib) {
-			Warning("[RTXF2] - Failed to load engine.dll: error code %d\n", GetLastError());
+			Warning("[gmRTX] - Failed to load engine.dll: error code %d\n", GetLastError());
 			return;
 		}
 
 		CreateInterfaceFn createEngineInterface = (CreateInterfaceFn)GetProcAddress(engineLib, "CreateInterface");
 		if (!createEngineInterface) {
-			Warning("[RTXF2] - Could not get CreateInterface from engine.dll\n");
+			Warning("[gmRTX] - Could not get CreateInterface from engine.dll\n");
 			return;
 		}
 		pModelInfo = (IVModelInfo*)createEngineInterface(VMODELINFO_CLIENT_INTERFACE_VERSION, nullptr);
 		if (!pModelInfo) {
-			Warning("[RTXF2] - Could not get IVModelInfo interface\n");
+			Warning("[gmRTX] - Could not get IVModelInfo interface\n");
 			return;
 		}
 #else
-		Msg("[RTXF2 - Binary Module] - Loading studiorender\n");
+		Msg("[gmRTX - Binary Module] - Loading studiorender\n");
 		if (!Sys_LoadInterface("studiorender", STUDIO_RENDER_INTERFACE_VERSION, NULL, (void**)&g_pStudioRender))
-			Warning("[RTXF2] - Could not load studiorender interface");
+			Warning("[gmRTX] - Could not load studiorender interface");
 
 		if (!Sys_LoadInterface("engine", VMODELINFO_CLIENT_INTERFACE_VERSION, NULL, (void**)&pModelInfo))
-			Warning("[RTXF2] - Could not load IVModelInfo interface");
+			Warning("[gmRTX] - Could not load IVModelInfo interface");
 #endif
 
 #ifdef _WIN32

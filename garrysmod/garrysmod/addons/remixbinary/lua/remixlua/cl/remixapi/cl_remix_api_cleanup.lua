@@ -13,7 +13,7 @@ local cv_debug_cleanup = CreateClientConVar("rtx_debug_cleanup", "0", true, fals
 
 local function DebugMsg(msg)
     if cv_debug_cleanup:GetBool() then
-        print("[RTXF2 - Remix Cleanup] " .. msg)
+        print("[gmRTX - Remix Cleanup] " .. msg)
     end
 end
 

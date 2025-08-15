@@ -9,7 +9,7 @@ if (SERVER) then
 	-- Helper function for debug printing
 	local function DebugPrint(message)
 		if cv_debug:GetBool() then
-			print("[RTXF2-SV] " .. message)
+			print("[gmRTX-SV] " .. message)
 		end
 	end
 
@@ -79,7 +79,7 @@ if (SERVER) then
 	end
 
 	-- Load sub-addons immediately when server starts
-	print("[RTXF2] - Initialising Server") 
+	print("[gmRTX] - Initialising Server") 
 	LoadServerSubAddons()
 
 	function RTXLoadServer( ply )  

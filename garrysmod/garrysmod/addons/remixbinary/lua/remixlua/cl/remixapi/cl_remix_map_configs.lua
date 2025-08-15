@@ -79,7 +79,7 @@ local currentMap = ""
 -- Utility functions
 local function DebugPrint(msg)
     if DEBUG_MODE:GetBool() then
-        print("[RTXF2 - Remix API] " .. msg)
+        print("[gmRTX - Remix API] " .. msg)
     end
 end
 
@@ -168,10 +168,10 @@ local function SaveMapConfig(mapName)
     file.Write(filePath, configText)
     
     DebugPrint("Saved config for map '" .. mapName .. "' to " .. filePath)
-    print("[RTXF2 - Remix API] Saved " .. savedCount .. " RTX and Source settings for map: " .. mapName)
+    print("[gmRTX - Remix API] Saved " .. savedCount .. " RTX and Source settings for map: " .. mapName)
     
     if savedCount == 0 then
-        print("[RTXF2 - Remix API] Warning: No config values were saved. Try adjusting RTX settings or Source cvars first.")
+        print("[gmRTX - Remix API] Warning: No config values were saved. Try adjusting RTX settings or Source cvars first.")
     end
     
     return savedCount > 0
@@ -267,7 +267,7 @@ local function LoadMapConfig(mapName)
     end
     
     if loadedCount > 0 then
-        print("[RTXF2 - Remix API] Loaded " .. loadedCount .. " RTX and Source settings from " .. configSource .. " for map: " .. mapName)
+        print("[gmRTX - Remix API] Loaded " .. loadedCount .. " RTX and Source settings from " .. configSource .. " for map: " .. mapName)
         return true
     else
         DebugPrint("No config file found for map: " .. mapName .. " (tried map-specific and default.txt)")
@@ -279,7 +279,7 @@ end
 function RemixMapConfigs.SaveCurrentMapConfig()
     local mapName = GetCurrentMap()
     if mapName == "" then
-        print("[RTXF2 - Remix API] Error: No map loaded")
+        print("[gmRTX - Remix API] Error: No map loaded")
         return false
     end
     
@@ -289,7 +289,7 @@ end
 function RemixMapConfigs.LoadCurrentMapConfig()
     local mapName = GetCurrentMap()
     if mapName == "" then
-        print("[RTXF2 - Remix API] Error: No map loaded")
+        print("[gmRTX - Remix API] Error: No map loaded")
         return false
     end
     
@@ -298,7 +298,7 @@ end
 
 function RemixMapConfigs.SaveMapConfig(mapName)
     if not mapName or mapName == "" then
-        print("[RTXF2 - Remix API] Error: Invalid map name")
+        print("[gmRTX - Remix API] Error: Invalid map name")
         return false
     end
     
@@ -307,7 +307,7 @@ end
 
 function RemixMapConfigs.LoadMapConfig(mapName)
     if not mapName or mapName == "" then
-        print("[RTXF2 - Remix API] Error: Invalid map name")
+        print("[gmRTX - Remix API] Error: Invalid map name")
         return false
     end
     
@@ -318,11 +318,11 @@ function RemixMapConfigs.ListConfigs()
     local files, _ = file.Find(CONFIG_DIR .. "/*.txt", "DATA")
     
     if not files or #files == 0 then
-        print("[RTXF2 - Remix API] No saved map configs found")
+        print("[gmRTX - Remix API] No saved map configs found")
         return {}
     end
     
-    print("[RTXF2 - Remix API] Saved map configs:")
+    print("[gmRTX - Remix API] Saved map configs:")
     local mapNames = {}
     local hasDefault = false
     
@@ -348,19 +348,19 @@ end
 
 function RemixMapConfigs.DeleteMapConfig(mapName)
     if not mapName or mapName == "" then
-        print("[RTXF2 - Remix API] Error: Invalid map name")
+        print("[gmRTX - Remix API] Error: Invalid map name")
         return false
     end
     
     local filePath = GetConfigPath(mapName)
     
     if not file.Exists(filePath, "DATA") then
-        print("[RTXF2 - Remix API] No config found for map: " .. mapName)
+        print("[gmRTX - Remix API] No config found for map: " .. mapName)
         return false
     end
     
     file.Delete(filePath)
-    print("[RTXF2 - Remix API] Deleted config for map: " .. mapName)
+    print("[gmRTX - Remix API] Deleted config for map: " .. mapName)
     return true
 end
 
@@ -459,23 +459,23 @@ concommand.Add("rtx_conf_default_save", function()
     local configText = table.concat(configLines, "\n")
     file.Write(defaultPath, configText)
     
-    print("[RTXF2 - Remix API] Saved " .. savedCount .. " RTX and Source settings as default config")
-    print("[RTXF2 - Remix API] Default config saved to: " .. defaultPath)
+    print("[gmRTX - Remix API] Saved " .. savedCount .. " RTX and Source settings as default config")
+    print("[gmRTX - Remix API] Default config saved to: " .. defaultPath)
 end, nil, "Save current RTX and Source engine settings as default config for all maps")
 
 concommand.Add("rtx_conf_load_default", function()
     local defaultPath = CONFIG_DIR .. "/default.txt"
     
     if not file.Exists(defaultPath, "DATA") then
-        print("[RTXF2 - Remix API] No default config file found. Use rtx_conf_default_save to create one.")
+        print("[gmRTX - Remix API] No default config file found. Use rtx_conf_default_save to create one.")
         return
     end
     
     local success, count = LoadConfigFromFile(defaultPath, "default config")
     if success then
-        print("[RTXF2 - Remix API] Loaded " .. count .. " RTX and Source settings from default config")
+        print("[gmRTX - Remix API] Loaded " .. count .. " RTX and Source settings from default config")
     else
-        print("[RTXF2 - Remix API] Failed to load default config")
+        print("[gmRTX - Remix API] Failed to load default config")
     end
 end, nil, "Load the default RTX and Source engine config immediately")
 
@@ -484,16 +484,16 @@ concommand.Add("rtx_conf_toggle_autoload", function()
     AUTO_LOAD:SetBool(not currentValue)
     
     if AUTO_LOAD:GetBool() then
-        print("[RTXF2 - Remix API] Auto-loading enabled - configs will load automatically on map start")
+        print("[gmRTX - Remix API] Auto-loading enabled - configs will load automatically on map start")
     else
-        print("[RTXF2 - Remix API] Auto-loading disabled - use rtx_conf_load_map_config to load manually")
+        print("[gmRTX - Remix API] Auto-loading disabled - use rtx_conf_load_map_config to load manually")
     end
 end, nil, "Toggle automatic loading of map configs on map start")
 
 concommand.Add("rtx_conf_reload_tracked_params", function()
     LoadTrackedParameters()
-    print("[RTXF2 - Remix API] Reloaded tracked parameters from default.txt")
-    print("[RTXF2 - Remix API] Now tracking " .. #TRACKED_CONFIGS .. " RTX parameters and " .. #TRACKED_SOURCE_COMMANDS .. " Source parameters")
+    print("[gmRTX - Remix API] Reloaded tracked parameters from default.txt")
+    print("[gmRTX - Remix API] Now tracking " .. #TRACKED_CONFIGS .. " RTX parameters and " .. #TRACKED_SOURCE_COMMANDS .. " Source parameters")
 end, nil, "Reload the list of tracked parameters from default.txt")
 
 -- Make API globally available

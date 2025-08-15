@@ -536,7 +536,7 @@ local function FindClearPositionSmart(original_pos, light_data)
 	
 	-- Complete failure: don't create an updater for this light
 	if debugconsole:GetBool() then
-		print("[RTXF2 - Lightupdater] Failed to find any valid position for light at: " .. tostring(light_origin))
+		print("[gmRTX - Lightupdater] Failed to find any valid position for light at: " .. tostring(light_origin))
 	end
 	return nil, false
 end
@@ -774,11 +774,11 @@ local function InitializeLights()
 		-- Report processing results
 		if debugconsole:GetBool() or lights_processed < total_lights_found then
 			if debugconsole:GetBool() then
-				print("[RTXF2 - Lightupdater] Processed " .. lights_processed .. " / " .. total_lights_found .. " lights")
-				print("[RTXF2 - Lightupdater] Found " .. static_lights .. " static lights, " .. #gmod_lights .. " gmod_lights, " .. #gmod_lamps .. " gmod_lamps")
+				print("[gmRTX - Lightupdater] Processed " .. lights_processed .. " / " .. total_lights_found .. " lights")
+				print("[gmRTX - Lightupdater] Found " .. static_lights .. " static lights, " .. #gmod_lights .. " gmod_lights, " .. #gmod_lamps .. " gmod_lamps")
 			end
 			if lights_processed < total_lights_found and debugconsole:GetBool() then
-				print("[RTXF2 - Lightupdater] " .. (total_lights_found - lights_processed) .. " lights were skipped (couldn't find valid positions)")
+				print("[gmRTX - Lightupdater] " .. (total_lights_found - lights_processed) .. " lights were skipped (couldn't find valid positions)")
 			end
 		end
 	end
@@ -839,11 +839,11 @@ local function ScanForNewDynamicLights()
 	
 	-- Report new lights found
 	if new_lights_added > 0 and debugconsole:GetBool() then
-		print("[RTXF2 - Lightupdater] Added " .. new_lights_added .. " new dynamic lights")
+		print("[gmRTX - Lightupdater] Added " .. new_lights_added .. " new dynamic lights")
 	end
 	
 	if removed_lights > 0 and debugconsole:GetBool() then
-		print("[RTXF2 - Lightupdater] Removed " .. removed_lights .. " deleted dynamic lights")
+		print("[gmRTX - Lightupdater] Removed " .. removed_lights .. " deleted dynamic lights")
 	end
 end
 
@@ -866,16 +866,16 @@ local function ForceRecalculateAllLights()
 		
 		local new_count = table.Count(known_lights)
 		if debugconsole:GetBool() then
-			print("[RTXF2 - Lightupdater] Force moved all lights - " .. new_count .. " lights repositioned (was " .. old_count .. ")")
+			print("[gmRTX - Lightupdater] Force moved all lights - " .. new_count .. " lights repositioned (was " .. old_count .. ")")
 			
 			if new_count < old_count then
-				print("[RTXF2 - Lightupdater] WARNING: Lost " .. (old_count - new_count) .. " light updaters during repositioning")
-				print("[RTXF2 - Lightupdater] Enable rtx_lightupdater_debug_console 1 for more details")
+				print("[gmRTX - Lightupdater] WARNING: Lost " .. (old_count - new_count) .. " light updaters during repositioning")
+				print("[gmRTX - Lightupdater] Enable rtx_lightupdater_debug_console 1 for more details")
 			end
 		end
 	else
 		if debugconsole:GetBool() then
-			print("[RTXF2 - Lightupdater] Failed to force move lights - initialization failed")
+			print("[gmRTX - Lightupdater] Failed to force move lights - initialization failed")
 		end
 	end
 end
@@ -1199,7 +1199,7 @@ end
 local function ForceMoveLightsCommand()
 	forcemove:SetBool(true)
 	if debugconsole:GetBool() then
-		print("[RTXF2 - Lightupdater] Force move requested - all light positions will be recalculated next frame")
+		print("[gmRTX - Lightupdater] Force move requested - all light positions will be recalculated next frame")
 	end
 end
 
@@ -1207,7 +1207,7 @@ end
 local function ScanDynamicLightsCommand()
 	ScanForNewDynamicLights()
 	if debugconsole:GetBool() then
-		print("[RTXF2 - Lightupdater] Manual dynamic light scan completed")
+		print("[gmRTX - Lightupdater] Manual dynamic light scan completed")
 	end
 end
 
@@ -1215,7 +1215,7 @@ end
 local function UpdateDynamicLightsCommand()
 	UpdateDynamicLightPositions()
 	if debugconsole:GetBool() then
-		print("[RTXF2 - Lightupdater] Manual dynamic light position update completed")
+		print("[gmRTX - Lightupdater] Manual dynamic light position update completed")
 	end
 end
 

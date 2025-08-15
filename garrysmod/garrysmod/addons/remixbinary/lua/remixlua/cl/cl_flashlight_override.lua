@@ -1,7 +1,7 @@
 if CLIENT then
     -- Verify FlashlightOverride is properly loaded
     if not FlashlightOverride or not FlashlightOverride.Config or not FlashlightOverride.Utils then
-        error("[RTXF2 - Flashlight] ERROR: Shared configuration not loaded! This indicates a loading order problem.")
+        error("[gmRTX - Flashlight] ERROR: Shared configuration not loaded! This indicates a loading order problem.")
         return
     end
 
@@ -178,5 +178,5 @@ if CLIENT then
     hook.Add("ShutDown", "FlashlightMeshCleanup", CleanupFlashlightMesh)
     hook.Add("OnReloaded", "FlashlightMeshCleanup", CleanupFlashlightMesh)
     
-    print("[RTXF2 - Flashlight] Client-side flashlight mesh override loaded!")
+    print("[gmRTX - Flashlight] Client-side flashlight mesh override loaded!")
 end 

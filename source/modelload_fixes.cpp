@@ -230,7 +230,7 @@ Define_method_Hook(FileHandle_t, IFileSystem_OpenEx, void*, const char* pFileNam
                             // Only log successful redirections in debug mode or with a debug flag
                             #if 0
                             if (result) {
-                                Msg("[RTXF2] Redirected %s to %s\n", pFileName, sw_path);
+                                Msg("[gmRTX] Redirected %s to %s\n", pFileName, sw_path);
                             }
                             #endif
                         }
@@ -337,14 +337,14 @@ static IVEngineClient* engineClient;
 
 void ForceModelReload() { 
 
-    Msg("[RTXF2 - Model Load Fixes] Forcing model reload...\n");
+    Msg("[gmRTX - Model Load Fixes] Forcing model reload...\n");
     if (g_pMDLCache) {
         // Flush the entire cache
         g_pMDLCache->Flush(MDLCACHE_FLUSH_ALL);
-        Msg("[RTXF2 - Model Load Fixes] Successfully flushed model cache\n");
+        Msg("[gmRTX - Model Load Fixes] Successfully flushed model cache\n");
     }
     else {
-        Warning("[RTXF2 - Model Load Fixes] Couldn't access MDL cache to force reload\n");
+        Warning("[gmRTX - Model Load Fixes] Couldn't access MDL cache to force reload\n");
     }
 }
 void ForceModelReloadViaEngine() {
@@ -353,10 +353,10 @@ void ForceModelReloadViaEngine() {
         // Use safer commands that won't crash (r_flushlod crashes)
         engineClient->ClientCmd_Unrestricted("mat_reloadallmaterials");
 
-        Msg("[RTXF2 - Model Load Fixes] Executed engine reload commands\n");
+        Msg("[gmRTX - Model Load Fixes] Executed engine reload commands\n");
     }
     else {
-        Warning("[RTXF2 - Model Load Fixes] Couldn't access engine client, early loaded map models will not be reloaded in their RTX Remix friendly .sw.vtx form!\n");
+        Warning("[gmRTX - Model Load Fixes] Couldn't access engine client, early loaded map models will not be reloaded in their RTX Remix friendly .sw.vtx form!\n");
     }
 }
 
@@ -367,7 +367,7 @@ void ModelLoadHooks::Initialize() {
 #ifdef _WIN32
         //HMODULE datacacheModule = LoadLibraryA("datacache.dll");
         //if (!datacacheModule) {
-        //    Warning("[RTXF2] - Failed to load datacache.dll: error code %d\n", GetLastError());
+        //    Warning("[gmRTX] - Failed to load datacache.dll: error code %d\n", GetLastError());
         //    return;
         //}
 
@@ -376,7 +376,7 @@ void ModelLoadHooks::Initialize() {
         //CreateInterfaceFn createInterface = (CreateInterfaceFn)GetProcAddress(datacacheModule, "CreateInterface");
 
         //if (!createInterface) {
-        //    Warning("[RTXF2] - Failed to get CreateInterface from datacache.dll\n");
+        //    Warning("[gmRTX] - Failed to get CreateInterface from datacache.dll\n");
         //    FreeLibrary(datacacheModule);
         //    return;
         //}
@@ -384,42 +384,42 @@ void ModelLoadHooks::Initialize() {
         //// Get the MDLCache interface
         //g_pMDLCache = (IMDLCache*)createInterface(MDLCACHE_INTERFACE_VERSION, nullptr);
         //if (!g_pMDLCache) {
-        //    Warning("[RTXF2] - Failed to get MDLCache interface\n");
+        //    Warning("[gmRTX] - Failed to get MDLCache interface\n");
         //}
         //else {
-        //    Msg("[RTXF2] - Successfully loaded MDLCache interface\n");
+        //    Msg("[gmRTX] - Successfully loaded MDLCache interface\n");
         //}
 
         // Similarly for engine
-        Msg("[RTXF2 - Model Load Fixes] - Loading clientengine\n");
+        Msg("[gmRTX - Model Load Fixes] - Loading clientengine\n");
         HMODULE engineModule = LoadLibraryA("engine.dll");
         if (!engineModule) {
-            Warning("[RTXF2] - Failed to load engine.dll: error code %d\n", GetLastError());
+            Warning("[gmRTX] - Failed to load engine.dll: error code %d\n", GetLastError());
             return;
         }
 
         CreateInterfaceFn createInterface = (CreateInterfaceFn)GetProcAddress(engineModule, "CreateInterface");
         if (!createInterface) {
-            Warning("[RTXF2] - Failed to get CreateInterface from engine.dll\n");
+            Warning("[gmRTX] - Failed to get CreateInterface from engine.dll\n");
             FreeLibrary(engineModule);
             return;
         }
 
         engineClient = (IVEngineClient*)createInterface(VENGINE_CLIENT_INTERFACE_VERSION, nullptr);
         if (!engineClient) {
-            Warning("[RTXF2] - Failed to get engine client interface\n");
+            Warning("[gmRTX] - Failed to get engine client interface\n");
         }
         else {
-            Msg("[RTXF2] - Successfully loaded engine client interface\n");
+            Msg("[gmRTX] - Successfully loaded engine client interface\n");
         }
 #else
-        Msg("[RTXF2 - Model Load Fixes] - Loading datacache\n");
+        Msg("[gmRTX - Model Load Fixes] - Loading datacache\n");
         if (!Sys_LoadInterface("datacache", MDLCACHE_INTERFACE_VERSION, NULL, (void**)&g_pMDLCache))
-            Warning("[RTXF2 - Model Load Fixes] - Could not load studiorender interface");
+            Warning("[gmRTX - Model Load Fixes] - Could not load studiorender interface");
 
-        Msg("[RTXF2 - Model Load Fixes] - Loading clientengine\n");
+        Msg("[gmRTX - Model Load Fixes] - Loading clientengine\n");
         if (!Sys_LoadInterface("engine", VENGINE_CLIENT_INTERFACE_VERSION, NULL, (void**)&engineClient))
-            Warning("[RTXF2 - Model Load Fixes] - Could not load clientengine interface");
+            Warning("[gmRTX - Model Load Fixes] - Could not load clientengine interface");
 
 #endif // _WIN32
 
@@ -430,7 +430,7 @@ void ModelLoadHooks::Initialize() {
         }
 
         if (!fsModule) {
-            Warning("[RTXF2 - Model Load Fixes] - Could not find filesystem module");
+            Warning("[gmRTX - Model Load Fixes] - Could not find filesystem module");
             return;
         }
 
@@ -444,21 +444,21 @@ void ModelLoadHooks::Initialize() {
         void* openFunc = ScanSign(fsModule, openSig, sizeof(openSig) - 1);
 
         if (!openFunc) {
-            Warning("[RTXF2 - Model Load Fixes] - Could not find IFileSystem::OpenEx with signature");
+            Warning("[gmRTX - Model Load Fixes] - Could not find IFileSystem::OpenEx with signature");
             return;
         }
 
-        Msg("[RTXF2 - Model Load Fixes] Found IFileSystem::OpenEx at %p\n", openFunc);
+        Msg("[gmRTX - Model Load Fixes] Found IFileSystem::OpenEx at %p\n", openFunc);
 
         // Set up the hook directly on the function
         Setup_Hook(IFileSystem_OpenEx, openFunc);
-        Msg("[RTXF2 - Model Load Fixes] Successfully hooked IFileSystem::OpenEx\n");
+        Msg("[gmRTX - Model Load Fixes] Successfully hooked IFileSystem::OpenEx\n");
 
         ForceModelReload();
 		ForceModelReloadViaEngine();
     }
     catch (...) {
-        Msg("[RTXF2 - Model Load Fixes] Exception in ModelLoadHooks::Initialize\n");
+        Msg("[gmRTX - Model Load Fixes] Exception in ModelLoadHooks::Initialize\n");
     }
 }
 
@@ -474,9 +474,9 @@ void ModelLoadHooks::Shutdown() {
         g_pMDLCache = nullptr;
         engineClient = nullptr;
         
-        Msg("[RTXF2 - Model Load Fixes] Shutdown complete\n");
+        Msg("[gmRTX - Model Load Fixes] Shutdown complete\n");
     }
     catch (...) {
-        Error("[RTXF2 - Model Load Fixes] Exception during shutdown\n");
+        Error("[gmRTX - Model Load Fixes] Exception during shutdown\n");
     }
 }

@@ -229,17 +229,17 @@ void HardwareSkinningHooks::Initialize() {
 
         // get g_pHardwareConfig global interface (MATERIALSYSTEM_HARDWARECONFIG_INTERFACE_VERSION)
 #ifdef _WIN32
-		Msg("[RTXF2 - Binary Module] - Loading materialsystem\n");
+		Msg("[gmRTX - Binary Module] - Loading materialsystem\n");
         HMODULE materialsystemLib = LoadLibraryA("materialsystem.dll");
         if (!materialsystemLib) {
-            Warning("[RTXF2] - Failed to load materialsystem.dll: error code %d\n", GetLastError());
+            Warning("[gmRTX] - Failed to load materialsystem.dll: error code %d\n", GetLastError());
             return;
         }
 
         using CreateInterfaceFn = void* (*)(const char* pName, int* pReturnCode);
         CreateInterfaceFn createInterface = (CreateInterfaceFn)GetProcAddress(materialsystemLib, "CreateInterface");
         if (!createInterface) {
-            Warning("[RTXF2] - Could not get CreateInterface from materialsystem.dll\n");
+            Warning("[gmRTX] - Could not get CreateInterface from materialsystem.dll\n");
             return;
         }
         g_pHardwareConfig = (IMaterialSystemHardwareConfig*)createInterface(MATERIALSYSTEM_HARDWARECONFIG_INTERFACE_VERSION, nullptr);

@@ -53,7 +53,7 @@ end
 
 -- RTX initialization
 local function RTXLoad()
-    DebugPrint("[RTXF2] - Initializing Client")
+    DebugPrint("[gmRTX] - Initializing Client")
 
     -- Set up console commands
     RunConsoleCommand("r_radiosity", "0")
@@ -111,17 +111,17 @@ if jit.arch == "x64" then
     
     -- Hook into SpawniconGenerated: Disable RT while icons are generating
     hook.Add("SpawniconGenerated", "RTXFixes_HandleSpawniconGenerated", function(lastmodel, imagename, modelsleft)
-        DebugPrint(string.format("[RTXF2] SpawniconGenerated hook called. Models left: %s, isRaytracingDisabledBySpawnmenu = %s", tostring(modelsleft), tostring(isRaytracingDisabledBySpawnmenu)))
+        DebugPrint(string.format("[gmRTX] SpawniconGenerated hook called. Models left: %s, isRaytracingDisabledBySpawnmenu = %s", tostring(modelsleft), tostring(isRaytracingDisabledBySpawnmenu)))
         
         -- First, always cancel any pending timers to re-enable RT
         if timer.Exists(spawnIconTimerName) then
             timer.Remove(spawnIconTimerName)
-            DebugPrint("[RTXF2] Cancelled timer to re-enable RT (new icons are being generated)")
+            DebugPrint("[gmRTX] Cancelled timer to re-enable RT (new icons are being generated)")
         end
     
         -- Disable RT if it hasn't already been disabled by us
         if not isRaytracingDisabledBySpawnmenu then
-            DebugPrint("[RTXF2] SpawniconGenerated hook: Disabling RT for icon generation...")
+            DebugPrint("[gmRTX] SpawniconGenerated hook: Disabling RT for icon generation...")
             local success, err = pcall(function()
                 if RemixConfig and RemixConfig.SetRaytracing then
                     return RemixConfig.SetRaytracing(false)
@@ -130,10 +130,10 @@ if jit.arch == "x64" then
                 end
             end)
             if success then
-                DebugPrint("[RTXF2] SpawniconGenerated hook: RemixConfig.SetRaytracing(false) call succeeded.")
+                DebugPrint("[gmRTX] SpawniconGenerated hook: RemixConfig.SetRaytracing(false) call succeeded.")
                 isRaytracingDisabledBySpawnmenu = true
             else
-                DebugPrint("[RTXF2] SpawniconGenerated hook: Warning: Failed to disable raytracing. Error: " .. tostring(err))
+                DebugPrint("[gmRTX] SpawniconGenerated hook: Warning: Failed to disable raytracing. Error: " .. tostring(err))
             end
         end
     
@@ -141,7 +141,7 @@ if jit.arch == "x64" then
         -- This will get constantly reset as long as icons are being generated
         timer.Create(spawnIconTimerName, 3, 1, function()
             if isRaytracingDisabledBySpawnmenu then
-                DebugPrint("[RTXF2] Timer: Re-enabling RT after icon generation completed...")
+                DebugPrint("[gmRTX] Timer: Re-enabling RT after icon generation completed...")
                 local success, err = pcall(function()
                     if RemixConfig and RemixConfig.SetRaytracing then
                         return RemixConfig.SetRaytracing(true)
@@ -150,29 +150,29 @@ if jit.arch == "x64" then
                     end
                 end)
                 if success then
-                    DebugPrint("[RTXF2] Timer: RemixConfig.SetRaytracing(true) call succeeded.")
+                    DebugPrint("[gmRTX] Timer: RemixConfig.SetRaytracing(true) call succeeded.")
                     isRaytracingDisabledBySpawnmenu = false
                 else
-                    DebugPrint("[RTXF2] Timer: Warning: Failed to re-enable raytracing. Error: " .. tostring(err))
+                    DebugPrint("[gmRTX] Timer: Warning: Failed to re-enable raytracing. Error: " .. tostring(err))
                     -- Even if the call fails, reset the flag
                     isRaytracingDisabledBySpawnmenu = false
                 end
             else
-                DebugPrint("[RTXF2] Timer: Skipped enabling RT (was not disabled by us).")
+                DebugPrint("[gmRTX] Timer: Skipped enabling RT (was not disabled by us).")
             end
         end)
     end)
     
     hook.Remove("FinishToolMode", "RTXFixes_EnableRTOnFinishToolMode")
     
-    DebugPrint("[RTXF2] Spawnicon RT toggle hooks initialized (Using SpawniconGenerated + timer).")
+    DebugPrint("[gmRTX] Spawnicon RT toggle hooks initialized (Using SpawniconGenerated + timer).")
     
     -- Test Toggle Command --
     local currentRaytracingState = true -- Assume it starts enabled (default)
     
     local function ToggleRaytracingCommand()
         currentRaytracingState = not currentRaytracingState -- Flip the state
-        DebugPrint("[RTXF2] Toggling raytracing via command. Setting enabled to: " .. tostring(currentRaytracingState))
+        DebugPrint("[gmRTX] Toggling raytracing via command. Setting enabled to: " .. tostring(currentRaytracingState))
         local success, err = pcall(function()
             if RemixConfig and RemixConfig.SetRaytracing then
                 return RemixConfig.SetRaytracing(currentRaytracingState)
@@ -181,15 +181,15 @@ if jit.arch == "x64" then
             end
         end)
         if success then
-            DebugPrint("[RTXF2] Successfully called RemixConfig.SetRaytracing.")
+            DebugPrint("[gmRTX] Successfully called RemixConfig.SetRaytracing.")
         else
-            DebugPrint("[RTXF2] Warning: Failed to toggle raytracing via command. Error: " .. tostring(err))
+            DebugPrint("[gmRTX] Warning: Failed to toggle raytracing via command. Error: " .. tostring(err))
             -- Flip state back if the call failed, so the next toggle attempt is correct
             currentRaytracingState = not currentRaytracingState
         end
     end
     concommand.Add("rtx_toggle_raytracing", ToggleRaytracingCommand)
-    DebugPrint("[RTXF2] Added console command: rtx_toggle_raytracing")
+    DebugPrint("[gmRTX] Added console command: rtx_toggle_raytracing")
     
     -- HUD notification for RT disabled state
     hook.Add("HUDPaint", "RTXFixes_RTDisabledNotification", function()
@@ -220,5 +220,5 @@ if jit.arch == "x64" then
         end
     end)
 else
-    DebugPrint("[RTXF2] RT toggle features disabled: x64 required (current: " .. jit.arch .. ")")
+    DebugPrint("[gmRTX] RT toggle features disabled: x64 required (current: " .. jit.arch .. ")")
 end

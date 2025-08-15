@@ -70,7 +70,7 @@ __declspec(selectany) PfnDliHook __pfnDliNotifyHook2 = MyDelayLoadHook;
 // Lua function implementations for static lighting control
 LUA_FUNCTION(SetForceStaticLighting_Lua) {
     try {
-        Msg("[RTXF2 - Binary Module] SetForceStaticLighting_Lua called\n");
+        Msg("[gmRTX - Binary Module] SetForceStaticLighting_Lua called\n");
         
         if (!LUA->IsType(1, GarrysMod::Lua::Type::Bool)) {
             LUA->ThrowError("Expected boolean argument for SetForceStaticLighting");
@@ -78,30 +78,30 @@ LUA_FUNCTION(SetForceStaticLighting_Lua) {
         }
         
         bool enable = LUA->GetBool(1);
-        Msg("[RTXF2 - Binary Module] Setting force static lighting to: %s\n", enable ? "true" : "false");
+        Msg("[gmRTX - Binary Module] Setting force static lighting to: %s\n", enable ? "true" : "false");
         
         // Use the SetForceStaticLighting function which will update both the global var and ConVar
         SetForceStaticLighting(enable);
         return 0;
     }
     catch (...) {
-        Error("[RTXF2 - Binary Module] Exception in SetForceStaticLighting\n");
+        Error("[gmRTX - Binary Module] Exception in SetForceStaticLighting\n");
         return 0;
     }
 }
 
 LUA_FUNCTION(GetForceStaticLighting_Lua) {
     try {
-        Msg("[RTXF2 - Binary Module] GetForceStaticLighting_Lua called\n");
+        Msg("[gmRTX - Binary Module] GetForceStaticLighting_Lua called\n");
         
         // Use the GetForceStaticLighting function which checks ConVar first
         bool enabled = GetForceStaticLighting();
-        Msg("[RTXF2 - Binary Module] Current force static lighting state: %s\n", enabled ? "true" : "false");
+        Msg("[gmRTX - Binary Module] Current force static lighting state: %s\n", enabled ? "true" : "false");
         LUA->PushBool(enabled);
         return 1;
     }
     catch (...) {
-        Error("[RTXF2 - Binary Module] Exception in GetForceStaticLighting\n");
+        Error("[gmRTX - Binary Module] Exception in GetForceStaticLighting\n");
         LUA->PushBool(false);
         return 1;
     }
@@ -109,7 +109,7 @@ LUA_FUNCTION(GetForceStaticLighting_Lua) {
 
 LUA_FUNCTION(SetModelDrawHookEnabled_Lua) {
     try {
-        Msg("[RTXF2 - Binary Module] SetModelDrawHookEnabled_Lua called\n");
+        Msg("[gmRTX - Binary Module] SetModelDrawHookEnabled_Lua called\n");
         
         if (!LUA->IsType(1, GarrysMod::Lua::Type::Bool)) {
             LUA->ThrowError("Expected boolean argument for SetModelDrawHookEnabled");
@@ -117,26 +117,26 @@ LUA_FUNCTION(SetModelDrawHookEnabled_Lua) {
         }
         
         bool enable = LUA->GetBool(1);
-        Msg("[RTXF2 - Binary Module] Setting model draw hook enabled to: %s\n", enable ? "true" : "false");
+        Msg("[gmRTX - Binary Module] Setting model draw hook enabled to: %s\n", enable ? "true" : "false");
         SetModelDrawHookEnabled(enable);
         return 0;
     }
     catch (...) {
-        Error("[RTXF2 - Binary Module] Exception in SetModelDrawHookEnabled\n");
+        Error("[gmRTX - Binary Module] Exception in SetModelDrawHookEnabled\n");
         return 0;
     }
 }
 
 GMOD_MODULE_OPEN() { 
     try {
-        Msg("[RTXF2 - Binary Module] - Module loaded!\n"); 
+        Msg("[gmRTX - Binary Module] - Module loaded!\n"); 
 
         // Remix initialization is only available in 64-bit builds for now
 #ifdef _WIN64
         // Find Source's D3D9 device
         auto sourceDevice = static_cast<IDirect3DDevice9Ex*>(FindD3D9Device());
         if (!sourceDevice) {
-            LUA->ThrowError("[RTXF2 - Binary Module] Failed to find D3D9 device");
+            LUA->ThrowError("[gmRTX - Binary Module] Failed to find D3D9 device");
             return 0;
         }
         
@@ -148,14 +148,14 @@ GMOD_MODULE_OPEN() {
             g_remix = new remix::Interface{ *interf };
         }
         else {
-            LUA->ThrowError("[RTXF2 - Binary Module] - remix::loadRemixDllAndInitialize() failed"); 
+            LUA->ThrowError("[gmRTX - Binary Module] - remix::loadRemixDllAndInitialize() failed"); 
         }
 
         g_remix->dxvk_RegisterD3D9Device(sourceDevice);
 
         // Initialize the new comprehensive RemixAPI
         if (!RemixAPI::RemixAPI::Instance().Initialize(g_remix, LUA)) {
-            LUA->ThrowError("[RTXF2 - Binary Module] Failed to initialize RemixAPI");
+            LUA->ThrowError("[gmRTX - Binary Module] Failed to initialize RemixAPI");
             return 0;
         }
 
@@ -183,15 +183,15 @@ GMOD_MODULE_OPEN() {
         LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB); 
 
         // Static lighting control functions
-        Msg("[RTXF2 - Binary Module] Registering SetForceStaticLighting Lua function...\n");
+        Msg("[gmRTX - Binary Module] Registering SetForceStaticLighting Lua function...\n");
         LUA->PushCFunction(SetForceStaticLighting_Lua);
         LUA->SetField(-2, "SetForceStaticLighting");
 
-        Msg("[RTXF2 - Binary Module] Registering GetForceStaticLighting Lua function...\n");
+        Msg("[gmRTX - Binary Module] Registering GetForceStaticLighting Lua function...\n");
         LUA->PushCFunction(GetForceStaticLighting_Lua);
         LUA->SetField(-2, "GetForceStaticLighting");
 
-        Msg("[RTXF2 - Binary Module] Registering SetModelDrawHookEnabled Lua function...\n");
+        Msg("[gmRTX - Binary Module] Registering SetModelDrawHookEnabled Lua function...\n");
         LUA->PushCFunction(SetModelDrawHookEnabled_Lua);
         LUA->SetField(-2, "SetModelDrawHookEnabled");
 
@@ -203,18 +203,18 @@ GMOD_MODULE_OPEN() {
 
         LUA->Pop();
 
-        Msg("[RTXF2 - Binary Module] Module initialization completed successfully!\n");
+        Msg("[gmRTX - Binary Module] Module initialization completed successfully!\n");
         return 0;
     }
     catch (...) {
-        Error("[RTXF2 - Binary Module] Exception in module initialization\n");
+        Error("[gmRTX - Binary Module] Exception in module initialization\n");
         return 0;
     }
 }
 
 GMOD_MODULE_CLOSE() {
     try {
-        Msg("[RTXF2 - Binary Module] Shutting down module...\n");
+        Msg("[gmRTX - Binary Module] Shutting down module...\n");
 
 #ifdef _WIN64
         RemixAPI::RemixAPI::Instance().Shutdown();
@@ -236,11 +236,11 @@ GMOD_MODULE_CLOSE() {
         }
 #endif
 
-        Msg("[RTXF2 - Binary Module] Module shutdown complete\n");
+        Msg("[gmRTX - Binary Module] Module shutdown complete\n");
         return 0;
     }
     catch (...) {
-        Error("[RTXF2 - Binary Module] Exception in module shutdown\n");
+        Error("[gmRTX - Binary Module] Exception in module shutdown\n");
         return 0;
     }
 }

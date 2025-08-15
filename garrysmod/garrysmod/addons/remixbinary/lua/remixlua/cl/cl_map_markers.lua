@@ -122,7 +122,7 @@ function MapMarker:AddMarker(name, pos, ang, color)
         mesh = self:GenerateMesh(id)
     }
     
-    print("[RTXF2 - Map Markers] Created marker '" .. name .. "' with hash: " .. id)
+    print("[gmRTX - Map Markers] Created marker '" .. name .. "' with hash: " .. id)
     return id
 end
 
@@ -204,7 +204,7 @@ function MapMarker:CreateSpawnMarker()
             net.Broadcast()
         end
         
-        MsgC(Color(0, 255, 200), "[RTXF2 - Map Markers] Added spawn marker at " .. tostring(markerPos) .. "\n")
+        MsgC(Color(0, 255, 200), "[gmRTX - Map Markers] Added spawn marker at " .. tostring(markerPos) .. "\n")
         return id
     end
     
@@ -223,7 +223,7 @@ end
 
 -- Initialize the marker system
 function MapMarker:Initialize()
-    MsgC(Color(0, 255, 200), "[RTXF2 - Map Markers] Initializing Map Marker Marker System\n")
+    MsgC(Color(0, 255, 200), "[gmRTX - Map Markers] Initializing Map Marker Marker System\n")
     
     -- Initialize hooks for rendering
     hook.Add("PostDrawOpaqueRenderables", "RenderMapMarkerMarkers", function()
@@ -252,7 +252,7 @@ function MapMarker:Cleanup()
     self.Meshes = {}
     self.Markers = {}
     
-    MsgC(Color(0, 255, 200), "[RTXF2 - Map Markers] Map Marker Marker System cleaned up\n")
+    MsgC(Color(0, 255, 200), "[gmRTX - Map Markers] Map Marker Marker System cleaned up\n")
 end
 
 -- Add console commands

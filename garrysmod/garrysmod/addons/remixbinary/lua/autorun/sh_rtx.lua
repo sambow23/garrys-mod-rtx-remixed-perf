@@ -4,20 +4,20 @@ local function LoadSharedFiles()
 	local files, _ = file.Find("remixlua/sh/*.lua", "LUA")
 	
 	if files then
-		print("[RTXF2-SH] Loading " .. #files .. " shared files...")
+		print("[gmRTX-SH] Loading " .. #files .. " shared files...")
 		
 		for _, fileName in ipairs(files) do
 			local filePath = "remixlua/sh/" .. fileName
 			local success, err = pcall(include, filePath)
 			
 			if not success then
-				print("[RTXF2-SH] Warning: Failed to load shared file: " .. filePath .. " - Error: " .. tostring(err))
+				print("[gmRTX-SH] Warning: Failed to load shared file: " .. filePath .. " - Error: " .. tostring(err))
 			else
-				print("[RTXF2-SH] Successfully loaded shared file: " .. filePath)
+				print("[gmRTX-SH] Successfully loaded shared file: " .. filePath)
 			end
 		end
 	else
-		print("[RTXF2-SH] No shared files found")
+		print("[gmRTX-SH] No shared files found")
 	end
 end
 

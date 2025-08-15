@@ -27,7 +27,7 @@ function ENT:Initialize()
 		weaponmodel = LocalPlayer():GetActiveWeapon():GetModel()
 	end
 
-	print("[RTXF2] - Pseudoweapon Initialised.")
+	print("[gmRTX] - Pseudoweapon Initialised.")
 	self:SetModel(weaponmodel)
 	self:SetParent(LocalPlayer():GetActiveWeapon())
 	self:AddEffects( EF_BONEMERGE ) 
