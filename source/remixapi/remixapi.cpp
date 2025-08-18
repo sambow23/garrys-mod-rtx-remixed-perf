@@ -1,6 +1,8 @@
 #ifdef _WIN64
 #include "remixapi.h"
 #include "rtx_option_defaults.h"
+#include <Windows.h>
+#include <remix/remix_c.h>
 #include <tier0/dbg.h>
 #include <algorithm>
 #include <filesystem>
@@ -17,6 +19,21 @@ extern IDirect3DDevice9Ex* g_d3dDevice;
 using namespace GarrysMod::Lua;
 
 namespace RemixAPI {
+// Resolve optional Remix C API extension at runtime to avoid compile-time dependency on wrapper additions
+static PFN_remixapi_AutoInstancePersistentLights s_pfnAutoInstancePersistentLights = nullptr;
+
+static void EnsureRemixCApiResolved() {
+    static bool resolved = false;
+    if (resolved)
+        return;
+    
+    HMODULE hRemix = GetModuleHandleA("d3d9.dll");
+    if (hRemix) {
+        s_pfnAutoInstancePersistentLights = reinterpret_cast<PFN_remixapi_AutoInstancePersistentLights>(
+            GetProcAddress(hRemix, "remixapi_AutoInstancePersistentLights"));
+        resolved = true;
+    }
+}
 
 //=============================================================================
 // RemixAPI Main Class
@@ -57,6 +74,7 @@ bool RemixAPI::Initialize(remix::Interface* remixInterface, GarrysMod::Lua::ILua
         m_instanceManager = std::make_unique<InstanceManager>(remixInterface, LUA);
         m_configManager = std::make_unique<ConfigManager>(remixInterface, LUA);
         m_resourceManager = std::make_unique<ResourceManager>(remixInterface, LUA);
+        m_lightManager = std::make_unique<LightManager>(remixInterface, LUA);
 
             // Initialize Lua bindings for all managers
         m_materialManager->InitializeLuaBindings();
@@ -65,6 +83,7 @@ bool RemixAPI::Initialize(remix::Interface* remixInterface, GarrysMod::Lua::ILua
         m_instanceManager->InitializeLuaBindings();
         m_configManager->InitializeLuaBindings();
         m_resourceManager->InitializeLuaBindings();
+        m_lightManager->InitializeLuaBindings();
 
     m_initialized = true;
     Msg("[RemixAPI] Initialization complete\n");
@@ -75,6 +94,7 @@ void RemixAPI::Shutdown() {
     if (!m_initialized) return;
 
     m_resourceManager.reset();
+    m_lightManager.reset();
     m_configManager.reset();
     m_instanceManager.reset();
     m_cameraManager.reset();
@@ -91,12 +111,347 @@ void RemixAPI::Shutdown() {
 void RemixAPI::Present() {
     if (!m_initialized || !m_remixInterface) return;
     
+    // Ensure external API lights are auto-instanced and pending updates are flushed once per frame
+    if (m_lightManager) {
+        m_lightManager->SubmitLightsForCurrentFrame();
+    }
+
     remixapi_PresentInfo presentInfo = {};
     presentInfo.sType = REMIXAPI_STRUCT_TYPE_PRESENT_INFO;
     presentInfo.pNext = nullptr;
     presentInfo.hwndOverride = nullptr;
     
     m_remixInterface->Present(&presentInfo);
+}
+
+//=============================================================================
+// LightManager
+//=============================================================================
+LightManager::LightManager(remix::Interface* remixInterface, GarrysMod::Lua::ILuaBase* LUA)
+    : m_remixInterface(remixInterface)
+    , m_lua(LUA) {
+}
+
+LightManager::~LightManager() {
+    ClearAllLights();
+}
+
+uint64_t LightManager::CreateSphereLight(const remix::LightInfo& base, const remix::LightInfoSphereEXT& ext, uint64_t entityId) {
+    if (!m_remixInterface) return 0;
+    
+    std::lock_guard<std::mutex> guard(m_mutex);
+    remix::LightInfo info = base;
+    info.pNext = const_cast<remix::LightInfoSphereEXT*>(&ext);
+    
+    // Use batched API for safer light creation
+    auto created = m_remixInterface->CreateLightBatched(info);
+        
+    if (!created) {
+        Error("[LightManager] Failed to create sphere light: %d\n", created.status());
+        return 0;
+    }
+    
+    uint64_t id = m_nextLightId++;
+    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = true; ml.cachedBase = base; ml.cachedBase.pNext = nullptr; ml.cachedSphere = ext;
+    m_lights.emplace(id, std::move(ml));
+    if (entityId) m_entityToLight.emplace(entityId, id);
+    return id;
+}
+
+uint64_t LightManager::CreateRectLight(const remix::LightInfo& base, const remix::LightInfoRectEXT& ext, uint64_t entityId) {
+    if (!m_remixInterface) return 0;
+    
+    std::lock_guard<std::mutex> guard(m_mutex);
+    remix::LightInfo info = base;
+    info.pNext = const_cast<remix::LightInfoRectEXT*>(&ext);
+    
+    // Use batched API for safer light creation
+    auto created = m_remixInterface->CreateLightBatched(info);
+        
+    if (!created) {
+        Error("[LightManager] Failed to create rect light: %d\n", created.status());
+        return 0;
+    }
+    
+    uint64_t id = m_nextLightId++;
+    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr; // no sphere cache
+    m_lights.emplace(id, std::move(ml));
+    if (entityId) m_entityToLight.emplace(entityId, id);
+    return id;
+}
+
+uint64_t LightManager::CreateDiskLight(const remix::LightInfo& base, const remix::LightInfoDiskEXT& ext, uint64_t entityId) {
+    if (!m_remixInterface) return 0;
+    
+    std::lock_guard<std::mutex> guard(m_mutex);
+    remix::LightInfo info = base;
+    info.pNext = const_cast<remix::LightInfoDiskEXT*>(&ext);
+    
+    // Use batched API for safer light creation
+    auto created = m_remixInterface->CreateLightBatched(info);
+        
+    if (!created) {
+        Error("[LightManager] Failed to create disk light: %d\n", created.status());
+        return 0;
+    }
+    
+    uint64_t id = m_nextLightId++;
+    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
+    m_lights.emplace(id, std::move(ml));
+    if (entityId) m_entityToLight.emplace(entityId, id);
+    return id;
+}
+
+uint64_t LightManager::CreateDistantLight(const remix::LightInfo& base, const remix::LightInfoDistantEXT& ext, uint64_t entityId) {
+    if (!m_remixInterface) return 0;
+    
+    std::lock_guard<std::mutex> guard(m_mutex);
+    remix::LightInfo info = base;
+    info.pNext = const_cast<remix::LightInfoDistantEXT*>(&ext);
+    
+    // Use batched API for safer light creation
+    auto created = m_remixInterface->CreateLightBatched(info);
+        
+    if (!created) {
+        Error("[LightManager] Failed to create distant light: %d\n", created.status());
+        return 0;
+    }
+    
+    uint64_t id = m_nextLightId++;
+    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
+    m_lights.emplace(id, std::move(ml));
+    if (entityId) m_entityToLight.emplace(entityId, id);
+    return id;
+}
+
+uint64_t LightManager::CreateCylinderLight(const remix::LightInfo& base, const remix::LightInfoCylinderEXT& ext, uint64_t entityId) {
+    if (!m_remixInterface) return 0;
+    
+    std::lock_guard<std::mutex> guard(m_mutex);
+    remix::LightInfo info = base; info.pNext = const_cast<remix::LightInfoCylinderEXT*>(&ext);
+    
+    // Use batched API for safer light creation
+    auto created = m_remixInterface->CreateLightBatched(info);
+        
+    if (!created) {
+        Error("[LightManager] Failed to create cylinder light: %d\n", created.status());
+        return 0;
+    }
+    
+    uint64_t id = m_nextLightId++;
+    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
+    m_lights.emplace(id, std::move(ml));
+    if (entityId) m_entityToLight.emplace(entityId, id);
+    return id;
+}
+
+uint64_t LightManager::CreateDomeLight(const remix::LightInfo& base, const remix::LightInfoDomeEXT& ext, uint64_t entityId) {
+    if (!m_remixInterface) return 0;
+    
+    std::lock_guard<std::mutex> guard(m_mutex);
+    remix::LightInfo info = base; info.pNext = const_cast<remix::LightInfoDomeEXT*>(&ext);
+    
+    // Use batched API for safer light creation
+    auto created = m_remixInterface->CreateLightBatched(info);
+        
+    if (!created) {
+        Error("[LightManager] Failed to create dome light: %d\n", created.status());
+        return 0;
+    }
+    
+    uint64_t id = m_nextLightId++;
+    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
+    m_lights.emplace(id, std::move(ml));
+    if (entityId) m_entityToLight.emplace(entityId, id);
+    return id;
+}
+
+bool LightManager::DestroyLight(uint64_t lightId) {
+    remixapi_LightHandle handleToDestroy = nullptr;
+    uint64_t entityId = 0;
+    
+    {
+        std::lock_guard<std::mutex> guard(m_mutex);
+        auto it = m_lights.find(lightId);
+        if (it == m_lights.end()) {
+            // Light not found - might have already been destroyed
+            Msg("[LightManager] Warning: Attempted to destroy non-existent light ID %llu\n", lightId);
+            return false;
+        }
+        
+        handleToDestroy = it->second.handle;
+        entityId = it->second.entityId;
+        
+        // remove from entity map while holding the lock
+        if (it->second.entityId) {
+            auto range = m_entityToLight.equal_range(it->second.entityId);
+            for (auto r = range.first; r != range.second; ) {
+                if (r->second == lightId) r = m_entityToLight.erase(r); 
+                else ++r;
+            }
+        }
+        m_lights.erase(it);
+    }
+    
+    // Destroy the light handle outside of the mutex lock
+    // The batched API will handle persistent light unregistration internally
+    if (handleToDestroy) {
+        m_remixInterface->DestroyLight(handleToDestroy);
+        Msg("[LightManager] Destroyed light ID %llu (entity %llu, handle %p)\n", lightId, entityId, handleToDestroy);
+    }
+    
+    return true;
+}
+
+bool LightManager::UpdateSphereLight(uint64_t lightId, const remix::LightInfo& base, const remix::LightInfoSphereEXT& ext) {
+    std::lock_guard<std::mutex> guard(m_mutex);
+    auto it = m_lights.find(lightId);
+    if (it == m_lights.end() || !it->second.handle) return false;
+    remix::LightInfo info = base; info.pNext = const_cast<remix::LightInfoSphereEXT*>(&ext);
+    auto ok = m_remixInterface->UpdateLightDefinition(it->second.handle, info);
+    if (ok) { it->second.cachedBase = base; it->second.cachedBase.pNext = nullptr; it->second.cachedSphere = ext; it->second.isSphere = true; }
+    return ok;
+}
+
+bool LightManager::UpdateRectLight(uint64_t lightId, const remix::LightInfo& base, const remix::LightInfoRectEXT& ext) {
+    std::lock_guard<std::mutex> guard(m_mutex);
+    auto it = m_lights.find(lightId);
+    if (it == m_lights.end() || !it->second.handle) return false;
+    remix::LightInfo info = base; info.pNext = const_cast<remix::LightInfoRectEXT*>(&ext);
+    return m_remixInterface->UpdateLightDefinition(it->second.handle, info);
+}
+
+bool LightManager::UpdateDiskLight(uint64_t lightId, const remix::LightInfo& base, const remix::LightInfoDiskEXT& ext) {
+    std::lock_guard<std::mutex> guard(m_mutex);
+    auto it = m_lights.find(lightId);
+    if (it == m_lights.end() || !it->second.handle) return false;
+    remix::LightInfo info = base; info.pNext = const_cast<remix::LightInfoDiskEXT*>(&ext);
+    return m_remixInterface->UpdateLightDefinition(it->second.handle, info);
+}
+
+bool LightManager::UpdateDistantLight(uint64_t lightId, const remix::LightInfo& base, const remix::LightInfoDistantEXT& ext) {
+    std::lock_guard<std::mutex> guard(m_mutex);
+    auto it = m_lights.find(lightId);
+    if (it == m_lights.end() || !it->second.handle) return false;
+    remix::LightInfo info = base; info.pNext = const_cast<remix::LightInfoDistantEXT*>(&ext);
+    return m_remixInterface->UpdateLightDefinition(it->second.handle, info);
+}
+
+bool LightManager::UpdateCylinderLight(uint64_t lightId, const remix::LightInfo& base, const remix::LightInfoCylinderEXT& ext) {
+    std::lock_guard<std::mutex> guard(m_mutex);
+    auto it = m_lights.find(lightId);
+    if (it == m_lights.end() || !it->second.handle) return false;
+    remix::LightInfo info = base; info.pNext = const_cast<remix::LightInfoCylinderEXT*>(&ext);
+    return m_remixInterface->UpdateLightDefinition(it->second.handle, info);
+}
+
+bool LightManager::UpdateDomeLight(uint64_t lightId, const remix::LightInfo& base, const remix::LightInfoDomeEXT& ext) {
+    std::lock_guard<std::mutex> guard(m_mutex);
+    auto it = m_lights.find(lightId);
+    if (it == m_lights.end() || !it->second.handle) return false;
+    remix::LightInfo info = base; info.pNext = const_cast<remix::LightInfoDomeEXT*>(&ext);
+    return m_remixInterface->UpdateLightDefinition(it->second.handle, info);
+}
+bool LightManager::HasLight(uint64_t lightId) const {
+    return m_lights.find(lightId) != m_lights.end();
+}
+
+bool LightManager::HasLightForEntity(uint64_t entityId) const {
+    return m_entityToLight.find(entityId) != m_entityToLight.end();
+}
+
+std::vector<uint64_t> LightManager::GetLightsForEntity(uint64_t entityId) const {
+    std::vector<uint64_t> out;
+    auto range = m_entityToLight.equal_range(entityId);
+    for (auto it = range.first; it != range.second; ++it) out.push_back(it->second);
+    return out;
+}
+
+std::vector<uint64_t> LightManager::GetAllLightIds() const {
+    std::vector<uint64_t> out; out.reserve(m_lights.size());
+    for (const auto& kv : m_lights) out.push_back(kv.first);
+    return out;
+}
+
+bool LightManager::GetSphereState(uint64_t lightId, remix::LightInfo& outBase, remix::LightInfoSphereEXT& outSphere) const {
+    auto it = m_lights.find(lightId);
+    if (it == m_lights.end() || !it->second.isSphere) return false;
+    outBase = it->second.cachedBase; outBase.pNext = nullptr;
+    outSphere = it->second.cachedSphere;
+    return true;
+}
+
+bool LightManager::ApplySphereState(uint64_t lightId, const remix::LightInfo& base, const remix::LightInfoSphereEXT& sphere) {
+    return UpdateSphereLight(lightId, base, sphere);
+}
+
+void LightManager::DestroyLightsForEntity(uint64_t entityId) {
+    std::vector<uint64_t> lightsToDestroy;
+    
+    // Collect light IDs while holding the lock
+    {
+        std::lock_guard<std::mutex> guard(m_mutex);
+        auto range = m_entityToLight.equal_range(entityId);
+        for (auto it = range.first; it != range.second; ++it) {
+            lightsToDestroy.push_back(it->second);
+        }
+    }
+    
+    // Destroy lights without holding the lock to avoid deadlock
+    for (uint64_t lightId : lightsToDestroy) {
+        DestroyLight(lightId);
+    }
+}
+
+void LightManager::ClearAllLights() {
+    std::vector<remixapi_LightHandle> handlesToDestroy;
+    
+    {
+        std::lock_guard<std::mutex> guard(m_mutex);
+        
+        // Collect all handles to destroy
+        for (auto& [id, light] : m_lights) {
+            if (light.handle) {
+                handlesToDestroy.push_back(light.handle);
+            }
+        }
+        
+        // Clear the maps while holding the lock
+        m_lights.clear();
+        m_entityToLight.clear();
+    }
+    
+    // Destroy all light handles outside of the mutex lock
+    // The batched API will handle persistent light unregistration internally
+    for (auto handle : handlesToDestroy) {
+        m_remixInterface->DestroyLight(handle);
+    }
+}
+
+size_t LightManager::GetLightCount() const {
+    return m_lights.size();
+}
+
+void LightManager::SubmitLightsForCurrentFrame() {
+    if (!m_remixInterface) return;
+    
+    // Only use auto-instancing OR manual submission, not both to avoid double submission
+    EnsureRemixCApiResolved();
+    if (s_pfnAutoInstancePersistentLights) {
+        // Use auto-instancing if available (preferred method)
+        s_pfnAutoInstancePersistentLights();
+        // Don't manually submit if auto-instancing is available
+        return;
+    }
+    
+    // Fallback to manual submission only if auto-instancing isn't available
+    // This ensures lights are submitted even without the auto-instance API
+    std::lock_guard<std::mutex> guard(m_mutex);
+    for (const auto& kv : m_lights) {
+        if (kv.second.handle) {
+            m_remixInterface->DrawLightInstance(kv.second.handle);
+        }
+    }
 }
 
 //=============================================================================

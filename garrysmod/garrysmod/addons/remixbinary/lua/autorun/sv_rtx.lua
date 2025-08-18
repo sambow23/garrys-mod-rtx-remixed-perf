@@ -89,3 +89,17 @@ if (SERVER) then
 	hook.Add( "PlayerInitialSpawn", "RTXReadyServer", RTXLoadServer)  
 
 end
+
+if SERVER then
+    util.AddNetworkString("remix_spawn_rt_light")
+    net.Receive("remix_spawn_rt_light", function(len, ply)
+        if not IsValid(ply) then return end
+        local pos = net.ReadVector()
+        local ent = ents.Create("remix_rt_light")
+        if not IsValid(ent) then return end
+        ent:SetPos(pos)
+        ent:SetAngles(Angle(0, ply:EyeAngles().y, 0))
+        ent:Spawn()
+        ent:Activate()
+    end)
+end

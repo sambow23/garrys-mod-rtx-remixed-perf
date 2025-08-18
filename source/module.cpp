@@ -30,6 +30,15 @@ extern IMaterialSystem* materials = NULL;
 // extern IShaderAPI* g_pShaderAPI = NULL;
 remix::Interface* g_remix = nullptr;
 IDirect3DDevice9Ex* g_d3dDevice = nullptr;
+
+// Remix API present auto-instancing callback
+typedef remixapi_ErrorCode (REMIXAPI_CALL* PFN_remixapi_AutoInstancePersistentLights)(void);
+static PFN_remixapi_AutoInstancePersistentLights g_pfnAutoInstancePersistentLights = nullptr;
+static void __stdcall RemixPresentCallback() {
+    if (g_pfnAutoInstancePersistentLights) {
+        g_pfnAutoInstancePersistentLights();
+    }
+}
 #endif
 
 using namespace GarrysMod::Lua;
@@ -65,6 +74,37 @@ GMOD_MODULE_OPEN() {
         if (!RemixAPI::RemixAPI::Instance().Initialize(g_remix, LUA)) {
             LUA->ThrowError("[gmRTX - Binary Module] Failed to initialize RemixAPI");
             return 0;
+        }
+
+        // Register native Remix API frame callbacks to submit lights (resolve dynamically)
+        {
+            typedef remixapi_ErrorCode (REMIXAPI_CALL* PFN_remixapi_RegisterCallbacks)(
+                PFN_remixapi_BridgeCallback,
+                PFN_remixapi_BridgeCallback,
+                PFN_remixapi_BridgeCallback);
+            HMODULE hRemix = nullptr;
+            if (g_remix && g_remix->m_RemixDLL) {
+                hRemix = g_remix->m_RemixDLL;
+            }
+            if (!hRemix) {
+                hRemix = GetModuleHandleA("d3d9.dll");
+            }
+            if (hRemix) {
+                // Resolve optional auto-instancing helper
+                g_pfnAutoInstancePersistentLights = reinterpret_cast<PFN_remixapi_AutoInstancePersistentLights>(
+                    GetProcAddress(hRemix, "remixapi_AutoInstancePersistentLights"));
+                auto pfnRegister = reinterpret_cast<PFN_remixapi_RegisterCallbacks>(
+                    GetProcAddress(hRemix, "remixapi_RegisterCallbacks"));
+                if (pfnRegister) {
+                    // Use present callback to auto-instance all persistent external API lights each frame
+                    PFN_remixapi_BridgeCallback presentCb = g_pfnAutoInstancePersistentLights ? &RemixPresentCallback : nullptr;
+                    pfnRegister(nullptr, nullptr, presentCb);
+                } else {
+                    Msg("[gmRTX - Binary Module] remixapi_RegisterCallbacks not found in d3d9.dll, skipping callback registration.\n");
+                }
+            } else {
+                Msg("[gmRTX - Binary Module] d3d9.dll not loaded yet, skipping callback registration.\n");
+            }
         }
 
         // Configure RTX settings through the new API
