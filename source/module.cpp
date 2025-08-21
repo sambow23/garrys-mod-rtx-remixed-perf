@@ -22,13 +22,6 @@
 #include "remixapi/remixapi.h"
 #endif // _WIN64
 
-#include "prop_fixes.h" 
-#include "HardwareSkinningHooks.h" 
-#include <culling_fixes.h>
-#include <modelload_fixes.h>
-#include <globalconvars.h>
-#include "model_draw_hook.h"
-
 #ifdef GMOD_MAIN
 extern IMaterialSystem* materials = NULL;
 #endif
@@ -41,91 +34,6 @@ IDirect3DDevice9Ex* g_d3dDevice = nullptr;
 
 using namespace GarrysMod::Lua;
 
-// Define a proper LOG_GENERAL replacement function
-void DummyLogGeneral(const char* prefix, const char* msg, ...) {
-    // Basic implementation
-    char buffer[1024];
-    va_list args;
-    va_start(args, msg);
-    vsprintf_s(buffer, sizeof(buffer), msg, args);
-    va_end(args);
-    Msg("[LOG_GENERAL] %s: %s\n", prefix, buffer);
-}
-
-// In your delay load hook:
-FARPROC WINAPI MyDelayLoadHook(unsigned dliNotify, PDelayLoadInfo pdli)
-{
-    if (dliNotify == dliFailGetProc) {
-        if (strcmp(pdli->dlp.szProcName, "LOG_GENERAL") == 0) {
-            // Return our function instead of a dummy variable
-            return (FARPROC)DummyLogGeneral;
-        }
-    }
-    return NULL;
-}
-
-// Define the hook variable
-__declspec(selectany) PfnDliHook __pfnDliNotifyHook2 = MyDelayLoadHook;
-
-// Lua function implementations for static lighting control
-LUA_FUNCTION(SetForceStaticLighting_Lua) {
-    try {
-        Msg("[gmRTX - Binary Module] SetForceStaticLighting_Lua called\n");
-        
-        if (!LUA->IsType(1, GarrysMod::Lua::Type::Bool)) {
-            LUA->ThrowError("Expected boolean argument for SetForceStaticLighting");
-            return 0;
-        }
-        
-        bool enable = LUA->GetBool(1);
-        Msg("[gmRTX - Binary Module] Setting force static lighting to: %s\n", enable ? "true" : "false");
-        
-        // Use the SetForceStaticLighting function which will update both the global var and ConVar
-        SetForceStaticLighting(enable);
-        return 0;
-    }
-    catch (...) {
-        Error("[gmRTX - Binary Module] Exception in SetForceStaticLighting\n");
-        return 0;
-    }
-}
-
-LUA_FUNCTION(GetForceStaticLighting_Lua) {
-    try {
-        Msg("[gmRTX - Binary Module] GetForceStaticLighting_Lua called\n");
-        
-        // Use the GetForceStaticLighting function which checks ConVar first
-        bool enabled = GetForceStaticLighting();
-        Msg("[gmRTX - Binary Module] Current force static lighting state: %s\n", enabled ? "true" : "false");
-        LUA->PushBool(enabled);
-        return 1;
-    }
-    catch (...) {
-        Error("[gmRTX - Binary Module] Exception in GetForceStaticLighting\n");
-        LUA->PushBool(false);
-        return 1;
-    }
-}
-
-LUA_FUNCTION(SetModelDrawHookEnabled_Lua) {
-    try {
-        Msg("[gmRTX - Binary Module] SetModelDrawHookEnabled_Lua called\n");
-        
-        if (!LUA->IsType(1, GarrysMod::Lua::Type::Bool)) {
-            LUA->ThrowError("Expected boolean argument for SetModelDrawHookEnabled");
-            return 0;
-        }
-        
-        bool enable = LUA->GetBool(1);
-        Msg("[gmRTX - Binary Module] Setting model draw hook enabled to: %s\n", enable ? "true" : "false");
-        SetModelDrawHookEnabled(enable);
-        return 0;
-    }
-    catch (...) {
-        Error("[gmRTX - Binary Module] Exception in SetModelDrawHookEnabled\n");
-        return 0;
-    }
-}
 
 GMOD_MODULE_OPEN() { 
     try {
@@ -164,42 +72,10 @@ GMOD_MODULE_OPEN() {
         configManager.SetConfigVariable("rtx.enableAdvancedMode", "1");
         configManager.SetConfigVariable("rtx.fallbackLightMode", "0");
 
-        // Set resource limits
-        RemixAPI::RemixAPI::Instance().GetResourceManager().SetMemoryLimits(256, 1024);
-
-        GlobalConvars::InitialiseConVars();
-#endif //_WIN64
-
-#ifdef HWSKIN_PATCHES
-        HardwareSkinningHooks::Instance().Initialize();
-
-#endif //HWSKIN_PATCHES
-
-        ModelRenderHooks::Instance().Initialize();
-        ModelLoadHooks::Instance().Initialize();
-        ModelDrawHook::Instance().Initialize();
+        #endif // _WIN64
 
         // Register Lua functions
         LUA->PushSpecial(GarrysMod::Lua::SPECIAL_GLOB); 
-
-        // Static lighting control functions
-        Msg("[gmRTX - Binary Module] Registering SetForceStaticLighting Lua function...\n");
-        LUA->PushCFunction(SetForceStaticLighting_Lua);
-        LUA->SetField(-2, "SetForceStaticLighting");
-
-        Msg("[gmRTX - Binary Module] Registering GetForceStaticLighting Lua function...\n");
-        LUA->PushCFunction(GetForceStaticLighting_Lua);
-        LUA->SetField(-2, "GetForceStaticLighting");
-
-        Msg("[gmRTX - Binary Module] Registering SetModelDrawHookEnabled Lua function...\n");
-        LUA->PushCFunction(SetModelDrawHookEnabled_Lua);
-        LUA->SetField(-2, "SetModelDrawHookEnabled");
-
-        // Only register Remix-related Lua functions in 64-bit builds
-        #ifdef _WIN64
-            // The new RemixAPI is already initialized above, no need to call Initialize again
-
-        #endif // _WIN64    
 
         LUA->Pop();
 
@@ -219,17 +95,7 @@ GMOD_MODULE_CLOSE() {
 #ifdef _WIN64
         RemixAPI::RemixAPI::Instance().Shutdown();
         g_d3dDevice = nullptr;
-#endif // _WIN64
 
-#ifdef HWSKIN_PATCHES
-        //HardwareSkinningHooks::Instance().Shutdown();
-#endif //HWSKIN_PATCHES
-
-       ModelRenderHooks::Instance().Shutdown();
-       ModelLoadHooks::Instance().Shutdown();
-       ModelDrawHook::Instance().Shutdown();
-
-#ifdef _WIN64
         if (g_remix) {
             delete g_remix;
             g_remix = nullptr;
