@@ -20,6 +20,28 @@ function DebugPrint(message)
     end
 end
 
+-- Master toggle for applying a preset of render cvars
+local cv_custom_render = CreateClientConVar("rtx_custom_render", "0", true, false, "Toggle Remix custom render preset")
+
+local function ApplyCustomRenderPreset(enable)
+    RunConsoleCommand("r_drawopaqueworld", enable and "0" or "1")
+    RunConsoleCommand("r_drawstaticprops", enable and "0" or "1")
+    RunConsoleCommand("r_DrawDisp", enable and "0" or "1")
+    RunConsoleCommand("r_drawdecals", enable and "0" or "1")
+    RunConsoleCommand("r_DrawDetailProps", enable and "0" or "1")
+    RunConsoleCommand("rtx_mwr", enable and "1" or "0")
+    RunConsoleCommand("rtx_spr_enable", enable and "1" or "0")
+    RunConsoleCommand("rtx_cdr_enable", enable and "1" or "0")
+end
+
+cvars.AddChangeCallback("rtx_custom_render", function(name, oldValue, newValue)
+    local enable = tonumber(newValue) == 1
+    ApplyCustomRenderPreset(enable)
+end, "gmrtx_custom_render_preset_cb")
+
+-- Apply initial state on load
+ApplyCustomRenderPreset(cv_custom_render:GetBool())
+
 local function LoadSubAddons()
     local foldersToLoad = {}
     
@@ -30,6 +52,7 @@ local function LoadSubAddons()
     if CLIENT then
         table.insert(foldersToLoad, "remixlua/cl/")
         table.insert(foldersToLoad, "remixlua/cl/remixapi/")
+        table.insert(foldersToLoad, "remixlua/cl/customrender/")
     end
     
     -- Load server files when on server
