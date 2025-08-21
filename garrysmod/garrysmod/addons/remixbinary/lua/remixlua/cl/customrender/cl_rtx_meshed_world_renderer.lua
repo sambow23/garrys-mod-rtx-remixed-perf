@@ -2,13 +2,18 @@
 -- MAJOR THANK YOU to the creator of NikNaks, a lot of this would not be possible without it.
 if not CLIENT then return end
 require("niknaks")
+local RenderCore = include("remixlua/cl/customrender/render_core.lua") or RemixRenderCore
 
 -- ConVars
 local CONVARS = {
     ENABLED = CreateClientConVar("rtx_mwr", "1", true, false, "Forces custom mesh rendering of map"),
     DEBUG = CreateClientConVar("rtx_mwr_debug", "0", true, false, "Shows debug info for mesh rendering"),
     CHUNK_SIZE = CreateClientConVar("rtx_mwr_chunk_size", "65536", true, false, "Size of chunks for mesh combining"),
-    CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode")
+    CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode"),
+    MAT_WHITELIST = CreateClientConVar("rtx_mwr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include"),
+    MAT_BLACKLIST = CreateClientConVar("rtx_mwr_mat_blacklist", "toolsskybox,skybox/", true, false, "Comma-separated material name substrings to exclude"),
+    PVS_CULL = CreateClientConVar("rtx_mwr_pvs_cull", "1", true, false, "Enable PVS-based chunk culling if available"),
+    DISTANCE = CreateClientConVar("rtx_mwr_distance", "0", true, false, "World chunk distance limit (0 = off)")
 }
 
 -- Local Variables and Caches
@@ -27,6 +32,51 @@ local math_floor = math.floor
 local table_insert = table.insert
 local MAX_VERTICES = 10000
 local MAX_CHUNK_VERTS = 32768
+local function IsChunkVisibleByPVS(viewCluster, chunkClusters)
+    if type(viewCluster) ~= "number" or not chunkClusters then return true end
+    local map = NikNaks and NikNaks.CurrentMap
+    if not map then return true end
+    if map.IsClusterVisible then
+        for cluster, _ in pairs(chunkClusters) do
+            if type(cluster) == "number" and map:IsClusterVisible(viewCluster, cluster) then return true end
+        end
+        return false
+    elseif map.GetClusterPVS then
+        local pvs = map:GetClusterPVS(viewCluster)
+        if type(pvs) == "table" then
+            for cluster, _ in pairs(chunkClusters) do
+                if type(cluster) == "number" and pvs[cluster] then return true end
+            end
+            return false
+        end
+    end
+    return true
+end
+
+local function BuildMatcherList(str)
+    local list = {}
+    if not str or str == "" then return list end
+    for token in string.gmatch(str, "[^,]+") do
+        token = string.Trim(string.lower(token))
+        if token ~= "" then list[#list+1] = token end
+    end
+    return list
+end
+
+local function IsMaterialAllowed(matName)
+    if not matName then return false end
+    local lname = string.lower(matName)
+    local bl = BuildMatcherList(CONVARS.MAT_BLACKLIST:GetString())
+    for i = 1, #bl do
+        if string.find(lname, bl[i], 1, true) then return false end
+    end
+    local wl = BuildMatcherList(CONVARS.MAT_WHITELIST:GetString())
+    if #wl == 0 then return true end
+    for i = 1, #wl do
+        if string.find(lname, wl[i], 1, true) then return true end
+    end
+    return false
+end
 
 -- Pre-allocate common vectors and tables for reuse
 local vertexBuffer = {
@@ -128,7 +178,7 @@ local function CreateMeshBatch(vertices, material, maxVertsPerMesh)
         -- Create new mesh when we hit the vertex limit
         if vertCount >= maxVertsPerMesh - 3 then -- Leave room for one more triangle
             local newMesh = Mesh(material)
-            mesh.Begin(newMesh, MATERIAL_TRIANGLES, #currentVerts)
+            mesh.Begin(newMesh, MATERIAL_TRIANGLES, #currentVerts / 3)
             for _, vert in ipairs(currentVerts) do
                 mesh.Position(vert.pos)
                 mesh.Normal(vert.normal)
@@ -138,6 +188,9 @@ local function CreateMeshBatch(vertices, material, maxVertsPerMesh)
             mesh.End()
             
             table_insert(meshes, newMesh)
+            if RenderCore and RenderCore.TrackMesh then
+                RenderCore.TrackMesh(newMesh)
+            end
             currentVerts = {}
             vertCount = 0
         end
@@ -146,7 +199,7 @@ local function CreateMeshBatch(vertices, material, maxVertsPerMesh)
     -- Handle remaining vertices
     if #currentVerts > 0 then
         local newMesh = Mesh(material)
-        mesh.Begin(newMesh, MATERIAL_TRIANGLES, #currentVerts)
+        mesh.Begin(newMesh, MATERIAL_TRIANGLES, #currentVerts / 3)
         for _, vert in ipairs(currentVerts) do
             mesh.Position(vert.pos)
             mesh.Normal(vert.normal)
@@ -156,6 +209,9 @@ local function CreateMeshBatch(vertices, material, maxVertsPerMesh)
         mesh.End()
         
         table_insert(meshes, newMesh)
+        if RenderCore and RenderCore.TrackMesh then
+            RenderCore.TrackMesh(newMesh)
+        end
     end
     
     return meshes
@@ -166,15 +222,15 @@ local function GetChunkKey(x, y, z)
 end
 
 -- Main Mesh Building Function
-local function BuildMapMeshes()
-    -- Clean up existing meshes first
+local function BuildMapMeshes(cancelToken)
+    -- Clean up existing meshes first (best-effort)
     for renderType, chunks in pairs(mapMeshes) do
         for chunkKey, materials in pairs(chunks) do
             for matName, group in pairs(materials) do
                 if group.meshes then
-                    for _, mesh in ipairs(group.meshes) do
-                        if mesh and mesh.Destroy then
-                            mesh:Destroy()
+                    for _, m in ipairs(group.meshes) do
+                        if m and m.Destroy then
+                            pcall(function() m:Destroy() end)
                         end
                     end
                 end
@@ -212,10 +268,15 @@ local function BuildMapMeshes()
     }
     
     -- Sort faces into chunks with optimized table operations
-    for _, leaf in pairs(NikNaks.CurrentMap:GetLeafs()) do  
+    local okLeafs, allLeafs = pcall(function() return NikNaks.CurrentMap:GetLeafs() end)
+    if not okLeafs or not allLeafs then
+        ErrorNoHalt("[RTX Fixes] GetLeafs failed\n")
+        return
+    end
+    for _, leaf in pairs(allLeafs) do  
         if not leaf or leaf:IsOutsideMap() then continue end
         
-        local leafFaces = leaf:GetFaces(true)
+        local okFaces, leafFaces = pcall(function() return leaf:GetFaces(true) end)
         if not leafFaces then continue end
     
         for _, face in pairs(leafFaces) do
@@ -250,14 +311,24 @@ local function BuildMapMeshes()
             
             local matName = material:GetName()
             if not matName then continue end
-            
-            if not materialCache[matName] then
-                materialCache[matName] = material
+            if not IsMaterialAllowed(matName) then continue end
+            if RenderCore and RenderCore.GetMaterial then
+                material = RenderCore.GetMaterial(matName)
             end
+            
+            materialCache[matName] = material
             
             local chunkGroup = face:IsTranslucent() and chunks.translucent or chunks.opaque
             
             chunkGroup[chunkKey] = chunkGroup[chunkKey] or {}
+            -- record cluster membership for the chunk
+            if leaf and leaf.GetCluster then
+                local clRaw = leaf:GetCluster()
+                local cl = tonumber(clRaw)
+                local set = chunkGroup[chunkKey]._clusters or {}
+                chunkGroup[chunkKey]._clusters = set
+                if cl ~= nil then set[cl] = true end
+            end
             chunkGroup[chunkKey][matName] = chunkGroup[chunkKey][matName] or {
                 material = materialCache[matName],
                 faces = {}
@@ -326,27 +397,82 @@ local function BuildMapMeshes()
         end
         
         -- Create mesh batches for this chunk
-        return CreateMeshBatch(allVertices, material, MAX_VERTICES)
+        local meshes = CreateMeshBatch(allVertices, material, MAX_VERTICES)
+        return meshes, minBounds, maxBounds
     end
 
-    -- Create combined meshes with separate handling
-    for renderType, chunkGroup in pairs(chunks) do
-        for chunkKey, materials in pairs(chunkGroup) do
-            mapMeshes[renderType][chunkKey] = {}
-            for matName, group in pairs(materials) do
-                if group.faces and #group.faces > 0 then
-                    local meshes = CreateRegularMeshGroup(group.faces, group.material)
-                    
-                    if meshes then
-                        mapMeshes[renderType][chunkKey][matName] = {
-                            meshes = meshes,
-                            material = group.material
-                        }
+    -- Create combined meshes with frame-budgeted coroutine
+    local co
+    co = coroutine.create(function()
+        local startTime = SysTime()
+        local frameBudget = 0.003 -- start ~3ms per frame
+        local targetBudget = 0.003
+        for renderType, chunkGroup in pairs(chunks) do
+            for chunkKey, materials in pairs(chunkGroup) do
+                mapMeshes[renderType][chunkKey] = {}
+                -- copy cluster set if present
+                if materials._clusters then
+                    mapMeshes[renderType][chunkKey]._clusters = materials._clusters
+                end
+                for matName, group in pairs(materials) do
+                    if cancelToken and cancelToken.cancelled then return end
+                    if group.faces and #group.faces > 0 then
+                        local meshes, mins, maxs = CreateRegularMeshGroup(group.faces, group.material)
+                        if meshes then
+                            mapMeshes[renderType][chunkKey][matName] = {
+                                meshes = meshes,
+                                material = group.material
+                            }
+                            -- update chunk bounds
+                            local chunkTable = mapMeshes[renderType][chunkKey]
+                            if mins and maxs then
+                                local cmins = chunkTable._mins
+                                local cmaxs = chunkTable._maxs
+                                if not cmins or not cmaxs then
+                                    chunkTable._mins = mins
+                                    chunkTable._maxs = maxs
+                                else
+                                    cmins.x = math_min(cmins.x, mins.x)
+                                    cmins.y = math_min(cmins.y, mins.y)
+                                    cmins.z = math_min(cmins.z, mins.z)
+                                    cmaxs.x = math_max(cmaxs.x, maxs.x)
+                                    cmaxs.y = math_max(cmaxs.y, maxs.y)
+                                    cmaxs.z = math_max(cmaxs.z, maxs.z)
+                                end
+                            end
+                        end
+                    end
+                    if cancelToken and cancelToken.cancelled then return end
+                    if SysTime() - startTime > frameBudget then
+                        coroutine.yield()
+                        local spent = SysTime() - startTime
+                        -- simple adaptation: nudge budget toward target if we exceed a bit
+                        if spent > frameBudget * 1.2 then
+                            frameBudget = math.max(0.001, frameBudget * 0.9)
+                        elseif spent < frameBudget * 0.8 then
+                            frameBudget = math.min(0.006, frameBudget * 1.1)
+                        end
+                        startTime = SysTime()
                     end
                 end
             end
         end
+    end)
+
+    -- Drive the coroutine over frames
+    local function StepBuilder()
+        if not co then return end
+        if coroutine.status(co) == "dead" then return end
+        local ok, err = coroutine.resume(co)
+        if not ok then
+            ErrorNoHalt("[RTX Fixes] Build coroutine error: " .. tostring(err) .. "\n")
+            return
+        end
+        if coroutine.status(co) ~= "dead" then
+            timer.Simple(0, StepBuilder)
+        end
     end
+    StepBuilder()
 
     print(string.format("[RTX Fixes] Built chunked meshes in %.2f seconds", SysTime() - startTime))
 end
@@ -357,6 +483,10 @@ local function RenderCustomWorld(translucent)
 
     local draws = 0
     local currentMaterial = nil
+    local chunksVisited = 0
+    local culledFrustum = 0
+    local culledPVS = 0
+    local hasCullBox = (render and type(render.CullBox) == "function")
     
     -- Inline render state changes for speed
     if translucent then
@@ -366,16 +496,69 @@ local function RenderCustomWorld(translucent)
     
     -- Regular faces
     local groups = translucent and mapMeshes.translucent or mapMeshes.opaque
+    -- determine viewer cluster once (only if PVS culling enabled)
+    local viewCluster = nil
+    if CONVARS.PVS_CULL:GetBool() then
+        local ok = pcall(function()
+            local map = NikNaks and NikNaks.CurrentMap
+            if map and map.PointInLeaf and LocalPlayer then
+                local ply = LocalPlayer()
+                if not ply or not ply.GetPos then return end
+                local pos = ply:GetPos()
+                local vleaf = map:PointInLeaf(pos)
+                if vleaf and vleaf.GetCluster then
+                    local vclRaw = vleaf:GetCluster()
+                    viewCluster = tonumber(vclRaw)
+                end
+            end
+        end)
+        if not ok then
+            viewCluster = nil
+        end
+    end
+    local maxDist = CONVARS.DISTANCE:GetFloat()
+    local useDist = maxDist > 0
+    local maxDistSqr = maxDist * maxDist
+    local ply = LocalPlayer and LocalPlayer() or nil
+    local eyePos = ply and ply.GetPos and ply:GetPos() or nil
     for _, chunkMaterials in pairs(groups) do
-        for _, group in pairs(chunkMaterials) do
+        chunksVisited = chunksVisited + 1
+        -- frustum cull entire chunk by its AABB if available
+        local cmins, cmaxs = chunkMaterials._mins, chunkMaterials._maxs
+        if cmins and cmaxs then
+            if hasCullBox and render.CullBox(cmins, cmaxs) then
+                culledFrustum = culledFrustum + 1
+                continue
+            end
+            if useDist and eyePos then
+                local center = (cmins + cmaxs) * 0.5
+                if eyePos:DistToSqr(center) > maxDistSqr then
+                    culledFrustum = culledFrustum + 1
+                    continue
+                end
+            end
+        end
+        if CONVARS.PVS_CULL:GetBool() then
+            local clusters = chunkMaterials._clusters
+            if not IsChunkVisibleByPVS(viewCluster, clusters) then
+                culledPVS = culledPVS + 1
+                continue
+            end
+        end
+        for key, group in pairs(chunkMaterials) do
+            if key == "_mins" or key == "_maxs" then continue end
+            if not group or not group.meshes then continue end
             if currentMaterial ~= group.material then
                 render.SetMaterial(group.material)
                 currentMaterial = group.material
             end
             local meshes = group.meshes
             for i = 1, #meshes do
-                meshes[i]:Draw()
-                draws = draws + 1
+                local m = meshes[i]
+                if m and m.Draw then
+                    m:Draw()
+                    draws = draws + 1
+                end
             end
         end
     end
@@ -385,7 +568,19 @@ local function RenderCustomWorld(translucent)
     end
     
     renderStats.draws = draws
+    renderStats.chunksVisited = chunksVisited
+    renderStats.culledFrustum = culledFrustum
+    renderStats.culledPVS = culledPVS
 end
+
+-- Stats provider for unified overlay
+RenderCore.RegisterStats("RTXWorld", function()
+    return string.format("World draws: %d | chunks: %d (-F:%d, -P:%d)",
+        renderStats.draws or 0,
+        renderStats.chunksVisited or 0,
+        renderStats.culledFrustum or 0,
+        renderStats.culledPVS or 0)
+end)
 
 -- Enable/Disable Functions
 local function EnableCustomRendering()
@@ -393,20 +588,20 @@ local function EnableCustomRendering()
     isEnabled = true
 
     -- Disable world rendering using render.OverrideDepthEnable
-    hook.Add("PreDrawWorld", "RTXHideWorld", function()
+    RenderCore.Register("PreDrawWorld", "RTXHideWorld", function()
         render.OverrideDepthEnable(true, false)
         return true
     end)
     
-    hook.Add("PostDrawWorld", "RTXHideWorld", function()
+    RenderCore.Register("PostDrawWorld", "RTXHideWorld", function()
         render.OverrideDepthEnable(false)
     end)
     
-    hook.Add("PreDrawOpaqueRenderables", "RTXCustomWorld", function()
+    RenderCore.Register("PreDrawOpaqueRenderables", "RTXCustomWorldOpaque", function()
         RenderCustomWorld(false)
     end)
     
-    hook.Add("PreDrawTranslucentRenderables", "RTXCustomWorld", function()
+    RenderCore.Register("PreDrawTranslucentRenderables", "RTXCustomWorldTranslucent", function()
         RenderCustomWorld(true)
     end)
 end
@@ -415,15 +610,15 @@ local function DisableCustomRendering()
     if not isEnabled then return end
     isEnabled = false
 
-    hook.Remove("PreDrawWorld", "RTXHideWorld")
-    hook.Remove("PostDrawWorld", "RTXHideWorld")
-    hook.Remove("PreDrawOpaqueRenderables", "RTXCustomWorld")
-    hook.Remove("PreDrawTranslucentRenderables", "RTXCustomWorld")
+    RemixRenderCore.Unregister("PreDrawWorld", "RTXHideWorld")
+    RemixRenderCore.Unregister("PostDrawWorld", "RTXHideWorld")
+    RemixRenderCore.Unregister("PreDrawOpaqueRenderables", "RTXCustomWorldOpaque")
+    RemixRenderCore.Unregister("PreDrawTranslucentRenderables", "RTXCustomWorldTranslucent")
 end
 
 -- Initialization and Cleanup
-local function Initialize()
-    local success, err = pcall(BuildMapMeshes)
+local function Initialize(token)
+    local success, err = pcall(BuildMapMeshes, token)
     if not success then
         ErrorNoHalt("[RTX Fixes] Failed to build meshes: " .. tostring(err) .. "\n")
         DisableCustomRendering()
@@ -442,35 +637,20 @@ local function Initialize()
 end
 
 -- Hooks
-hook.Add("InitPostEntity", "RTXMeshInit", Initialize)
+RenderCore.Register("InitPostEntity", "RTXMeshInit", Initialize)
 
-hook.Add("PostCleanupMap", "RTXMeshRebuild", Initialize)
+RenderCore.Register("PostCleanupMap", "RTXMeshRebuild", function()
+    RenderCore.RequestRebuild("PostCleanupMap")
+end)
 
-hook.Add("PreDrawParticles", "ParticleSkipper", function()
+RenderCore.Register("PreDrawParticles", "ParticleSkipper", function()
     return true
 end)
 
-hook.Add("ShutDown", "RTXCustomWorld", function()
+RenderCore.Register("ShutDown", "RTXCustomWorldShutdown", function()
     DisableCustomRendering()
-    
-    for renderType, chunks in pairs(mapMeshes) do
-        for chunkKey, materials in pairs(chunks) do
-            for matName, group in pairs(materials) do
-                if group.meshes then
-                    for _, mesh in ipairs(group.meshes) do
-                        if mesh.Destroy then
-                            mesh:Destroy()
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    mapMeshes = {
-        opaque = {},
-        translucent = {}
-    }
+    -- Rely on RenderCore global cleanup for tracked meshes; just clear tables locally
+    mapMeshes = { opaque = {}, translucent = {} }
     materialCache = {}
 end)
 
@@ -487,6 +667,21 @@ cvars.AddChangeCallback("rtx_capture_mode", function(_, _, new)
     -- Invert the value: if capture_mode is 1, r_drawworld should be 0 and vice versa
     RunConsoleCommand("r_drawworld", new == "1" and "0" or "1")
 end)
+
+-- Rebuild sinks and debounce on relevant ConVars
+RenderCore.RegisterRebuildSink("RTXMeshRebuildSink", function(token, reason)
+    Initialize(token)
+end)
+
+local function DebounceRebuildOnCvar(name)
+    cvars.AddChangeCallback(name, function()
+        RenderCore.RequestRebuild(name)
+    end, "RTXMeshRebuild-" .. name)
+end
+
+DebounceRebuildOnCvar("rtx_mwr_chunk_size")
+DebounceRebuildOnCvar("rtx_mwr_mat_whitelist")
+DebounceRebuildOnCvar("rtx_mwr_mat_blacklist")
 
 -- Menu
 hook.Add("PopulateToolMenu", "RTXCustomWorldMenu", function()
