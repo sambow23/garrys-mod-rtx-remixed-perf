@@ -10,6 +10,10 @@ do
     local statsFns = RemixRenderCore._stats or {}
     local tokens = RemixRenderCore._tokens or {}
     local rebuildSinks = RemixRenderCore._rebuildSinks or {}
+    -- Render queues and frame/job state
+    local queues = RemixRenderCore._queues or { opaque = {}, translucent = {} }
+    local frameState = RemixRenderCore._frame or { began = false, skybox = false }
+    local jobs = RemixRenderCore._jobs or {}
 
     local function safeCall(id, fn, ...)
         local ok, a, b, c, d = pcall(fn, ...)
@@ -20,6 +24,71 @@ do
         return a, b, c, d
     end
 
+    -- ============================
+    -- Frame Orchestration + Render Queue
+    -- ============================
+    function RemixRenderCore.BeginFrame(_, bSkybox)
+        -- Clear queues once per opaque frame begin
+        queues.opaque = {}
+        queues.translucent = {}
+        frameState.began = true
+        frameState.skybox = bSkybox or false
+        -- Advance scheduled jobs conservatively
+        RemixRenderCore.StepJobs(0.0015)
+    end
+
+    local function normalizeColor(col)
+        if not col then return nil end
+        if istable(col) and col.r then
+            return { r = (col.r or 255) / 255, g = (col.g or 255) / 255, b = (col.b or 255) / 255 }
+        end
+        return nil
+    end
+
+    function RemixRenderCore.Submit(item)
+        -- item = { material=IMaterial, mesh=IMesh, matrix=Matrix|nil, translucent=bool|nil, color=Color|{r,g,b}|nil }
+        if not item or not item.material or not item.mesh then return end
+        local q = item.translucent and queues.translucent or queues.opaque
+        -- store normalized color for fast modulation
+        if item.color then item._ncolor = normalizeColor(item.color) end
+        q[#q + 1] = item
+    end
+
+    local function flushQueue(queue)
+        if #queue == 0 then return end
+        -- Sort by material to reduce state changes
+        table.sort(queue, function(a, b)
+            local an = a.material and a.material:GetName() or ""
+            local bn = b.material and b.material:GetName() or ""
+            return an < bn
+        end)
+        local lastMat = nil
+        for i = 1, #queue do
+            local it = queue[i]
+            if it.material ~= lastMat then
+                render.SetMaterial(it.material)
+                lastMat = it.material
+            end
+            if it._ncolor then
+                render.SetColorModulation(it._ncolor.r, it._ncolor.g, it._ncolor.b)
+            end
+            if it.matrix then cam.PushModelMatrix(it.matrix) end
+            it.mesh:Draw()
+            if it.matrix then cam.PopModelMatrix() end
+            if it._ncolor then render.SetColorModulation(1, 1, 1) end
+        end
+    end
+
+    function RemixRenderCore.FlushPass(translucent)
+        if not frameState.began then return end
+        if translucent then
+            flushQueue(queues.translucent)
+        else
+            flushQueue(queues.opaque)
+        end
+        -- Do not reset began flag; multiple flushes per frame are okay
+    end
+
     local function installAggregator(hookName)
         if attached[hookName] then return end
         attached[hookName] = true
@@ -28,13 +97,26 @@ do
             local list = handlers[hookName]
             if not list then return end
 
+            -- Build ordered call list by priority (ascending), then id
+            local ordered = {}
+            for id, entry in pairs(list) do
+                if isfunction(entry) then
+                    ordered[#ordered + 1] = { id = id, fn = entry, prio = 100 }
+                elseif istable(entry) and isfunction(entry.fn) then
+                    ordered[#ordered + 1] = { id = id, fn = entry.fn, prio = tonumber(entry.prio) or 100 }
+                end
+            end
+            table.sort(ordered, function(a, b)
+                if a.prio == b.prio then return tostring(a.id) < tostring(b.id) end
+                return a.prio < b.prio
+            end)
+
             local aggregatedReturn = nil
-            for id, fn in pairs(list) do
-                if isfunction(fn) then
-                    local ret = select(1, safeCall(id, fn, ...))
-                    if ret ~= nil then
-                        aggregatedReturn = aggregatedReturn or ret
-                    end
+            for i = 1, #ordered do
+                local it = ordered[i]
+                local ret = select(1, safeCall(it.id, it.fn, ...))
+                if ret ~= nil then
+                    aggregatedReturn = aggregatedReturn or ret
                 end
             end
             return aggregatedReturn
@@ -42,9 +124,15 @@ do
     end
 
     function RemixRenderCore.Register(hookName, id, fn)
-        if not hookName or not id or not isfunction(fn) then return end
+        if not hookName or not id or not fn then return end
         handlers[hookName] = handlers[hookName] or {}
-        handlers[hookName][id] = fn
+        if isfunction(fn) then
+            handlers[hookName][id] = fn
+        elseif istable(fn) and isfunction(fn.fn) then
+            handlers[hookName][id] = { fn = fn.fn, prio = tonumber(fn.prio) or 100 }
+        else
+            return
+        end
         installAggregator(hookName)
     end
 
@@ -71,6 +159,9 @@ do
     RemixRenderCore._stats = statsFns
     RemixRenderCore._tokens = tokens
     RemixRenderCore._rebuildSinks = rebuildSinks
+    RemixRenderCore._queues = queues
+    RemixRenderCore._frame = frameState
+    RemixRenderCore._jobs = jobs
 
     -- ============================
     -- Shared Material Filtering
@@ -207,6 +298,32 @@ do
         mat = Material(name)
         matCache[name] = mat
         return mat
+    end
+
+    -- ============================
+    -- Lightweight Job Scheduler
+    -- ============================
+    function RemixRenderCore.ScheduleJob(id, fn)
+        if not id or not isfunction(fn) then return end
+        jobs[id] = fn
+    end
+
+    function RemixRenderCore.CancelJob(id)
+        jobs[id] = nil
+    end
+
+    function RemixRenderCore.StepJobs(budgetMs)
+        budgetMs = budgetMs or 1.5 / 1000
+        local start = SysTime()
+        for id, fn in pairs(jobs) do
+            local ok = true
+            local res
+            ok, res = pcall(fn)
+            if not ok or res == false then
+                jobs[id] = nil
+            end
+            if SysTime() - start > budgetMs then break end
+        end
     end
 
     function RemixRenderCore.TrackMesh(meshObj)
@@ -350,6 +467,19 @@ do
             panel:TextEntry("Static Props Mat Blacklist", "rtx_spr_mat_blacklist")
         end)
     end)
+
+    -- Centralized flush hooks: begin frame on PreDrawOpaque, flush on PostDraw* passes
+    RemixRenderCore.Register("PreDrawOpaqueRenderables", "RemixFrame-Begin", { fn = function(bDrawingDepth, bDrawingSkybox)
+        RemixRenderCore.BeginFrame(bDrawingDepth, bDrawingSkybox)
+    end, prio = 0 })
+
+    RemixRenderCore.Register("PostDrawOpaqueRenderables", "RemixFrame-FlushOpaque", { fn = function()
+        RemixRenderCore.FlushPass(false)
+    end, prio = 1000 })
+
+    RemixRenderCore.Register("PostDrawTranslucentRenderables", "RemixFrame-FlushTrans", { fn = function()
+        RemixRenderCore.FlushPass(true)
+    end, prio = 1000 })
 
     -- Global cleanup
     hook.Add("ShutDown", "RemixRenderCoreCleanup", function()

@@ -196,7 +196,7 @@ function CreateDispMeshes(cancelToken)
 end
 
 -- Handle rendering
-RenderCore.Register("PostDrawOpaqueRenderables", "DisplacementRenderer", function(bDrawingDepth)
+RenderCore.Register("PreDrawOpaqueRenderables", "DisplacementRenderer", function(bDrawingDepth)
     if not renderDisplacements:GetBool() or not hasLoaded then return end
     
     local playerPos = LocalPlayer():GetPos()
@@ -205,8 +205,6 @@ RenderCore.Register("PostDrawOpaqueRenderables", "DisplacementRenderer", functio
     local renderDistSqr = maxDistance * maxDistance
     local renderedCount = 0
     local distanceSkipped = 0
-    
-    render.SetColorModulation(1, 1, 1)
     
     local hasCullBox = (render and type(render.CullBox) == "function")
     if hasCullBox then
@@ -217,12 +215,14 @@ RenderCore.Register("PostDrawOpaqueRenderables", "DisplacementRenderer", functio
                     distanceSkipped = distanceSkipped + 1
                     continue
                 end
-                if wireframeMode:GetBool() then
-                    render.SetMaterial(wireframeMaterial)
-                else
-                    render.SetMaterial(dispData.material)
+                local mat = wireframeMode:GetBool() and wireframeMaterial or dispData.material
+                if dispData.mesh and mat then
+                    RenderCore.Submit({
+                        material = mat,
+                        mesh = dispData.mesh,
+                        translucent = false
+                    })
                 end
-                dispData.mesh:Draw()
                 renderedCount = renderedCount + 1
             end
         end
@@ -232,12 +232,14 @@ RenderCore.Register("PostDrawOpaqueRenderables", "DisplacementRenderer", functio
                 distanceSkipped = distanceSkipped + 1
                 continue
             end
-            if wireframeMode:GetBool() then
-                render.SetMaterial(wireframeMaterial)
-            else
-                render.SetMaterial(dispData.material)
+            local mat = wireframeMode:GetBool() and wireframeMaterial or dispData.material
+            if dispData.mesh and mat then
+                RenderCore.Submit({
+                    material = mat,
+                    mesh = dispData.mesh,
+                    translucent = false
+                })
             end
-            dispData.mesh:Draw()
             renderedCount = renderedCount + 1
         end
     end

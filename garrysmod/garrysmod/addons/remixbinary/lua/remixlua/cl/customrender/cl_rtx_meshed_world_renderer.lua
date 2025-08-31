@@ -466,12 +466,6 @@ local function RenderCustomWorld(translucent)
     local culledPVS = 0
     local hasCullBox = (render and type(render.CullBox) == "function")
     
-    -- Inline render state changes for speed
-    if translucent then
-        render.SetBlend(1)
-        render.OverrideDepthEnable(true, true)
-    end
-    
     -- Regular faces
     local groups = translucent and mapMeshes.translucent or mapMeshes.opaque
     -- determine viewer cluster once (only if PVS culling enabled)
@@ -525,23 +519,20 @@ local function RenderCustomWorld(translucent)
         for key, group in pairs(chunkMaterials) do
             if key == "_mins" or key == "_maxs" then continue end
             if not group or not group.meshes then continue end
-            if currentMaterial ~= group.material then
-                render.SetMaterial(group.material)
-                currentMaterial = group.material
-            end
+            -- Submit meshes to central render queue
             local meshes = group.meshes
             for i = 1, #meshes do
                 local m = meshes[i]
-                if m and m.Draw then
-                    m:Draw()
+                if m then
+                    RenderCore.Submit({
+                        material = group.material,
+                        mesh = m,
+                        translucent = translucent
+                    })
                     draws = draws + 1
                 end
             end
         end
-    end
-    
-    if translucent then
-        render.OverrideDepthEnable(false)
     end
     
     renderStats.draws = draws

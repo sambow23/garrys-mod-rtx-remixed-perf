@@ -363,7 +363,7 @@ RenderCore.Register("ShutDown", "CustomStaticRender_Cleanup", function()
 end)
 
 -- Render the static props
-RenderCore.Register("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(bDrawingDepth, bDrawingSkybox_param)
+RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(bDrawingDepth, bDrawingSkybox_param)
     if not convar_Enable:GetBool() or not isDataReady or isCachingInProgress then
         return
     end
@@ -420,18 +420,17 @@ RenderCore.Register("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps",
                 local matrix = Matrix()
                 matrix:Translate(prop.origin)
                 matrix:Rotate(prop.angles)
-                if prop.color then
-                    render.SetColorModulation(prop.color.r/255, prop.color.g/255, prop.color.b/255)
-                end
-                cam.PushModelMatrix(matrix)
                 for _, meshInfo in ipairs(meshData.meshes) do
                     if meshInfo.mesh and meshInfo.material then
-                        render.SetMaterial(meshInfo.material)
-                        meshInfo.mesh:Draw()
+                        RenderCore.Submit({
+                            material = meshInfo.material,
+                            mesh = meshInfo.mesh,
+                            matrix = matrix,
+                            translucent = false,
+                            color = prop.color
+                        })
                     end
                 end
-                cam.PopModelMatrix()
-                render.SetColorModulation(1, 1, 1)
                 renderedProps = renderedProps + 1
             end
         end
@@ -449,18 +448,17 @@ RenderCore.Register("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps",
             local matrix = Matrix()
             matrix:Translate(prop.origin)
             matrix:Rotate(prop.angles)
-            if prop.color then
-                render.SetColorModulation(prop.color.r/255, prop.color.g/255, prop.color.b/255)
-            end
-            cam.PushModelMatrix(matrix)
             for _, meshInfo in ipairs(meshData.meshes) do
                 if meshInfo.mesh and meshInfo.material then
-                    render.SetMaterial(meshInfo.material)
-                    meshInfo.mesh:Draw()
+                    RenderCore.Submit({
+                        material = meshInfo.material,
+                        mesh = meshInfo.mesh,
+                        matrix = matrix,
+                        translucent = false,
+                        color = prop.color
+                    })
                 end
             end
-            cam.PopModelMatrix()
-            render.SetColorModulation(1, 1, 1)
             renderedProps = renderedProps + 1
         end
     end
