@@ -22,29 +22,13 @@ local dispBins = {}
 local defaultMaterial = Material("nature/blendsandsand008b")
 local wireframeMaterial = Material("models/wireframe")
 
-local function BuildMatcherList(str)
-    local list = {}
-    if not str or str == "" then return list end
-    for token in string.gmatch(str, "[^,]+") do
-        token = string.Trim(string.lower(token))
-        if token ~= "" then list[#list+1] = token end
-    end
-    return list
-end
-
 local function IsMaterialAllowedName(matName)
     if not matName then return false end
-    local lname = string.lower(matName)
-    local bl = BuildMatcherList(cvarBlacklist:GetString())
-    for i = 1, #bl do
-        if string.find(lname, bl[i], 1, true) then return false end
+    if RenderCore and RenderCore.IsMaterialAllowed then
+        return RenderCore.IsMaterialAllowed(matName, cvarWhitelist:GetString(), cvarBlacklist:GetString())
     end
-    local wl = BuildMatcherList(cvarWhitelist:GetString())
-    if #wl == 0 then return true end
-    for i = 1, #wl do
-        if string.find(lname, wl[i], 1, true) then return true end
-    end
-    return false
+    -- Fallback if core helper missing: allow
+    return true
 end
 
 function LoadDisplacements(cancelToken)
@@ -113,9 +97,7 @@ function CreateDispMeshes(cancelToken)
     
     dispBins = {}
     local binSize = cvarBinSize:GetFloat()
-    local function binKeyForPos(v)
-        return math.floor(v.x / binSize) .. "," .. math.floor(v.y / binSize) .. "," .. math.floor(v.z / binSize)
-    end
+
     for i, face in ipairs(dispFaces) do
         if cancelToken and cancelToken.cancelled then break end
         local okVerts, vertexData = pcall(function() return face:GenerateVertexTriangleData() end)
@@ -162,19 +144,24 @@ function CreateDispMeshes(cancelToken)
                 center = center,
                 face = face
             })
-            local key = binKeyForPos(center)
+            local key = (RenderCore and RenderCore.GetBinKey) and RenderCore.GetBinKey(center, binSize)
+                or (math.floor(center.x / binSize) .. "," .. math.floor(center.y / binSize) .. "," .. math.floor(center.z / binSize))
             local bin = dispBins[key]
             if not bin then
-                bin = { mins = Vector(math.huge, math.huge, math.huge), maxs = Vector(-math.huge, -math.huge, -math.huge), items = {} }
+                bin = (RenderCore and RenderCore.CreateBin) and RenderCore.CreateBin() or { mins = Vector(math.huge, math.huge, math.huge), maxs = Vector(-math.huge, -math.huge, -math.huge), items = {} }
                 dispBins[key] = bin
             end
             table.insert(bin.items, dispMeshes[#dispMeshes])
-            if mins.x < bin.mins.x then bin.mins.x = mins.x end
-            if mins.y < bin.mins.y then bin.mins.y = mins.y end
-            if mins.z < bin.mins.z then bin.mins.z = mins.z end
-            if maxs.x > bin.maxs.x then bin.maxs.x = maxs.x end
-            if maxs.y > bin.maxs.y then bin.maxs.y = maxs.y end
-            if maxs.z > bin.maxs.z then bin.maxs.z = maxs.z end
+            if RenderCore and RenderCore.UpdateBinBounds then
+                RenderCore.UpdateBinBounds(bin, mins, maxs)
+            else
+                if mins.x < bin.mins.x then bin.mins.x = mins.x end
+                if mins.y < bin.mins.y then bin.mins.y = mins.y end
+                if mins.z < bin.mins.z then bin.mins.z = mins.z end
+                if maxs.x > bin.maxs.x then bin.maxs.x = maxs.x end
+                if maxs.y > bin.maxs.y then bin.maxs.y = maxs.y end
+                if maxs.z > bin.maxs.z then bin.maxs.z = maxs.z end
+            end
 
             if RenderCore and RenderCore.TrackMesh then
                 RenderCore.TrackMesh(faceMesh)

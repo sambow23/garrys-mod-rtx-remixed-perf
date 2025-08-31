@@ -72,6 +72,134 @@ do
     RemixRenderCore._tokens = tokens
     RemixRenderCore._rebuildSinks = rebuildSinks
 
+    -- ============================
+    -- Shared Material Filtering
+    -- ============================
+    function RemixRenderCore.BuildMatcherList(str)
+        local list = {}
+        if not str or str == "" then return list end
+        for token in string.gmatch(str, "[^,]+") do
+            token = string.Trim(string.lower(token))
+            if token ~= "" then list[#list+1] = token end
+        end
+        return list
+    end
+
+    function RemixRenderCore.IsMaterialAllowed(matName, whitelist, blacklist)
+        if not matName then return false end
+        local lname = string.lower(matName)
+        
+        -- Check blacklist first
+        local bl = RemixRenderCore.BuildMatcherList(blacklist)
+        for i = 1, #bl do
+            if string.find(lname, bl[i], 1, true) then return false end
+        end
+        
+        -- Check whitelist
+        local wl = RemixRenderCore.BuildMatcherList(whitelist)
+        if #wl == 0 then return true end -- No whitelist means allow all
+        for i = 1, #wl do
+            if string.find(lname, wl[i], 1, true) then return true end
+        end
+        return false
+    end
+
+    -- ============================
+    -- Spatial Binning Utilities
+    -- ============================
+    function RemixRenderCore.GetBinKey(pos, binSize)
+        return math.floor(pos.x / binSize) .. "," .. 
+               math.floor(pos.y / binSize) .. "," .. 
+               math.floor(pos.z / binSize)
+    end
+
+    function RemixRenderCore.CreateBin()
+        return {
+            mins = Vector(math.huge, math.huge, math.huge),
+            maxs = Vector(-math.huge, -math.huge, -math.huge),
+            items = {}
+        }
+    end
+
+    function RemixRenderCore.UpdateBinBounds(bin, mins, maxs)
+        if mins.x < bin.mins.x then bin.mins.x = mins.x end
+        if mins.y < bin.mins.y then bin.mins.y = mins.y end
+        if mins.z < bin.mins.z then bin.mins.z = mins.z end
+        if maxs.x > bin.maxs.x then bin.maxs.x = maxs.x end
+        if maxs.y > bin.maxs.y then bin.maxs.y = maxs.y end
+        if maxs.z > bin.maxs.z then bin.maxs.z = maxs.z end
+    end
+
+    -- ============================
+    -- Bounds Calculation Utilities
+    -- ============================
+    function RemixRenderCore.CreateBounds()
+        return {
+            mins = Vector(math.huge, math.huge, math.huge),
+            maxs = Vector(-math.huge, -math.huge, -math.huge)
+        }
+    end
+
+    function RemixRenderCore.UpdateBounds(bounds, pos)
+        if pos.x < bounds.mins.x then bounds.mins.x = pos.x end
+        if pos.y < bounds.mins.y then bounds.mins.y = pos.y end
+        if pos.z < bounds.mins.z then bounds.mins.z = pos.z end
+        if pos.x > bounds.maxs.x then bounds.maxs.x = pos.x end
+        if pos.y > bounds.maxs.y then bounds.maxs.y = pos.y end
+        if pos.z > bounds.maxs.z then bounds.maxs.z = pos.z end
+    end
+
+    function RemixRenderCore.GetBoundsCenter(mins, maxs)
+        return (mins + maxs) * 0.5
+    end
+
+    -- ============================
+    -- Vertex Validation
+    -- ============================
+    function RemixRenderCore.ValidateVertex(pos)
+        -- Check for nil or invalid structure
+        if not pos or not pos.x or not pos.y or not pos.z then
+            return false
+        end
+        
+        -- Check for NaN (NaN != NaN in Lua)
+        if pos.x ~= pos.x or pos.y ~= pos.y or pos.z ~= pos.z then
+            return false
+        end
+        
+        -- Check for extreme values
+        local maxCoord = 16384
+        if math.abs(pos.x) > maxCoord or 
+           math.abs(pos.y) > maxCoord or 
+           math.abs(pos.z) > maxCoord then
+            return false
+        end
+        
+        return true
+    end
+
+    -- ============================
+    -- Debug Utilities
+    -- ============================
+    local debugPrefixes = {}
+    
+    function RemixRenderCore.CreateDebugPrint(prefix, convar)
+        debugPrefixes[prefix] = convar
+        return function(...)
+            if convar and convar:GetBool() then
+                print("[" .. prefix .. "]", ...)
+            end
+        end
+    end
+
+    -- ============================
+    -- Distance Culling Helper
+    -- ============================
+    function RemixRenderCore.ShouldCullByDistance(pos, playerPos, maxDist)
+        if maxDist <= 0 then return false end
+        return pos:DistToSqr(playerPos) > (maxDist * maxDist)
+    end
+
     function RemixRenderCore.GetMaterial(name)
         if not name or name == "" then name = "debug/debugwhite" end
         local mat = matCache[name]

@@ -13,6 +13,10 @@ local rect_rotation_x = CreateClientConVar("rtx_api_map_lights_rect_rotation_x",
 local rect_rotation_y = CreateClientConVar("rtx_api_map_lights_rect_rotation_y", "0", true, false, "Y rotation offset for rectangle and disk lights")
 local rect_rotation_z = CreateClientConVar("rtx_api_map_lights_rect_rotation_z", "0", true, false, "Z rotation offset for rectangle and disk lights")
 
+-- Auto-spawn controls
+local autospawn = CreateClientConVar("rtx_api_map_lights_autospawn", "1", true, false, "Automatically convert map lights on map start")
+local autospawn_delay = CreateClientConVar("rtx_api_map_lights_autospawn_delay", "1.5", true, false, "Delay (seconds) before auto-processing after map start")
+
 -- Debug helpers
 local debug_vis = CreateClientConVar("rtx_api_map_lights_debug_vis", "0", true, false, "Draw debug direction for spotlights")
 local spot_dir_basis = CreateClientConVar("rtx_api_map_lights_dir_basis", "0", true, false, "Angles basis if no target: 0=F,1=-F,2=U,3=-U,4=R,5=-R")
@@ -26,6 +30,7 @@ end
 local createdLights = {}
 local last_entity_id = 0
 local createdLightPositions = {}
+local lastSpawnedMap = ""
 
 -- Light entity classes we want to detect
 local lightClasses = {
@@ -783,6 +788,21 @@ end)
 
 hook.Add("InitPostEntity", "rtx_api_map_lights_Reset", function()
     resetLightTracking()
+end)
+
+-- Auto process once per map after a short delay (to ensure player/entities are ready)
+hook.Add("InitPostEntity", "rtx_api_map_lights_AutoProcess", function()
+    if not autospawn:GetBool() then return end
+    local map = game.GetMap() or ""
+    if map == "" or map == lastSpawnedMap then return end
+    local delay = math.max(0, autospawn_delay:GetFloat())
+    timer.Simple(delay, function()
+        if not autospawn:GetBool() then return end
+        local lp = LocalPlayer and LocalPlayer() or nil
+        if not IsValid(lp) then return end
+        lastSpawnedMap = map
+        batchCreateRTXLights()
+    end)
 end)
 
 -- Make functions accessible to other scripts

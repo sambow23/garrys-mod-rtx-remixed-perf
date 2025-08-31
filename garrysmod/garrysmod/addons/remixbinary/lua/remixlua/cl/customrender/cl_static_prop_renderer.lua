@@ -26,11 +26,13 @@ local sprBuildStats = { startTime = 0, endTime = 0, built = 0 }
 local propBins = {}
 
 -- Debug helper function
-local function DebugPrint(...)
-    if convar_Debug:GetBool() then
-        print("[Static Render Debug]", ...)
+local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
+    and RenderCore.CreateDebugPrint("Static Render Debug", convar_Debug)
+    or function(...)
+        if convar_Debug:GetBool() then
+            print("[Static Render Debug]", ...)
+        end
     end
-end
 
 -- Material cache helper
 local function GetCachedMaterial(matName)
@@ -58,29 +60,13 @@ local function GetModelMeshes(modelPath)
     return util.GetModelMeshes(modelPath)
 end
 
-local function BuildMatcherList(str)
-    local list = {}
-    if not str or str == "" then return list end
-    for token in string.gmatch(str, "[^,]+") do
-        token = string.Trim(string.lower(token))
-        if token ~= "" then list[#list+1] = token end
-    end
-    return list
-end
-
 local function IsMaterialAllowedName(matName)
     if not matName then return false end
-    local lname = string.lower(matName)
-    local bl = BuildMatcherList(convar_Blacklist:GetString())
-    for i = 1, #bl do
-        if string.find(lname, bl[i], 1, true) then return false end
+    if RenderCore and RenderCore.IsMaterialAllowed then
+        return RenderCore.IsMaterialAllowed(matName, convar_Whitelist:GetString(), convar_Blacklist:GetString())
     end
-    local wl = BuildMatcherList(convar_Whitelist:GetString())
-    if #wl == 0 then return true end
-    for i = 1, #wl do
-        if string.find(lname, wl[i], 1, true) then return true end
-    end
-    return false
+    -- Fallback: allow by default if core helper missing
+    return true
 end
 
 -- Process a static prop and prepare rendering data
@@ -205,30 +191,33 @@ local function SeparateSkyboxProps()
     worldProps = {}
     propBins = {}
     local binSize = convar_BinSize:GetFloat()
-    local function binKeyForPos(v)
-        return math.floor(v.x / binSize) .. "," .. math.floor(v.y / binSize) .. "," .. math.floor(v.z / binSize)
-    end
     
     for _, prop in ipairs(cachedStaticProps) do
         if prop.isSkybox then
             table.insert(skyboxProps, prop)
         else
             table.insert(worldProps, prop)
-            local key = binKeyForPos(prop.origin)
+            local key = (RenderCore and RenderCore.GetBinKey) and RenderCore.GetBinKey(prop.origin, binSize)
+                or (math.floor(prop.origin.x / binSize) .. "," .. math.floor(prop.origin.y / binSize) .. "," .. math.floor(prop.origin.z / binSize))
             local bin = propBins[key]
             if not bin then
-                bin = { mins = Vector(math.huge, math.huge, math.huge), maxs = Vector(-math.huge, -math.huge, -math.huge), props = {} }
+                bin = (RenderCore and RenderCore.CreateBin) and RenderCore.CreateBin() or { mins = Vector(math.huge, math.huge, math.huge), maxs = Vector(-math.huge, -math.huge, -math.huge), items = {} }
+                bin.props = bin.props or {}
                 propBins[key] = bin
             end
             table.insert(bin.props, prop)
             local mins = prop.cachedMesh and prop.cachedMesh.mins or prop.origin
             local maxs = prop.cachedMesh and prop.cachedMesh.maxs or prop.origin
-            if mins.x < bin.mins.x then bin.mins.x = mins.x end
-            if mins.y < bin.mins.y then bin.mins.y = mins.y end
-            if mins.z < bin.mins.z then bin.mins.z = mins.z end
-            if maxs.x > bin.maxs.x then bin.maxs.x = maxs.x end
-            if maxs.y > bin.maxs.y then bin.maxs.y = maxs.y end
-            if maxs.z > bin.maxs.z then bin.maxs.z = maxs.z end
+            if RenderCore and RenderCore.UpdateBinBounds then
+                RenderCore.UpdateBinBounds(bin, mins, maxs)
+            else
+                if mins.x < bin.mins.x then bin.mins.x = mins.x end
+                if mins.y < bin.mins.y then bin.mins.y = mins.y end
+                if mins.z < bin.mins.z then bin.mins.z = mins.z end
+                if maxs.x > bin.maxs.x then bin.maxs.x = maxs.x end
+                if maxs.y > bin.maxs.y then bin.maxs.y = maxs.y end
+                if maxs.z > bin.maxs.z then bin.maxs.z = maxs.z end
+            end
         end
     end
     

@@ -54,28 +54,16 @@ local function IsChunkVisibleByPVS(viewCluster, chunkClusters)
 end
 
 local function BuildMatcherList(str)
-    local list = {}
-    if not str or str == "" then return list end
-    for token in string.gmatch(str, "[^,]+") do
-        token = string.Trim(string.lower(token))
-        if token ~= "" then list[#list+1] = token end
-    end
-    return list
+    -- Deprecated: centralized in RenderCore.BuildMatcherList/IsMaterialAllowed
+    return {}
 end
 
 local function IsMaterialAllowed(matName)
     if not matName then return false end
-    local lname = string.lower(matName)
-    local bl = BuildMatcherList(CONVARS.MAT_BLACKLIST:GetString())
-    for i = 1, #bl do
-        if string.find(lname, bl[i], 1, true) then return false end
+    if RenderCore and RenderCore.IsMaterialAllowed then
+        return RenderCore.IsMaterialAllowed(matName, CONVARS.MAT_WHITELIST:GetString(), CONVARS.MAT_BLACKLIST:GetString())
     end
-    local wl = BuildMatcherList(CONVARS.MAT_WHITELIST:GetString())
-    if #wl == 0 then return true end
-    for i = 1, #wl do
-        if string.find(lname, wl[i], 1, true) then return true end
-    end
-    return false
+    return true -- fallback allow
 end
 
 -- Pre-allocate common vectors and tables for reuse
@@ -86,15 +74,12 @@ local vertexBuffer = {
 }
 
 local function ValidateVertex(pos)
-    -- Check for NaN or extreme values
-    if not pos or 
-       not pos.x or not pos.y or not pos.z or
-       pos.x ~= pos.x or pos.y ~= pos.y or pos.z ~= pos.z or -- NaN check
-       math.abs(pos.x) > 16384 or 
-       math.abs(pos.y) > 16384 or 
-       math.abs(pos.z) > 16384 then
-        return false
+    if RenderCore and RenderCore.ValidateVertex then
+        return RenderCore.ValidateVertex(pos)
     end
+    if not pos or not pos.x or not pos.y or not pos.z then return false end
+    if pos.x ~= pos.x or pos.y ~= pos.y or pos.z ~= pos.z then return false end
+    if math.abs(pos.x) > 16384 or math.abs(pos.y) > 16384 or math.abs(pos.z) > 16384 then return false end
     return true
 end
 
