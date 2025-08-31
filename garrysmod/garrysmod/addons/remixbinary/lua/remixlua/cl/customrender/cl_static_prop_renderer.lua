@@ -15,7 +15,6 @@ local convar_BinSize = CreateClientConVar("rtx_spr_bin_size", "8192", true, fals
 local isDataReady = false
 local isCachingInProgress = false
 local cachedStaticProps = {}
-local materialsCache = {}
 local meshCache = {}  -- Maps model path to IMesh objects
 local lastDebugFrame = 0
 local bDrawingSkybox = false
@@ -34,19 +33,9 @@ local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
         end
     end
 
--- Material cache helper
+-- Use RenderCore material cache directly
 local function GetCachedMaterial(matName)
-    if not matName or matName == "" then
-        matName = "debug/debugwhite"
-    end
-    
-    if materialsCache[matName] then
-        return materialsCache[matName]
-    end
-    
-    local mat = (RenderCore and RenderCore.GetMaterial) and RenderCore.GetMaterial(matName) or Material(matName)
-    materialsCache[matName] = mat
-    return mat
+    return (RenderCore and RenderCore.GetMaterial) and RenderCore.GetMaterial(matName) or Material(matName or "debug/debugwhite")
 end
 
 -- Get mesh data directly using GetModelMeshes
@@ -133,6 +122,20 @@ local function ProcessStaticProp(propData)
                 -- Create or get cached material
                 local mat = GetCachedMaterial(material)
                 
+                -- Validate vertices for this group
+                local valid = true
+                if RenderCore and RenderCore.ValidateVertex then
+                    for _, vert in ipairs(group.triangles) do
+                        if not RenderCore.ValidateVertex(vert.pos) then
+                            valid = false
+                            break
+                        end
+                    end
+                end
+                if not valid then
+                    continue
+                end
+
                 -- Create mesh for this group
                 local mesh = Mesh()
                 mesh:BuildFromTriangles(group.triangles)
@@ -202,10 +205,9 @@ local function SeparateSkyboxProps()
             local bin = propBins[key]
             if not bin then
                 bin = (RenderCore and RenderCore.CreateBin) and RenderCore.CreateBin() or { mins = Vector(math.huge, math.huge, math.huge), maxs = Vector(-math.huge, -math.huge, -math.huge), items = {} }
-                bin.props = bin.props or {}
                 propBins[key] = bin
             end
-            table.insert(bin.props, prop)
+            table.insert(bin.items, prop)
             local mins = prop.cachedMesh and prop.cachedMesh.mins or prop.origin
             local maxs = prop.cachedMesh and prop.cachedMesh.maxs or prop.origin
             if RenderCore and RenderCore.UpdateBinBounds then
@@ -347,22 +349,13 @@ end)
 -- Clean up caches on disconnect/map change
 RenderCore.Register("ShutDown", "CustomStaticRender_Cleanup", function()
     print("[Static Render] Cleaning up caches.")
-    
-    -- Clean up meshes
-    for modelPath, meshData in pairs(meshCache) do
-        if meshData.meshes then
-            for _, meshInfo in ipairs(meshData.meshes) do
-                if meshInfo.mesh and meshInfo.mesh.Destroy then
-                    pcall(function() meshInfo.mesh:Destroy() end)
-                end
-            end
-        end
+    -- Rely on core to destroy tracked meshes
+    if RenderCore and RenderCore.DestroyTrackedMeshes then
+        RenderCore.DestroyTrackedMeshes()
     end
-    
     table.Empty(cachedStaticProps)
     table.Empty(skyboxProps)
     table.Empty(worldProps)
-    table.Empty(materialsCache)
     table.Empty(meshCache)
     
     isDataReady = false
@@ -396,7 +389,6 @@ RenderCore.Register("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps",
     local playerPos = LocalPlayer():GetPos()
     local maxDistance = convar_RenderDistance:GetFloat()
     local useDistanceLimit = (maxDistance > 0)
-    local maxDistanceSqr = maxDistance * maxDistance
     
     -- Debug stats only calculated once per frame
     local shouldDebug = convar_Debug:GetBool()
@@ -415,18 +407,15 @@ RenderCore.Register("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps",
             if render.CullBox(bin.mins, bin.maxs) then
                 continue
             end
-            for _, prop in ipairs(bin.props) do
+            for _, prop in ipairs(bin.items) do
                 local meshData = prop.cachedMesh
                 if not meshData or not meshData.meshes then
                     skippedProps = skippedProps + 1
                     continue
                 end
-                if useDistanceLimit then
-                    local distSqr = playerPos:DistToSqr(prop.origin)
-                    if distSqr > maxDistanceSqr then
-                        distanceSkipped = distanceSkipped + 1
-                        continue
-                    end
+                if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(prop.origin, playerPos, maxDistance) then
+                    distanceSkipped = distanceSkipped + 1
+                    continue
                 end
                 local matrix = Matrix()
                 matrix:Translate(prop.origin)
@@ -453,12 +442,9 @@ RenderCore.Register("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps",
                 skippedProps = skippedProps + 1
                 continue
             end
-            if useDistanceLimit then
-                local distSqr = playerPos:DistToSqr(prop.origin)
-                if distSqr > maxDistanceSqr then
-                    distanceSkipped = distanceSkipped + 1
-                    continue
-                end
+            if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(prop.origin, playerPos, maxDistance) then
+                distanceSkipped = distanceSkipped + 1
+                continue
             end
             local matrix = Matrix()
             matrix:Translate(prop.origin)
@@ -480,6 +466,9 @@ RenderCore.Register("PostDrawOpaqueRenderables", "CustomStaticRender_DrawProps",
     end
     
     sprStats.rendered = renderedProps
+    sprStats.distance = distanceSkipped
+    sprStats.skipped = skippedProps
+    
     -- Debug output
     if shouldDebug and isNewFrame then
         if useDistanceLimit then
@@ -499,21 +488,12 @@ concommand.Add("rtx_spr_reload", function()
     isDataReady = false
     isCachingInProgress = false
     
-    -- Clean up meshes
-    for modelPath, meshData in pairs(meshCache) do
-        if meshData.meshes then
-            for _, meshInfo in ipairs(meshData.meshes) do
-                if meshInfo.mesh then
-                    meshInfo.mesh:Destroy()
-                end
-            end
-        end
+    if RenderCore and RenderCore.DestroyTrackedMeshes then
+        RenderCore.DestroyTrackedMeshes()
     end
-    
     table.Empty(cachedStaticProps)
     table.Empty(skyboxProps)
     table.Empty(worldProps)
-    table.Empty(materialsCache)
     table.Empty(meshCache)
     
     timer.Simple(0.1, CacheMapStaticProps)
@@ -529,5 +509,33 @@ RenderCore.RegisterStats("StaticProps", function()
     local built = sprBuildStats.built or 0
     local t = (sprBuildStats.endTime > 0 and sprBuildStats.endTime or SysTime()) - (sprBuildStats.startTime or 0)
     local rate = (t > 0) and (built / t) or 0
-    return string.format("Static props: %d/%d | build: %.2fs, %.1f/s", sprStats.rendered or 0, sprStats.total or 0, t, rate)
+    return string.format("Static props: %d/%d (-E:%d, -D:%d) | build: %.2fs, %.1f/s", sprStats.rendered or 0, sprStats.total or 0, sprStats.skipped or 0, sprStats.distance or 0, t, rate)
 end)
+
+-- Rebuild sink and debounced cvar watchers
+RenderCore.RegisterRebuildSink("StaticPropsRebuild", function(token, reason)
+    -- Best-effort: clear current caches and rebuild
+    isDataReady = false
+    isCachingInProgress = false
+    if RenderCore and RenderCore.DestroyTrackedMeshes then
+        RenderCore.DestroyTrackedMeshes()
+    end
+    table.Empty(cachedStaticProps)
+    table.Empty(skyboxProps)
+    table.Empty(worldProps)
+    table.Empty(meshCache)
+    timer.Simple(0.1, CacheMapStaticProps)
+end)
+
+local function DebounceRebuildOnCvar(name)
+    cvars.AddChangeCallback(name, function()
+        if RenderCore and RenderCore.RequestRebuild then
+            RenderCore.RequestRebuild(name)
+        end
+    end, "StaticPropsRebuild-" .. name)
+end
+
+DebounceRebuildOnCvar("rtx_spr_bin_size")
+DebounceRebuildOnCvar("rtx_spr_mat_whitelist")
+DebounceRebuildOnCvar("rtx_spr_mat_blacklist")
+DebounceRebuildOnCvar("rtx_spr_distance")

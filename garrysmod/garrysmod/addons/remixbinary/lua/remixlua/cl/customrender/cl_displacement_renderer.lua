@@ -18,6 +18,15 @@ local shouldReload = false
 local dispStats = { rendered = 0, total = 0 }
 local dispBins = {}
 
+-- Debug helper function
+local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
+    and RenderCore.CreateDebugPrint("Displacement Render Debug", debugMode)
+    or function(...)
+        if debugMode:GetBool() then
+            print("[Displacement Render Debug]", ...)
+        end
+    end
+
 -- Material to use for displacements
 local defaultMaterial = Material("nature/blendsandsand008b")
 local wireframeMaterial = Material("models/wireframe")
@@ -104,6 +113,18 @@ function CreateDispMeshes(cancelToken)
         if not okVerts then vertexData = nil end
         
         if vertexData then
+            local valid = true
+            if RenderCore and RenderCore.ValidateVertex then
+                for _, v in ipairs(vertexData) do
+                    if not RenderCore.ValidateVertex(v.pos) then
+                        valid = false
+                        break
+                    end
+                end
+            end
+            if not valid then
+                continue
+            end
             local mat = face:GetMaterial()
             local matName = mat and mat:GetName()
             if matName and not IsMaterialAllowedName(matName) then
@@ -183,6 +204,7 @@ RenderCore.Register("PostDrawOpaqueRenderables", "DisplacementRenderer", functio
     local useDistanceLimit = (maxDistance > 0)
     local renderDistSqr = maxDistance * maxDistance
     local renderedCount = 0
+    local distanceSkipped = 0
     
     render.SetColorModulation(1, 1, 1)
     
@@ -191,11 +213,9 @@ RenderCore.Register("PostDrawOpaqueRenderables", "DisplacementRenderer", functio
         for key, bin in pairs(dispBins) do
             if render.CullBox(bin.mins, bin.maxs) then continue end
             for _, dispData in ipairs(bin.items) do
-                if useDistanceLimit then
-                    local distSqr = dispData.center:DistToSqr(playerPos)
-                    if distSqr > renderDistSqr then
-                        continue
-                    end
+                if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(dispData.center, playerPos, maxDistance) then
+                    distanceSkipped = distanceSkipped + 1
+                    continue
                 end
                 if wireframeMode:GetBool() then
                     render.SetMaterial(wireframeMaterial)
@@ -208,11 +228,9 @@ RenderCore.Register("PostDrawOpaqueRenderables", "DisplacementRenderer", functio
         end
     else
         for _, dispData in ipairs(dispMeshes) do
-            if useDistanceLimit then
-                local distSqr = dispData.center:DistToSqr(playerPos)
-                if distSqr > renderDistSqr then
-                    continue
-                end
+            if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(dispData.center, playerPos, maxDistance) then
+                distanceSkipped = distanceSkipped + 1
+                continue
             end
             if wireframeMode:GetBool() then
                 render.SetMaterial(wireframeMaterial)
@@ -225,6 +243,7 @@ RenderCore.Register("PostDrawOpaqueRenderables", "DisplacementRenderer", functio
     end
     
     dispStats.rendered = renderedCount
+    dispStats.distance = distanceSkipped
     if debugMode:GetBool() then
         draw.SimpleText("Rendered Displacements: " .. renderedCount .. "/" .. #dispMeshes, "DermaDefault", 10, 30, Color(255, 255, 255))
         draw.SimpleText("Loading Progress: " .. math.floor(loadProgress * 100) .. "%", "DermaDefault", 10, 50, Color(255, 255, 255))
@@ -236,6 +255,18 @@ RenderCore.Register("InitPostEntity", "DisplacementRendererMapLoad", function()
     timer.Simple(2, function()
         LoadDisplacements()
     end)
+end)
+
+-- Cleanup on shutdown
+RenderCore.Register("ShutDown", "DisplacementRenderer_Cleanup", function()
+    if RenderCore and RenderCore.DestroyTrackedMeshes then
+        RenderCore.DestroyTrackedMeshes()
+    end
+    dispFaces = {}
+    dispMeshes = {}
+    dispBins = {}
+    hasLoaded = false
+    loadProgress = 0
 end)
 
 concommand.Add("disp_reload", function()
@@ -255,5 +286,33 @@ print("[Displacement Renderer] Initialized")
 
 -- Stats provider
 RenderCore.RegisterStats("Displacements", function()
-    return string.format("Displacements: %d/%d", dispStats.rendered or 0, dispStats.total or 0)
+    return string.format("Displacements: %d/%d (-D:%d)", dispStats.rendered or 0, dispStats.total or 0, dispStats.distance or 0)
 end)
+
+-- Rebuild sink and debounced cvar watchers
+RenderCore.RegisterRebuildSink("DisplacementsRebuild", function(token, reason)
+    hasLoaded = false
+    loadProgress = 0
+    dispFaces = {}
+    dispMeshes = {}
+    dispBins = {}
+    if RenderCore and RenderCore.DestroyTrackedMeshes then
+        RenderCore.DestroyTrackedMeshes()
+    end
+    timer.Simple(0.1, function()
+        LoadDisplacements(token)
+    end)
+end)
+
+local function DebounceRebuildOnCvar(name)
+    cvars.AddChangeCallback(name, function()
+        if RenderCore and RenderCore.RequestRebuild then
+            RenderCore.RequestRebuild(name)
+        end
+    end, "DisplacementsRebuild-" .. name)
+end
+
+DebounceRebuildOnCvar("rtx_cdr_bin_size")
+DebounceRebuildOnCvar("rtx_cdr_mat_whitelist")
+DebounceRebuildOnCvar("rtx_cdr_mat_blacklist")
+DebounceRebuildOnCvar("rtx_cdr_distance")

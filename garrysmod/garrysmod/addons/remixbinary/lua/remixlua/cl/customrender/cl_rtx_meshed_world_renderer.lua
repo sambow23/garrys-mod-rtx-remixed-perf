@@ -23,7 +23,6 @@ local mapMeshes = {
 }
 local isEnabled = false
 local renderStats = {draws = 0}
-local materialCache = {}
 local Vector = Vector
 local math_min = math.min
 local math_max = math.max
@@ -53,10 +52,7 @@ local function IsChunkVisibleByPVS(viewCluster, chunkClusters)
     return true
 end
 
-local function BuildMatcherList(str)
-    -- Deprecated: centralized in RenderCore.BuildMatcherList/IsMaterialAllowed
-    return {}
-end
+-- Deprecated BuildMatcherList removed; use RenderCore.IsMaterialAllowed
 
 local function IsMaterialAllowed(matName)
     if not matName then return false end
@@ -227,7 +223,6 @@ local function BuildMapMeshes(cancelToken)
         opaque = {},
         translucent = {},
     }
-    materialCache = {}
     
     if not NikNaks or not NikNaks.CurrentMap then return end
 
@@ -301,8 +296,6 @@ local function BuildMapMeshes(cancelToken)
                 material = RenderCore.GetMaterial(matName)
             end
             
-            materialCache[matName] = material
-            
             local chunkGroup = face:IsTranslucent() and chunks.translucent or chunks.opaque
             
             chunkGroup[chunkKey] = chunkGroup[chunkKey] or {}
@@ -315,7 +308,7 @@ local function BuildMapMeshes(cancelToken)
                 if cl ~= nil then set[cl] = true end
             end
             chunkGroup[chunkKey][matName] = chunkGroup[chunkKey][matName] or {
-                material = materialCache[matName],
+                material = material,
                 faces = {}
             }
             
@@ -503,7 +496,6 @@ local function RenderCustomWorld(translucent)
     end
     local maxDist = CONVARS.DISTANCE:GetFloat()
     local useDist = maxDist > 0
-    local maxDistSqr = maxDist * maxDist
     local ply = LocalPlayer and LocalPlayer() or nil
     local eyePos = ply and ply.GetPos and ply:GetPos() or nil
     for _, chunkMaterials in pairs(groups) do
@@ -517,7 +509,7 @@ local function RenderCustomWorld(translucent)
             end
             if useDist and eyePos then
                 local center = (cmins + cmaxs) * 0.5
-                if eyePos:DistToSqr(center) > maxDistSqr then
+                if RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(center, eyePos, maxDist) then
                     culledFrustum = culledFrustum + 1
                     continue
                 end
@@ -636,7 +628,6 @@ RenderCore.Register("ShutDown", "RTXCustomWorldShutdown", function()
     DisableCustomRendering()
     -- Rely on RenderCore global cleanup for tracked meshes; just clear tables locally
     mapMeshes = { opaque = {}, translucent = {} }
-    materialCache = {}
 end)
 
 -- ConVar Changes
@@ -648,7 +639,7 @@ cvars.AddChangeCallback("rtx_mwr", function(_, _, new)
     end
 end)
 
-cvars.AddChangeCallback("rtx_capture_mode", function(_, _, new)
+cvars.AddChangeCallback("rtx_mwr_capture_mode", function(_, _, new)
     -- Invert the value: if capture_mode is 1, r_drawworld should be 0 and vice versa
     RunConsoleCommand("r_drawworld", new == "1" and "0" or "1")
 end)
@@ -667,6 +658,7 @@ end
 DebounceRebuildOnCvar("rtx_mwr_chunk_size")
 DebounceRebuildOnCvar("rtx_mwr_mat_whitelist")
 DebounceRebuildOnCvar("rtx_mwr_mat_blacklist")
+DebounceRebuildOnCvar("rtx_mwr_distance")
 
 -- Menu
 hook.Add("PopulateToolMenu", "RTXCustomWorldMenu", function()
@@ -676,7 +668,7 @@ hook.Add("PopulateToolMenu", "RTXCustomWorldMenu", function()
         panel:CheckBox("Enable Custom World Rendering", "rtx_mwr")
         panel:ControlHelp("Renders the world using chunked meshes")
 
-        panel:CheckBox("Remix Capture Mode", "rtx_capture_mode")
+        panel:CheckBox("Remix Capture Mode", "rtx_mwr_capture_mode")
         panel:ControlHelp("Enable this if you're taking a capture with RTX Remix")
         
         panel:CheckBox("Show Debug Info", "rtx_mwr_debug")
