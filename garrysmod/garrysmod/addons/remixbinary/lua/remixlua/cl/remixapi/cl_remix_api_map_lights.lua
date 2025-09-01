@@ -4,6 +4,7 @@ local min_size = CreateClientConVar("rtx_api_map_lights_min_size", "100", true, 
 local max_size = CreateClientConVar("rtx_api_map_lights_max_size", "1000", true, false, "Maximum size for RTX lights")
 local visual_mode = CreateClientConVar("rtx_api_map_lights_visual", "0", true, false, "Show visible models for lights")
 local debug_mode = CreateClientConVar("rtx_api_map_lights_debug", "0", true, false, "Enable debug messages")
+local env_max_brightness = CreateClientConVar("rtx_api_map_lights_env_max_brightness", "0", true, false, "Max brightness (0-100 scale) for directional lights; 0 disables clamping")
 local creation_delay = CreateClientConVar("rtx_api_map_lights_creation_delay", "0.0", true, false, "Delay between light creation in seconds")
 local creation_batch_size = CreateClientConVar("rtx_api_map_lights_batch_size", "1", true, false, "Number of lights to create in each batch")
 local creation_batch_delay = CreateClientConVar("rtx_api_map_lights_batch_delay", "0.0", true, false, "Delay between batches in seconds")
@@ -20,6 +21,7 @@ local autospawn_delay = CreateClientConVar("rtx_api_map_lights_autospawn_delay",
 -- Debug helpers
 local debug_vis = CreateClientConVar("rtx_api_map_lights_debug_vis", "0", true, false, "Draw debug direction for spotlights")
 local spot_dir_basis = CreateClientConVar("rtx_api_map_lights_dir_basis", "0", true, false, "Angles basis if no target: 0=F,1=-F,2=U,3=-U,4=R,5=-R")
+local debug_beam_mat = Material("cable/physbeam")
 
 -- Optional queue include to throttle RemixLight operations
 if file.Exists("remixlua/cl/remixapi/cl_remix_light_queue.lua", "LUA") then
@@ -37,6 +39,7 @@ local lightClasses = {
     ["light"] = true,
     ["light_spot"] = true,
     ["light_dynamic"] = true,
+    ["light_environment"] = true,
 }
 
 -- Mapping from Source light types to RTX light types
@@ -44,6 +47,7 @@ local rtxLightTypes = {
     ["light"] = 0, -- Sphere light
     ["light_dynamic"] = 0, -- Sphere light
     ["light_spot"] = 0, -- Disk light
+    ["light_environment"] = 3, -- Distant (directional) light
 }
 
 -- Visual models to use for different light types
@@ -51,6 +55,7 @@ local lightModels = {
     ["light"] = "models/hunter/misc/sphere025x025.mdl",
     ["light_spot"] = "models/hunter/misc/sphere025x025.mdl",
     ["light_dynamic"] = "models/hunter/misc/sphere025x025.mdl",
+    ["light_environment"] = "models/hunter/misc/sphere025x025.mdl",
 }
 
 -- Print debug messages if debug mode is enabled
@@ -210,7 +215,16 @@ local function getLightProperties(entity)
         -- Environment lights are usually brighter and larger
         brightness = brightness * 1.5
         size = size * 1.5
-        lightProps.angularDiameter = 0.5 -- Small angular diameter for sun-like light
+        -- Read sun spread/diameter if available, else default to ~solar disc size
+        local spread = tonumber(entity.sunspreadangle or entity._sunspreadangle or 0.53)
+        lightProps.angularDiameter = spread or 0.53
+        -- Derive directional angles (reuse robust parser)
+        local a, src = ParseEntityAngles(entity)
+        if a then
+            lightProps.angles = a
+            lightProps.direction = a:Forward()
+            lightProps.debugSource = (src or "?") .. "+light_environment"
+        end
     elseif entity.classname == "light_spot" then
         if debug_mode:GetBool() then
             -- Dump raw fields to diagnose yaw sourcing
@@ -392,7 +406,14 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
     local entityId = getUniqueEntityID()
 
     -- Base light definition: compute radiance from color and brightness (0-100)
-    local scale = (tonumber(brightness) or 100) / 100.0
+    local appliedBrightness = tonumber(brightness) or 100
+    if classname == "light_environment" then
+        local maxEnv = tonumber(env_max_brightness:GetFloat()) or 0
+        if maxEnv > 0 then
+            appliedBrightness = math.min(appliedBrightness, maxEnv)
+        end
+    end
+    local scale = appliedBrightness / 100.0
     local base = {
         hash = tonumber(util.CRC(string.format("maplight_%s", posKey))) or entityId,
         radiance = { x = color.r * scale, y = color.g * scale, z = color.b * scale },
@@ -420,28 +441,42 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         else dir = baseAngles:Forward() end
     end
 
-    -- Sphere info as a reasonable default representation
-    local sphere = {
-        position = { x = pos.x, y = pos.y, z = pos.z },
-        radius = tonumber(size) or 200,
-        volumetricRadianceScale = 1.0,
-    }
-    if lightProps and lightProps.shapingEnabled then
-        sphere.shaping = {
-            direction = { x = dir.x, y = dir.y, z = dir.z },
-            coneAngleDegrees = tonumber(lightProps.coneAngle) or 45.0,
-            coneSoftness = tonumber(lightProps.coneSoftness) or 0.2,
-            focusExponent = 1.0,
-        }
-        DebugPrint(string.format("Create spot dir=(%.2f, %.2f, %.2f) src=%s", dir.x, dir.y, dir.z, tostring(lightProps.debugSource)))
-    end
-
-    -- Create the light (synchronous) and get its id
+    -- Special-case directional: use Distant lights
     local lightId = nil
-    if istable(RemixLightQueue) and RemixLightQueue.CreateSphere then
-        lightId = RemixLightQueue.CreateSphere(base, sphere, entityId)
-    elseif RemixLight.CreateSphere then
-        lightId = RemixLight.CreateSphere(base, sphere, entityId)
+    if classname == "light_environment" then
+        local distant = {
+            direction = { x = dir.x, y = dir.y, z = dir.z },
+            angularDiameterDegrees = (lightProps and tonumber(lightProps.angularDiameter)) or 0.53,
+            volumetricRadianceScale = 1.0,
+        }
+        if istable(RemixLightQueue) and RemixLightQueue.CreateDistant then
+            lightId = RemixLightQueue.CreateDistant(base, distant, entityId)
+        elseif RemixLight.CreateDistant then
+            lightId = RemixLight.CreateDistant(base, distant, entityId)
+        end
+    else
+        -- Sphere info as a reasonable default representation
+        local sphere = {
+            position = { x = pos.x, y = pos.y, z = pos.z },
+            radius = tonumber(size) or 200,
+            volumetricRadianceScale = 1.0,
+        }
+        if lightProps and lightProps.shapingEnabled then
+            sphere.shaping = {
+                direction = { x = dir.x, y = dir.y, z = dir.z },
+                coneAngleDegrees = tonumber(lightProps.coneAngle) or 45.0,
+                coneSoftness = tonumber(lightProps.coneSoftness) or 0.2,
+                focusExponent = 1.0,
+            }
+            DebugPrint(string.format("Create spot dir=(%.2f, %.2f, %.2f) src=%s", dir.x, dir.y, dir.z, tostring(lightProps.debugSource)))
+        end
+
+        -- Create the light (synchronous) and get its id
+        if istable(RemixLightQueue) and RemixLightQueue.CreateSphere then
+            lightId = RemixLightQueue.CreateSphere(base, sphere, entityId)
+        elseif RemixLight.CreateSphere then
+            lightId = RemixLight.CreateSphere(base, sphere, entityId)
+        end
     end
 
     if not lightId or lightId == 0 then
@@ -458,13 +493,16 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
     local entry = {
         id = lightId,
         entityId = entityId,
-        type = "sphere",
+        type = (classname == "light_environment") and "distant" or "sphere",
         pos = pos,
         color = color,
         size = size,
         shapingEnabled = lightProps and lightProps.shapingEnabled or false,
         classname = classname,
         visualProp = visualProp,
+        -- Debug/inspection fields
+        angles = angles,
+        direction = dir,
     }
     return entry
 end
@@ -831,23 +869,31 @@ hook.Add("PreDrawHalos", "rtx_api_map_lights_Highlight", function()
     end
 end)
 
--- Optional on-screen debug direction for spotlights
+-- Optional debug direction lines for spotlights and directional lights
 hook.Add("PostDrawTranslucentRenderables", "rtx_api_map_lights_DebugDir", function(depth, sky)
     if not debug_vis:GetBool() then return end
-    render.SetColorMaterial()
+    -- Use a textured beam material (fixed-function safe)
+    render.SetMaterial(debug_beam_mat)
     for _, entry in ipairs(createdLights) do
-        if entry.shapingEnabled and entry.pos then
-            local startPos = entry.pos
-            local dir = Vector(0, 0, -1)
-            if entry.classname == "light_spot" then
-                -- Try to get current direction from binding state if available
-                -- Fallback to angles or default down
-                if entry.angles then
+        if entry.pos then
+            local isSpot = entry.classname == "light_spot" and entry.shapingEnabled
+            local isDistant = entry.type == "distant" or entry.classname == "light_environment"
+            if isSpot or isDistant then
+                local startPos = entry.pos
+                local dir = Vector(0, 0, -1)
+                -- Prefer stored direction when present
+                if entry.direction and isvector(entry.direction) then
+                    dir = entry.direction
+                elseif entry.angles then
                     dir = entry.angles:Forward()
                 end
+                local length = isDistant and 1024 or 128
+                local endPos = startPos + dir * length
+                local col = isDistant and Color(0, 200, 255, 220) or Color(255, 0, 0, 220)
+                local beamWidth = 1
+                if isDistant then beamWidth = 2 end
+                render.DrawBeam(startPos, endPos, beamWidth, 0, 1, col)
             end
-            local endPos = startPos + dir * 128
-            render.DrawLine(startPos, endPos, Color(255, 0, 0, 255), true)
         end
     end
 end)
