@@ -7,7 +7,6 @@ local debugMode = CreateClientConVar("rtx_cdr_debug", "0", true, false, "Enable 
 local wireframeMode = CreateClientConVar("rtx_cdr_wireframe", "0", true, false, "Enable wireframe rendering")
 local cvarWhitelist = CreateClientConVar("rtx_cdr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include")
 local cvarBlacklist = CreateClientConVar("rtx_cdr_mat_blacklist", "", true, false, "Comma-separated material name substrings to exclude")
-local cvarBinSize = CreateClientConVar("rtx_cdr_bin_size", "8192", true, false, "Displacement bin size for culling")
 
 local dispFaces = {}
 local dispMeshes = {}
@@ -16,7 +15,6 @@ local totalDisplacements = 0
 local hasLoaded = false
 local shouldReload = false
 local dispStats = { rendered = 0, total = 0 }
-local dispBins = {}
 
 -- Debug helper function
 local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
@@ -27,8 +25,6 @@ local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
         end
     end
 
--- Material to use for displacements
-local defaultMaterial = Material("nature/blendsandsand008b")
 local wireframeMaterial = Material("models/wireframe")
 
 local function IsMaterialAllowedName(matName)
@@ -103,9 +99,6 @@ end
 
 function CreateDispMeshes(cancelToken)
     print("[Displacement Renderer] Creating meshes for " .. #dispFaces .. " displacements")
-    
-    dispBins = {}
-    local binSize = cvarBinSize:GetFloat()
 
     for i, face in ipairs(dispFaces) do
         if cancelToken and cancelToken.cancelled then break end
@@ -165,24 +158,6 @@ function CreateDispMeshes(cancelToken)
                 center = center,
                 face = face
             })
-            local key = (RenderCore and RenderCore.GetBinKey) and RenderCore.GetBinKey(center, binSize)
-                or (math.floor(center.x / binSize) .. "," .. math.floor(center.y / binSize) .. "," .. math.floor(center.z / binSize))
-            local bin = dispBins[key]
-            if not bin then
-                bin = (RenderCore and RenderCore.CreateBin) and RenderCore.CreateBin() or { mins = Vector(math.huge, math.huge, math.huge), maxs = Vector(-math.huge, -math.huge, -math.huge), items = {} }
-                dispBins[key] = bin
-            end
-            table.insert(bin.items, dispMeshes[#dispMeshes])
-            if RenderCore and RenderCore.UpdateBinBounds then
-                RenderCore.UpdateBinBounds(bin, mins, maxs)
-            else
-                if mins.x < bin.mins.x then bin.mins.x = mins.x end
-                if mins.y < bin.mins.y then bin.mins.y = mins.y end
-                if mins.z < bin.mins.z then bin.mins.z = mins.z end
-                if maxs.x > bin.maxs.x then bin.maxs.x = maxs.x end
-                if maxs.y > bin.maxs.y then bin.maxs.y = maxs.y end
-                if maxs.z > bin.maxs.z then bin.maxs.z = maxs.z end
-            end
 
             if RenderCore and RenderCore.TrackMesh then
                 RenderCore.TrackMesh(faceMesh)
@@ -202,46 +177,23 @@ RenderCore.Register("PreDrawOpaqueRenderables", "DisplacementRenderer", function
     local playerPos = LocalPlayer():GetPos()
     local maxDistance = renderDistance:GetFloat()
     local useDistanceLimit = (maxDistance > 0)
-    local renderDistSqr = maxDistance * maxDistance
     local renderedCount = 0
     local distanceSkipped = 0
     
-    local hasCullBox = (render and type(render.CullBox) == "function")
-    if hasCullBox then
-        for key, bin in pairs(dispBins) do
-            if render.CullBox(bin.mins, bin.maxs) then continue end
-            for _, dispData in ipairs(bin.items) do
-                if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(dispData.center, playerPos, maxDistance) then
-                    distanceSkipped = distanceSkipped + 1
-                    continue
-                end
-                local mat = wireframeMode:GetBool() and wireframeMaterial or dispData.material
-                if dispData.mesh and mat then
-                    RenderCore.Submit({
-                        material = mat,
-                        mesh = dispData.mesh,
-                        translucent = false
-                    })
-                end
-                renderedCount = renderedCount + 1
-            end
+    for _, dispData in ipairs(dispMeshes) do
+        if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(dispData.center, playerPos, maxDistance) then
+            distanceSkipped = distanceSkipped + 1
+            continue
         end
-    else
-        for _, dispData in ipairs(dispMeshes) do
-            if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(dispData.center, playerPos, maxDistance) then
-                distanceSkipped = distanceSkipped + 1
-                continue
-            end
-            local mat = wireframeMode:GetBool() and wireframeMaterial or dispData.material
-            if dispData.mesh and mat then
-                RenderCore.Submit({
-                    material = mat,
-                    mesh = dispData.mesh,
-                    translucent = false
-                })
-            end
-            renderedCount = renderedCount + 1
+        local mat = wireframeMode:GetBool() and wireframeMaterial or dispData.material
+        if dispData.mesh and mat then
+            RenderCore.Submit({
+                material = mat,
+                mesh = dispData.mesh,
+                translucent = false
+            })
         end
+        renderedCount = renderedCount + 1
     end
     
     dispStats.rendered = renderedCount
@@ -266,7 +218,6 @@ RenderCore.Register("ShutDown", "DisplacementRenderer_Cleanup", function()
     end
     dispFaces = {}
     dispMeshes = {}
-    dispBins = {}
     hasLoaded = false
     loadProgress = 0
 end)
@@ -297,7 +248,6 @@ RenderCore.RegisterRebuildSink("DisplacementsRebuild", function(token, reason)
     loadProgress = 0
     dispFaces = {}
     dispMeshes = {}
-    dispBins = {}
     if RenderCore and RenderCore.DestroyTrackedMeshes then
         RenderCore.DestroyTrackedMeshes()
     end
@@ -314,7 +264,6 @@ local function DebounceRebuildOnCvar(name)
     end, "DisplacementsRebuild-" .. name)
 end
 
-DebounceRebuildOnCvar("rtx_cdr_bin_size")
 DebounceRebuildOnCvar("rtx_cdr_mat_whitelist")
 DebounceRebuildOnCvar("rtx_cdr_mat_blacklist")
 DebounceRebuildOnCvar("rtx_cdr_distance")

@@ -9,7 +9,6 @@ local convar_Debug = CreateClientConVar("rtx_spr_debug", "0", true, false, "Enab
 local convar_RenderDistance = CreateClientConVar("rtx_spr_distance", "10000", true, false, "Maximum distance to render static props (0 = no limit)")
 local convar_Whitelist = CreateClientConVar("rtx_spr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include")
 local convar_Blacklist = CreateClientConVar("rtx_spr_mat_blacklist", "", true, false, "Comma-separated material name substrings to exclude")
-local convar_BinSize = CreateClientConVar("rtx_spr_bin_size", "8192", true, false, "Static props bin size for culling")
 
 -- Global state
 local isDataReady = false
@@ -22,7 +21,6 @@ local skyboxProps = {}
 local worldProps = {}
 local sprStats = { rendered = 0, total = 0 }
 local sprBuildStats = { startTime = 0, endTime = 0, built = 0 }
-local propBins = {}
 
 -- Debug helper function
 local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
@@ -192,34 +190,12 @@ end
 local function SeparateSkyboxProps()
     skyboxProps = {}
     worldProps = {}
-    propBins = {}
-    local binSize = convar_BinSize:GetFloat()
     
     for _, prop in ipairs(cachedStaticProps) do
         if prop.isSkybox then
             table.insert(skyboxProps, prop)
         else
             table.insert(worldProps, prop)
-            local key = (RenderCore and RenderCore.GetBinKey) and RenderCore.GetBinKey(prop.origin, binSize)
-                or (math.floor(prop.origin.x / binSize) .. "," .. math.floor(prop.origin.y / binSize) .. "," .. math.floor(prop.origin.z / binSize))
-            local bin = propBins[key]
-            if not bin then
-                bin = (RenderCore and RenderCore.CreateBin) and RenderCore.CreateBin() or { mins = Vector(math.huge, math.huge, math.huge), maxs = Vector(-math.huge, -math.huge, -math.huge), items = {} }
-                propBins[key] = bin
-            end
-            table.insert(bin.items, prop)
-            local mins = prop.cachedMesh and prop.cachedMesh.mins or prop.origin
-            local maxs = prop.cachedMesh and prop.cachedMesh.maxs or prop.origin
-            if RenderCore and RenderCore.UpdateBinBounds then
-                RenderCore.UpdateBinBounds(bin, mins, maxs)
-            else
-                if mins.x < bin.mins.x then bin.mins.x = mins.x end
-                if mins.y < bin.mins.y then bin.mins.y = mins.y end
-                if mins.z < bin.mins.z then bin.mins.z = mins.z end
-                if maxs.x > bin.maxs.x then bin.maxs.x = maxs.x end
-                if maxs.y > bin.maxs.y then bin.maxs.y = maxs.y end
-                if maxs.z > bin.maxs.z then bin.maxs.z = maxs.z end
-            end
         end
     end
     
@@ -401,66 +377,31 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
         lastDebugFrame = frameCount
     end
     
-    local hasCullBox = (render and type(render.CullBox) == "function")
-    if not bDrawingSkybox and hasCullBox then
-        for key, bin in pairs(propBins) do
-            if render.CullBox(bin.mins, bin.maxs) then
-                continue
-            end
-            for _, prop in ipairs(bin.items) do
-                local meshData = prop.cachedMesh
-                if not meshData or not meshData.meshes then
-                    skippedProps = skippedProps + 1
-                    continue
-                end
-                if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(prop.origin, playerPos, maxDistance) then
-                    distanceSkipped = distanceSkipped + 1
-                    continue
-                end
-                local matrix = Matrix()
-                matrix:Translate(prop.origin)
-                matrix:Rotate(prop.angles)
-                for _, meshInfo in ipairs(meshData.meshes) do
-                    if meshInfo.mesh and meshInfo.material then
-                        RenderCore.Submit({
-                            material = meshInfo.material,
-                            mesh = meshInfo.mesh,
-                            matrix = matrix,
-                            translucent = false,
-                            color = prop.color
-                        })
-                    end
-                end
-                renderedProps = renderedProps + 1
+    for _, prop in ipairs(propsToRender) do
+        local meshData = prop.cachedMesh
+        if not meshData or not meshData.meshes then
+            skippedProps = skippedProps + 1
+            continue
+        end
+        if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(prop.origin, playerPos, maxDistance) then
+            distanceSkipped = distanceSkipped + 1
+            continue
+        end
+        local matrix = Matrix()
+        matrix:Translate(prop.origin)
+        matrix:Rotate(prop.angles)
+        for _, meshInfo in ipairs(meshData.meshes) do
+            if meshInfo.mesh and meshInfo.material then
+                RenderCore.Submit({
+                    material = meshInfo.material,
+                    mesh = meshInfo.mesh,
+                    matrix = matrix,
+                    translucent = false,
+                    color = prop.color
+                })
             end
         end
-    else
-        for _, prop in ipairs(propsToRender) do
-            local meshData = prop.cachedMesh
-            if not meshData or not meshData.meshes then
-                skippedProps = skippedProps + 1
-                continue
-            end
-            if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(prop.origin, playerPos, maxDistance) then
-                distanceSkipped = distanceSkipped + 1
-                continue
-            end
-            local matrix = Matrix()
-            matrix:Translate(prop.origin)
-            matrix:Rotate(prop.angles)
-            for _, meshInfo in ipairs(meshData.meshes) do
-                if meshInfo.mesh and meshInfo.material then
-                    RenderCore.Submit({
-                        material = meshInfo.material,
-                        mesh = meshInfo.mesh,
-                        matrix = matrix,
-                        translucent = false,
-                        color = prop.color
-                    })
-                end
-            end
-            renderedProps = renderedProps + 1
-        end
+        renderedProps = renderedProps + 1
     end
     
     sprStats.rendered = renderedProps
@@ -533,7 +474,6 @@ local function DebounceRebuildOnCvar(name)
     end, "StaticPropsRebuild-" .. name)
 end
 
-DebounceRebuildOnCvar("rtx_spr_bin_size")
 DebounceRebuildOnCvar("rtx_spr_mat_whitelist")
 DebounceRebuildOnCvar("rtx_spr_mat_blacklist")
 DebounceRebuildOnCvar("rtx_spr_distance")

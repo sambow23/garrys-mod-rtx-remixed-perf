@@ -12,7 +12,6 @@ local CONVARS = {
     CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode"),
     MAT_WHITELIST = CreateClientConVar("rtx_mwr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include"),
     MAT_BLACKLIST = CreateClientConVar("rtx_mwr_mat_blacklist", "toolsskybox,skybox/", true, false, "Comma-separated material name substrings to exclude"),
-    PVS_CULL = CreateClientConVar("rtx_mwr_pvs_cull", "1", true, false, "Enable PVS-based chunk culling if available"),
     DISTANCE = CreateClientConVar("rtx_mwr_distance", "0", true, false, "World chunk distance limit (0 = off)")
 }
 
@@ -31,26 +30,7 @@ local math_floor = math.floor
 local table_insert = table.insert
 local MAX_VERTICES = 10000
 local MAX_CHUNK_VERTS = 32768
-local function IsChunkVisibleByPVS(viewCluster, chunkClusters)
-    if type(viewCluster) ~= "number" or not chunkClusters then return true end
-    local map = NikNaks and NikNaks.CurrentMap
-    if not map then return true end
-    if map.IsClusterVisible then
-        for cluster, _ in pairs(chunkClusters) do
-            if type(cluster) == "number" and map:IsClusterVisible(viewCluster, cluster) then return true end
-        end
-        return false
-    elseif map.GetClusterPVS then
-        local pvs = map:GetClusterPVS(viewCluster)
-        if type(pvs) == "table" then
-            for cluster, _ in pairs(chunkClusters) do
-                if type(cluster) == "number" and pvs[cluster] then return true end
-            end
-            return false
-        end
-    end
-    return true
-end
+-- PVS culling removed
 
 -- Deprecated BuildMatcherList removed; use RenderCore.IsMaterialAllowed
 
@@ -299,14 +279,6 @@ local function BuildMapMeshes(cancelToken)
             local chunkGroup = face:IsTranslucent() and chunks.translucent or chunks.opaque
             
             chunkGroup[chunkKey] = chunkGroup[chunkKey] or {}
-            -- record cluster membership for the chunk
-            if leaf and leaf.GetCluster then
-                local clRaw = leaf:GetCluster()
-                local cl = tonumber(clRaw)
-                local set = chunkGroup[chunkKey]._clusters or {}
-                chunkGroup[chunkKey]._clusters = set
-                if cl ~= nil then set[cl] = true end
-            end
             chunkGroup[chunkKey][matName] = chunkGroup[chunkKey][matName] or {
                 material = material,
                 faces = {}
@@ -388,10 +360,6 @@ local function BuildMapMeshes(cancelToken)
         for renderType, chunkGroup in pairs(chunks) do
             for chunkKey, materials in pairs(chunkGroup) do
                 mapMeshes[renderType][chunkKey] = {}
-                -- copy cluster set if present
-                if materials._clusters then
-                    mapMeshes[renderType][chunkKey]._clusters = materials._clusters
-                end
                 for matName, group in pairs(materials) do
                     if cancelToken and cancelToken.cancelled then return end
                     if group.faces and #group.faces > 0 then
@@ -462,57 +430,19 @@ local function RenderCustomWorld(translucent)
     local draws = 0
     local currentMaterial = nil
     local chunksVisited = 0
-    local culledFrustum = 0
-    local culledPVS = 0
-    local hasCullBox = (render and type(render.CullBox) == "function")
     
     -- Regular faces
     local groups = translucent and mapMeshes.translucent or mapMeshes.opaque
-    -- determine viewer cluster once (only if PVS culling enabled)
-    local viewCluster = nil
-    if CONVARS.PVS_CULL:GetBool() then
-        local ok = pcall(function()
-            local map = NikNaks and NikNaks.CurrentMap
-            if map and map.PointInLeaf and LocalPlayer then
-                local ply = LocalPlayer()
-                if not ply or not ply.GetPos then return end
-                local pos = ply:GetPos()
-                local vleaf = map:PointInLeaf(pos)
-                if vleaf and vleaf.GetCluster then
-                    local vclRaw = vleaf:GetCluster()
-                    viewCluster = tonumber(vclRaw)
-                end
-            end
-        end)
-        if not ok then
-            viewCluster = nil
-        end
-    end
     local maxDist = CONVARS.DISTANCE:GetFloat()
     local useDist = maxDist > 0
     local ply = LocalPlayer and LocalPlayer() or nil
     local eyePos = ply and ply.GetPos and ply:GetPos() or nil
     for _, chunkMaterials in pairs(groups) do
         chunksVisited = chunksVisited + 1
-        -- frustum cull entire chunk by its AABB if available
         local cmins, cmaxs = chunkMaterials._mins, chunkMaterials._maxs
-        if cmins and cmaxs then
-            if hasCullBox and render.CullBox(cmins, cmaxs) then
-                culledFrustum = culledFrustum + 1
-                continue
-            end
-            if useDist and eyePos then
-                local center = (cmins + cmaxs) * 0.5
-                if RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(center, eyePos, maxDist) then
-                    culledFrustum = culledFrustum + 1
-                    continue
-                end
-            end
-        end
-        if CONVARS.PVS_CULL:GetBool() then
-            local clusters = chunkMaterials._clusters
-            if not IsChunkVisibleByPVS(viewCluster, clusters) then
-                culledPVS = culledPVS + 1
+        if cmins and cmaxs and useDist and eyePos then
+            local center = (cmins + cmaxs) * 0.5
+            if RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(center, eyePos, maxDist) then
                 continue
             end
         end
@@ -537,17 +467,13 @@ local function RenderCustomWorld(translucent)
     
     renderStats.draws = draws
     renderStats.chunksVisited = chunksVisited
-    renderStats.culledFrustum = culledFrustum
-    renderStats.culledPVS = culledPVS
 end
 
 -- Stats provider for unified overlay
 RenderCore.RegisterStats("RTXWorld", function()
-    return string.format("World draws: %d | chunks: %d (-F:%d, -P:%d)",
+    return string.format("World draws: %d | chunks: %d",
         renderStats.draws or 0,
-        renderStats.chunksVisited or 0,
-        renderStats.culledFrustum or 0,
-        renderStats.culledPVS or 0)
+        renderStats.chunksVisited or 0)
 end)
 
 -- Enable/Disable Functions

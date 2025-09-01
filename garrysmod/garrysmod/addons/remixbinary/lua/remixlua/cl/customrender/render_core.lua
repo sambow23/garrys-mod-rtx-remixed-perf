@@ -195,31 +195,7 @@ do
         return false
     end
 
-    -- ============================
-    -- Spatial Binning Utilities
-    -- ============================
-    function RemixRenderCore.GetBinKey(pos, binSize)
-        return math.floor(pos.x / binSize) .. "," .. 
-               math.floor(pos.y / binSize) .. "," .. 
-               math.floor(pos.z / binSize)
-    end
-
-    function RemixRenderCore.CreateBin()
-        return {
-            mins = Vector(math.huge, math.huge, math.huge),
-            maxs = Vector(-math.huge, -math.huge, -math.huge),
-            items = {}
-        }
-    end
-
-    function RemixRenderCore.UpdateBinBounds(bin, mins, maxs)
-        if mins.x < bin.mins.x then bin.mins.x = mins.x end
-        if mins.y < bin.mins.y then bin.mins.y = mins.y end
-        if mins.z < bin.mins.z then bin.mins.z = mins.z end
-        if maxs.x > bin.maxs.x then bin.maxs.x = maxs.x end
-        if maxs.y > bin.maxs.y then bin.maxs.y = maxs.y end
-        if maxs.z > bin.maxs.z then bin.maxs.z = maxs.z end
-    end
+    -- Spatial binning utilities removed; no longer used
 
     -- ============================
     -- Bounds Calculation Utilities
@@ -443,13 +419,19 @@ do
 
             panel:CheckBox("Show Unified Debug Overlay", "rtx_render_debug")
 
+            panel:Help("2D Skybox")
+            panel:CheckBox("2D Skybox Enable", "rtx_sky2d_enable")
+            panel:TextEntry("2D Skybox Name Override", "rtx_sky2d_name")
+            panel:NumSlider("2D Skybox Brightness", "rtx_sky2d_brightness", 0, 5, 2)
+            panel:CheckBox("2D Skybox Debug", "rtx_sky2d_debug")
+            panel:CheckBox("2D Skybox Use DepthRange", "rtx_sky2d_use_depthrange")
+            panel:NumSlider("2D Skybox Depth Near", "rtx_sky2d_depthnear", 0, 1, 3)
+
             panel:NumSlider("World Chunk Size", "rtx_mwr_chunk_size", 4096, 65536, 0)
             panel:NumSlider("World Distance (0=off)", "rtx_mwr_distance", 0, 524288, 0)
-            panel:CheckBox("World PVS Culling", "rtx_mwr_pvs_cull")
             panel:TextEntry("World Material Whitelist", "rtx_mwr_mat_whitelist")
             panel:TextEntry("World Material Blacklist", "rtx_mwr_mat_blacklist")
-            panel:NumSlider("Static Props Bin Size", "rtx_spr_bin_size", 1024, 65536, 0)
-            panel:NumSlider("Displacements Bin Size", "rtx_cdr_bin_size", 1024, 65536, 0)
+            -- Removed bin size controls
 
             panel:Help("")
             panel:CheckBox("Displacements Enable", "rtx_cdr_enable")
