@@ -75,26 +75,76 @@ end
 
 -- Robustly parse Source entity angle fields. Returns Angle or nil, and a debug source tag
 local function ParseEntityAngles(ent)
-    local anglesStr = ent.angles or ent._angles
-    if type(anglesStr) == "string" then
-        local ax, ay, az = string.match(anglesStr, "([%-%.%d]+)%s+([%-%.%d]+)%s+([%-%.%d]+)")
+    local angField = ent.angles or ent._angles
+    -- Support string angles: "pitch yaw roll" or just "yaw"
+    if type(angField) == "string" then
+        local ax, ay, az = string.match(angField, "([%-%.%d]+)%s+([%-%.%d]+)%s+([%-%.%d]+)")
         if ax and ay and az then
-            -- angles string is typically pitch yaw roll; Source positive pitch faces down
+            -- Source convention: +pitch looks down -> negate when building Angle
             return Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0), "angles_xyz"
         end
-        local yawOnly = tonumber(anglesStr)
+        local yawOnly = tonumber(angField)
         if yawOnly then
             local pitch = tonumber(ent.pitch or ent._pitch or 0)
             return Angle(-pitch, yawOnly, 0), "angles_yaw"
         end
+    elseif type(angField) == "number" then
+        -- Some entities may store yaw-only in 'angles' as a number
+        local pitch = tonumber(ent.pitch or ent._pitch or 0)
+        return Angle(-pitch, angField, 0), "angles_yaw_num"
+    elseif (isvector and isvector(angField)) or type(angField) == "Vector" then
+        -- Some BSP libs may expose angles as a Vector
+        return Angle(-(angField.x or 0), angField.y or 0, angField.z or 0), "angles_vec"
+    elseif istable(angField) and angField.x and angField.y and angField.z then
+        return Angle(-(angField.x or 0), angField.y or 0, angField.z or 0), "angles_tbl"
+    elseif istable(angField) then
+        -- Support array-like tables: {pitch, yaw, roll}
+        local ax, ay, az = tonumber(angField[1] or 0), tonumber(angField[2] or 0), tonumber(angField[3] or 0)
+        if ax ~= 0 or ay ~= 0 or az ~= 0 then
+            return Angle(-ax, ay, az), "angles_tbl_idx"
+        end
+    elseif (isangle and isangle(angField)) then
+        -- GLua Angle userdata
+        return Angle(-(angField.p or 0), angField.y or 0, angField.r or 0), "angles_glua"
+    elseif type(angField) == "Angle" then
+        -- Angle type without isangle available
+        return Angle(-(angField.p or 0), angField.y or 0, angField.r or 0), "angles_type_Angle"
+    elseif type(angField) == "userdata" then
+        -- Generic userdata exposing p/y/r or pitch/yaw/roll
+        local p = angField.p or angField.pitch
+        local y = angField.y or angField.yaw
+        local r = angField.r or angField.roll
+        if p ~= nil or y ~= nil or r ~= nil then
+            return Angle(-(tonumber(p) or 0), tonumber(y) or 0, tonumber(r) or 0), "angles_userdata"
+        end
+        -- Try parsing its string representation (e.g., "-16.000 45.000 0.000")
+        local s = tostring(angField)
+        if type(s) == "string" then
+            local ax, ay, az = string.match(s, "([%-%.%d]+)%s+([%-%.%d]+)%s+([%-%.%d]+)")
+            if ax and ay and az then
+                return Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0), "angles_userdata_str"
+            end
+        end
+    end
+    -- Generic fallback: if we have any angles field at all, try parsing its string form
+    if angField ~= nil then
+        local s = tostring(angField)
+        if type(s) == "string" then
+            local ax, ay, az = string.match(s, "([%-%.%d]+)%s+([%-%.%d]+)%s+([%-%.%d]+)")
+            if ax and ay and az then
+                return Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0), "angles_any_str"
+            end
+        end
     end
     -- Fallback to separate fields
     local hasPitch = ent.pitch or ent._pitch
-    local hasYaw = ent.angle or ent._angle
+    local yawRaw = ent.angle or ent._angle or ent.yaw or ent._yaw
+    local hasYaw = yawRaw ~= nil
     if hasPitch or hasYaw then
         local pitch = tonumber(ent.pitch or ent._pitch or 0)
-        local yaw = tonumber(ent.angle or ent._angle or 0)
-        return Angle(-pitch, yaw, 0), "pitch_yaw"
+        local yaw = tonumber(yawRaw or 0)
+        local tag = (yawRaw ~= nil and "pitch_yaw") or "pitch_only"
+        return Angle(-pitch, yaw, 0), tag
     end
     return nil, "none"
 end
@@ -162,6 +212,26 @@ local function getLightProperties(entity)
         size = size * 1.5
         lightProps.angularDiameter = 0.5 -- Small angular diameter for sun-like light
     elseif entity.classname == "light_spot" then
+        if debug_mode:GetBool() then
+            -- Dump raw fields to diagnose yaw sourcing
+            local function tv(v)
+                local t = type(v)
+                if t == "table" then return "table" end
+                if t == "Vector" or (isvector and isvector(v)) then
+                    return string.format("Vector(%.2f,%.2f,%.2f)", v.x or 0, v.y or 0, v.z or 0)
+                end
+                return tostring(v)
+            end
+            print("[Light2RTX Debug] spot raw angle fields:",
+                "angles=", tv(entity.angles),
+                "_angles=", tv(entity._angles),
+                "angle=", tv(entity.angle),
+                "_angle=", tv(entity._angle),
+                "yaw=", tv(entity.yaw),
+                "_yaw=", tv(entity._yaw),
+                "pitch=", tv(entity.pitch),
+                "_pitch=", tv(entity._pitch))
+        end
         -- For spotlights, extract cone parameters
         local coneAngle = tonumber(entity.cone or entity._cone or 45)
         lightProps.coneAngle = coneAngle
@@ -173,15 +243,14 @@ local function getLightProperties(entity)
         lightProps.rectWidth = size * aspectRatio
         lightProps.rectHeight = size
         
-        -- Extract spotlight direction if available
-        if entity.angles or entity._angles then
-            local angles = StringToVector(entity.angles or entity._angles)
-            lightProps.angles = Angle(angles.x, angles.y, angles.z)
-        elseif entity.pitch or entity._pitch then
-            local pitch = tonumber(entity.pitch or entity._pitch or 0)
-            local yaw = tonumber(entity.angle or entity._angle or 0)
-            -- Use Source-style pitch (positive = down)
-            lightProps.angles = Angle(pitch, yaw, 0)
+        -- Derive spotlight angles and direction consistently (Source: +pitch looks down)
+        local a, src = ParseEntityAngles(entity)
+        if a then
+            lightProps.angles = a
+            -- Provide a direction immediately; later logic will respect this if no target exists
+            lightProps.direction = a:Forward()
+            lightProps.shapingEnabled = true
+            lightProps.debugSource = src .. "+getLightProperties"
         end
     end
     
@@ -230,7 +299,8 @@ local function findLightsInBSP()
                     lightProps.direction = dirVec
                     lightProps.shapingEnabled = true
                     lightProps.debugSource = "target"
-                else
+                elseif not lightProps.direction then
+                    -- Fallback: parse angles only if not already set by getLightProperties
                     local a, src = ParseEntityAngles(ent)
                     if a then
                         local f = a:Forward()

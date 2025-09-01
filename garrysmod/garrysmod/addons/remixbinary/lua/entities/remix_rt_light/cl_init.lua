@@ -19,37 +19,96 @@ local function ensure_light(ent)
     if not RemixLight then return end  -- API not available
     
     local pos = ent:GetPos() + Vector(0,0,10)
+    local ang = ent:GetAngles()
+    local dir = ang:Forward()
+    local lt = ent:GetNWString("rtx_light_type", "sphere")
+    local col = ent:GetNWVector("rtx_light_col", Vector(15,15,15))
+    local radius = ent:GetNWFloat("rtx_light_radius", 20)
+    local volScale = ent:GetNWFloat("rtx_light_volumetric", 1.0)
+
     local base = {
         -- Use decimal CRC to avoid nil from base-16 conversion; ensures unique, stable hash per entity
         hash = tonumber(util.CRC("ent_light_" .. ent:EntIndex())) or 1,
-        radiance = { x = 15, y = 15, z = 15 },
+        radiance = { x = col.x, y = col.y, z = col.z },
     }
-    local sphere = {
-        position = vec_to_table(pos),
-        radius = 20,
-        shaping = {
-            direction = { x = 0, y = 0, z = -1 },
-            coneAngleDegrees = 90,
-            coneSoftness = 0.1,
-            focusExponent = 1.0,
-        },
-        volumetricRadianceScale = 1.0,
-    }
-    
+
     -- Mark as queued before attempting creation
     ent.LightCreateQueued = true
-    
-    if RemixLightQueue and RemixLightQueue.CreateSphere then
-        local id = RemixLightQueue.CreateSphere(base, sphere, ent:EntIndex())
-        ent.LightId = id
-        ent.LightCreateQueued = nil
-    elseif RemixLight.CreateSphere then
-        ent.LightId = RemixLight.CreateSphere(base, sphere, ent:EntIndex())
-        ent.LightCreateQueued = nil
-    else
-        -- Failed to create, clear the flag
-        ent.LightCreateQueued = nil
+
+    local createdId = nil
+    if lt == "sphere" then
+        local sphere = {
+            position = vec_to_table(pos),
+            radius = radius,
+            volumetricRadianceScale = volScale,
+        }
+        local shapingEnabled = ent:GetNWBool("rtx_light_shape_enabled", false)
+        if shapingEnabled then
+            sphere.shaping = { direction = { x = dir.x, y = dir.y, z = dir.z }, coneAngleDegrees = ent:GetNWFloat("rtx_light_shape_cone", 90), coneSoftness = ent:GetNWFloat("rtx_light_shape_softness", 0.1), focusExponent = ent:GetNWFloat("rtx_light_shape_focus", 1.0) }
+        end
+        if RemixLightQueue and RemixLightQueue.CreateSphere then
+            createdId = RemixLightQueue.CreateSphere(base, sphere, ent:EntIndex())
+        elseif RemixLight.CreateSphere then
+            createdId = RemixLight.CreateSphere(base, sphere, ent:EntIndex())
+        end
+    elseif lt == "cylinder" then
+        local cyl = {
+            position = vec_to_table(pos),
+            radius = radius,
+            axis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z },
+            axisLength = ent:GetNWFloat("rtx_light_axis_len", radius*2),
+            volumetricRadianceScale = volScale,
+        }
+        if RemixLightQueue and RemixLightQueue.CreateCylinder then
+            createdId = RemixLightQueue.CreateCylinder(base, cyl, ent:EntIndex())
+        elseif RemixLight.CreateCylinder then
+            createdId = RemixLight.CreateCylinder(base, cyl, ent:EntIndex())
+        end
+    elseif lt == "disk" then
+        local disk = {
+            position = vec_to_table(pos),
+            xAxis = { x = ang:Right().x, y = ang:Right().y, z = ang:Right().z }, xRadius = ent:GetNWFloat("rtx_light_xradius", radius),
+            yAxis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z }, yRadius = ent:GetNWFloat("rtx_light_yradius", radius),
+            direction = { x = dir.x, y = dir.y, z = dir.z },
+            volumetricRadianceScale = volScale,
+        }
+        if RemixLightQueue and RemixLightQueue.CreateDisk then
+            createdId = RemixLightQueue.CreateDisk(base, disk, ent:EntIndex())
+        elseif RemixLight.CreateDisk then
+            createdId = RemixLight.CreateDisk(base, disk, ent:EntIndex())
+        end
+    elseif lt == "rect" then
+        local rect = {
+            position = vec_to_table(pos),
+            xAxis = { x = ang:Right().x, y = ang:Right().y, z = ang:Right().z }, xSize = ent:GetNWFloat("rtx_light_xsize", radius*2),
+            yAxis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z }, ySize = ent:GetNWFloat("rtx_light_ysize", radius*2),
+            direction = { x = dir.x, y = dir.y, z = dir.z },
+            volumetricRadianceScale = volScale,
+        }
+        if RemixLightQueue and RemixLightQueue.CreateRect then
+            createdId = RemixLightQueue.CreateRect(base, rect, ent:EntIndex())
+        elseif RemixLight.CreateRect then
+            createdId = RemixLight.CreateRect(base, rect, ent:EntIndex())
+        end
+    elseif lt == "distant" then
+        local distant = { direction = { x = dir.x, y = dir.y, z = dir.z }, angularDiameterDegrees = ent:GetNWFloat("rtx_light_distant_angle", 0.5), volumetricRadianceScale = volScale }
+        if RemixLightQueue and RemixLightQueue.CreateDistant then
+            createdId = RemixLightQueue.CreateDistant(base, distant, ent:EntIndex())
+        elseif RemixLight.CreateDistant then
+            createdId = RemixLight.CreateDistant(base, distant, ent:EntIndex())
+        end
+    elseif lt == "dome" then
+        local tex = ent:GetNWString("rtx_light_dome_tex", "")
+        local dome = { colorTexture = (tex ~= "" and tex or nil) }
+        if RemixLightQueue and RemixLightQueue.CreateDome then
+            createdId = RemixLightQueue.CreateDome(base, dome, ent:EntIndex())
+        elseif RemixLight.CreateDome then
+            createdId = RemixLight.CreateDome(base, dome, ent:EntIndex())
+        end
     end
+
+    ent.LightId = createdId
+    ent.LightCreateQueued = nil
 end
 
 function ENT:Think()
@@ -77,7 +136,7 @@ function ENT:Think()
             hash = tonumber(util.CRC("ent_light_" .. self:EntIndex())) or 1,
             radiance = { x = col.x, y = col.y, z = col.z },
         }
-        local lt = self.LightType or "sphere"
+        local lt = self:GetNWString("rtx_light_type", "sphere")
         if lt == "sphere" and (RemixLight.UpdateSphere or (RemixLightQueue and RemixLightQueue.UpdateSphere)) then
             local sphere = {
                 position = vec_to_table(pos),
@@ -179,7 +238,7 @@ properties.Add("remix_rt_light_edit", {
         local typeCombo = vgui.Create("DComboBox", body)
         typeCombo:Dock(TOP)
         typeCombo:DockMargin(10, 10, 10, 5)
-        local lt_init = ent.LightType or "sphere"
+        local lt_init = ent:GetNWString("rtx_light_type", "sphere")
         typeCombo:AddChoice("SPHERE", "sphere")
         typeCombo:AddChoice("RECT", "rect")
         typeCombo:AddChoice("DISK", "disk")
@@ -328,6 +387,46 @@ properties.Add("remix_rt_light_edit", {
         dometex:SetValue(ent:GetNWString("rtx_light_dome_tex", ""))
 
         -- Realtime apply as user adjusts controls
+        -- Throttled server apply helper
+        local function sendApplyThrottled()
+            if not IsValid(ent) then return end
+            local id = ent:EntIndex()
+            local timerName = "remix_rt_light_apply_" .. tostring(id)
+            timer.Create(timerName, 0.15, 1, function()
+                if not IsValid(ent) then return end
+                if not net then return end
+                net.Start("remix_rt_light_apply")
+                net.WriteEntity(ent)
+                -- Build a compact table of values
+                local t = {
+                    rtx_light_type = (function()
+                        local sid = typeCombo:GetSelectedID()
+                        return (sid and typeCombo:GetOptionData(sid)) or ent:GetNWString("rtx_light_type", "sphere")
+                    end)(),
+                    rtx_light_radius = math.Clamp(math.floor(radius:GetValue()), 1, 200),
+                    rtx_light_brightness = brightness:GetValue(),
+                    rtx_light_volumetric = vol:GetValue(),
+                    rtx_light_shape_enabled = shapeToggle:GetChecked() and true or false,
+                    rtx_light_shape_cone = cone:GetValue(),
+                    rtx_light_shape_softness = soft:GetValue(),
+                    rtx_light_shape_focus = focus:GetValue(),
+                    rtx_light_xsize = xsize:GetValue(),
+                    rtx_light_ysize = ysize:GetValue(),
+                    rtx_light_xradius = xradius:GetValue(),
+                    rtx_light_yradius = yradius:GetValue(),
+                    rtx_light_axis_len = axislen:GetValue(),
+                    rtx_light_distant_angle = distantang:GetValue(),
+                    rtx_light_dome_tex = dometex:GetValue(),
+                }
+                local col = mixer:GetColor()
+                local scale = math.max(0.0, brightness:GetValue())
+                local vec = Vector((col.r/12)*scale, (col.g/12)*scale, (col.b/12)*scale)
+                t.rtx_light_col = { x = vec.x, y = vec.y, z = vec.z }
+                net.WriteTable(t)
+                net.SendToServer()
+            end)
+        end
+
         local function applyRealtime()
             local col = mixer:GetColor()
             ent:SetNWFloat("rtx_light_radius", math.Clamp(math.floor(radius:GetValue()), 1, 200))
@@ -346,7 +445,11 @@ properties.Add("remix_rt_light_edit", {
             ent:SetNWString("rtx_light_dome_tex", dometex:GetValue())
             local scale = math.max(0.0, brightness:GetValue())
             ent:SetNWVector("rtx_light_col", Vector((col.r/12)*scale, (col.g/12)*scale, (col.b/12)*scale))
-            ent.LightType = typeCombo:GetOptionData(typeCombo:GetSelectedID() or 1) or "sphere"
+            local sid = typeCombo:GetSelectedID()
+            local sel = (sid and typeCombo:GetOptionData(sid)) or ent:GetNWString("rtx_light_type", "sphere")
+            ent:SetNWString("rtx_light_type", sel)
+            -- send authoritative apply to server
+            sendApplyThrottled()
         end
 
         radius.OnValueChanged = function(_, _val)
@@ -358,9 +461,11 @@ properties.Add("remix_rt_light_edit", {
                 applyRealtime()
             end
         else
-            frame.Think = function()
-                applyRealtime()
-            end
+            timer.Simple(0, function()
+                if IsValid(frame) and IsValid(ent) then
+                    applyRealtime()
+                end
+            end)
         end
 
         brightness.OnValueChanged = function(_, _val)
@@ -383,7 +488,7 @@ properties.Add("remix_rt_light_edit", {
         -- Show only relevant controls per light type
         local function refreshVisibility()
             local selectedId = typeCombo:GetSelectedID()
-            local lt = (selectedId and typeCombo:GetOptionData(selectedId)) or ent.LightType or "sphere"
+            local lt = (selectedId and typeCombo:GetOptionData(selectedId)) or ent:GetNWString("rtx_light_type", "sphere")
             -- hide all optional controls first
             shapeToggle:SetVisible(false)
             cone:SetVisible(false)
@@ -421,6 +526,8 @@ properties.Add("remix_rt_light_edit", {
             end
         end
         refreshVisibility()
+        -- One-time initial apply to sync UI state without forcing defaults
+        applyRealtime()
         typeCombo.OnSelect = function()
             applyRealtime()
             refreshVisibility()

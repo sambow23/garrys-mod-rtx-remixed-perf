@@ -56,7 +56,7 @@ function TOOL:LeftClick(trace)
 
     -- Apply settings
     local lt = self:GetClientInfo("light_type") or "sphere"
-    ent.LightType = lt
+    ent:SetNWString("rtx_light_type", lt)
 
     local radius = math.Clamp(math.floor(self:GetClientNumber("radius") or 20), 1, 200)
     ent:SetNWFloat("rtx_light_radius", radius)
@@ -101,7 +101,7 @@ function TOOL:RightClick(trace)
     end
 
     local lt = self:GetClientInfo("light_type") or "sphere"
-    ent.LightType = lt
+    ent:SetNWString("rtx_light_type", lt)
 
     local radius = math.Clamp(math.floor(self:GetClientNumber("radius") or 20), 1, 200)
     ent:SetNWFloat("rtx_light_radius", radius)

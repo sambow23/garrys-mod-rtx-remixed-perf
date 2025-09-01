@@ -18,6 +18,8 @@ function ENT:Initialize()
     self:SetNWFloat("rtx_light_radius", 20)
     self:SetNWFloat("rtx_light_brightness", 1)
     self:SetNWFloat("rtx_light_volumetric", 1)
+    -- Light type is authoritative on server
+    self:SetNWString("rtx_light_type", "sphere")
     -- Shaping defaults
     self:SetNWBool("rtx_light_shape_enabled", false)
     self:SetNWFloat("rtx_light_shape_cone", 90)
@@ -54,43 +56,77 @@ end
 local function vec_to_table(v) return { x = v.x, y = v.y, z = v.z } end
 
 function ENT:CreateRemixLight()
-    if not RemixLight then return end
-    local pos = self:GetPos() + Vector(0,0,10)
-    local base = {
-        -- Use decimal CRC to avoid nil from base-16 conversion; ensures unique, stable hash per entity
-        hash = tonumber(util.CRC("ent_light_" .. self:EntIndex())) or 1,
-        radiance = { x = 15, y = 15, z = 15 },
-    }
-    local sphere = {
-        position = vec_to_table(pos),
-        radius = 20,
-        shaping = {
-            direction = { x = 0, y = 0, z = -1 },
-            coneAngleDegrees = 90,
-            coneSoftness = 0.1,
-            focusExponent = 1.0,
-        },
-        volumetricRadianceScale = 1.0,
-    }
-    self.LightId = RemixLight.CreateSphere(base, sphere, self:EntIndex())
+    -- Server no longer creates Remix lights; client is responsible.
+    -- This function is kept as a no-op for backward compatibility.
 end
 
 function ENT:Think()
-    if not self.LightId then
-        self:CreateRemixLight()
-        self.NextUpdate = CurTime() + 0.1
-        self:NextThink(CurTime())
-        return true
-    end
-
+    -- Server only updates pose. Client will issue the Update using NW values
     if CurTime() >= self.NextUpdate then
-        -- Server only updates pose. Client will issue the Update using NW values
         self:SetNWVector("rtx_light_pos", self:GetPos())
         self.NextUpdate = CurTime() + 0.1
     end
 
     self:NextThink(CurTime())
     return true
+end
+
+-- Duplicator support: persist NWVar configuration
+local function getNWTable(ent)
+    return {
+        rtx_light_type = ent:GetNWString("rtx_light_type", "sphere"),
+        rtx_light_radius = ent:GetNWFloat("rtx_light_radius", 20),
+        rtx_light_brightness = ent:GetNWFloat("rtx_light_brightness", 1),
+        rtx_light_volumetric = ent:GetNWFloat("rtx_light_volumetric", 1),
+        rtx_light_shape_enabled = ent:GetNWBool("rtx_light_shape_enabled", false),
+        rtx_light_shape_cone = ent:GetNWFloat("rtx_light_shape_cone", 90),
+        rtx_light_shape_softness = ent:GetNWFloat("rtx_light_shape_softness", 0.1),
+        rtx_light_shape_focus = ent:GetNWFloat("rtx_light_shape_focus", 1.0),
+        rtx_light_dir_yaw = ent:GetNWFloat("rtx_light_dir_yaw", 0),
+        rtx_light_dir_pitch = ent:GetNWFloat("rtx_light_dir_pitch", -90),
+        rtx_light_xsize = ent:GetNWFloat("rtx_light_xsize", 40),
+        rtx_light_ysize = ent:GetNWFloat("rtx_light_ysize", 40),
+        rtx_light_xradius = ent:GetNWFloat("rtx_light_xradius", 20),
+        rtx_light_yradius = ent:GetNWFloat("rtx_light_yradius", 20),
+        rtx_light_axis_len = ent:GetNWFloat("rtx_light_axis_len", 40),
+        rtx_light_distant_angle = ent:GetNWFloat("rtx_light_distant_angle", 0.5),
+        rtx_light_dome_tex = ent:GetNWString("rtx_light_dome_tex", ""),
+        rtx_light_col = ent:GetNWVector("rtx_light_col", Vector(15, 15, 15)),
+    }
+end
+
+local function applyNWTable(ent, t)
+    if not istable(t) then return end
+    if t.rtx_light_type then ent:SetNWString("rtx_light_type", t.rtx_light_type) end
+    if t.rtx_light_radius then ent:SetNWFloat("rtx_light_radius", t.rtx_light_radius) end
+    if t.rtx_light_brightness then ent:SetNWFloat("rtx_light_brightness", t.rtx_light_brightness) end
+    if t.rtx_light_volumetric then ent:SetNWFloat("rtx_light_volumetric", t.rtx_light_volumetric) end
+    if t.rtx_light_shape_enabled ~= nil then ent:SetNWBool("rtx_light_shape_enabled", t.rtx_light_shape_enabled and true or false) end
+    if t.rtx_light_shape_cone then ent:SetNWFloat("rtx_light_shape_cone", t.rtx_light_shape_cone) end
+    if t.rtx_light_shape_softness then ent:SetNWFloat("rtx_light_shape_softness", t.rtx_light_shape_softness) end
+    if t.rtx_light_shape_focus then ent:SetNWFloat("rtx_light_shape_focus", t.rtx_light_shape_focus) end
+    if t.rtx_light_dir_yaw then ent:SetNWFloat("rtx_light_dir_yaw", t.rtx_light_dir_yaw) end
+    if t.rtx_light_dir_pitch then ent:SetNWFloat("rtx_light_dir_pitch", t.rtx_light_dir_pitch) end
+    if t.rtx_light_xsize then ent:SetNWFloat("rtx_light_xsize", t.rtx_light_xsize) end
+    if t.rtx_light_ysize then ent:SetNWFloat("rtx_light_ysize", t.rtx_light_ysize) end
+    if t.rtx_light_xradius then ent:SetNWFloat("rtx_light_xradius", t.rtx_light_xradius) end
+    if t.rtx_light_yradius then ent:SetNWFloat("rtx_light_yradius", t.rtx_light_yradius) end
+    if t.rtx_light_axis_len then ent:SetNWFloat("rtx_light_axis_len", t.rtx_light_axis_len) end
+    if t.rtx_light_distant_angle then ent:SetNWFloat("rtx_light_distant_angle", t.rtx_light_distant_angle) end
+    if t.rtx_light_dome_tex ~= nil then ent:SetNWString("rtx_light_dome_tex", t.rtx_light_dome_tex) end
+    if t.rtx_light_col then ent:SetNWVector("rtx_light_col", t.rtx_light_col) end
+end
+
+function ENT:PreEntityCopy()
+    local t = getNWTable(self)
+    duplicator.StoreEntityModifier(self, "RemixRTLightData", t)
+end
+
+function ENT:PostEntityPaste(ply, ent, createdEntities)
+    local mod = ent.EntityMods and ent.EntityMods["RemixRTLightData"]
+    if mod then
+        applyNWTable(self, mod)
+    end
 end
 
 
