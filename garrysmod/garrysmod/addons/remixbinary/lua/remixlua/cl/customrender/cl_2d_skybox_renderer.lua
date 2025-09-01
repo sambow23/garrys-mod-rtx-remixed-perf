@@ -10,6 +10,14 @@ local cv_override = CreateClientConVar("rtx_sky2d_name", "", true, false, "Overr
 local cv_brightness = CreateClientConVar("rtx_sky2d_brightness", "1.0", true, false, "Brightness multiplier for custom 2D skybox")
 local cv_useDepthRange = CreateClientConVar("rtx_sky2d_use_depthrange", "1", true, false, "Use DepthRange(near,1) during 2D sky draw for RTX detection")
 local cv_depthNear = CreateClientConVar("rtx_sky2d_depthnear", "0.999", true, false, "DepthRange near (0..1) when enabled")
+local cv_swapUD = CreateClientConVar("rtx_sky2d_swap_ud", "1", true, false, "Swap up/down sky faces to match Source orientation")
+local cv_swapLR = CreateClientConVar("rtx_sky2d_swap_lr", "1", true, false, "Swap left/right sky faces to match Source orientation")
+local cv_rot_rt = CreateClientConVar("rtx_sky2d_rot_rt", "0", true, false, "Rotation deg for right face")
+local cv_rot_lf = CreateClientConVar("rtx_sky2d_rot_lf", "0", true, false, "Rotation deg for left face")
+local cv_rot_bk = CreateClientConVar("rtx_sky2d_rot_bk", "0", true, false, "Rotation deg for back face")
+local cv_rot_ft = CreateClientConVar("rtx_sky2d_rot_ft", "0", true, false, "Rotation deg for front face")
+local cv_rot_up = CreateClientConVar("rtx_sky2d_rot_up", "0", true, false, "Rotation deg for up face")
+local cv_rot_dn = CreateClientConVar("rtx_sky2d_rot_dn", "0", true, false, "Rotation deg for down face")
 local cv_debug = CreateClientConVar("rtx_sky2d_debug", "0", true, false, "Debug prints for 2D skybox renderer")
 
 local function DebugPrint(...)
@@ -96,18 +104,30 @@ local function Draw2DSky()
         render.SetColorModulation(br, br, br)
 
         -- Sides
+        -- Right/Left with optional swap
+        local rtMat = mats["rt"]
+        local lfMat = mats["lf"]
+        if cv_swapLR:GetBool() then
+            rtMat, lfMat = lfMat, rtMat
+        end
         -- Right (rt): plane at +X, facing inward (-X)
-        drawFace(mats["rt"], origin + Vector( size, 0, 0), Vector(-1, 0, 0), size)
+        drawFace(rtMat, origin + Vector( size, 0, 0), Vector(-1, 0, 0), size, cv_rot_rt:GetFloat())
         -- Left (lf): plane at -X, facing inward (+X)
-        drawFace(mats["lf"], origin + Vector(-size, 0, 0), Vector( 1, 0, 0), size)
+        drawFace(lfMat, origin + Vector(-size, 0, 0), Vector( 1, 0, 0), size, cv_rot_lf:GetFloat())
         -- Back (bk): plane at -Y, facing inward (+Y)
-        drawFace(mats["bk"], origin + Vector(0, -size, 0), Vector(0, 1, 0), size)
+        drawFace(mats["bk"], origin + Vector(0, -size, 0), Vector(0, 1, 0), size, cv_rot_bk:GetFloat())
         -- Front (ft): plane at +Y, facing inward (-Y)
-        drawFace(mats["ft"], origin + Vector(0,  size, 0), Vector(0,-1, 0), size)
+        drawFace(mats["ft"], origin + Vector(0,  size, 0), Vector(0,-1, 0), size, cv_rot_ft:GetFloat())
+        -- Up/Down with optional swap
+        local upMat = mats["up"]
+        local dnMat = mats["dn"]
+        if cv_swapUD:GetBool() then
+            upMat, dnMat = dnMat, upMat
+        end
         -- Up (up): plane at +Z, facing inward (-Z)
-        drawFace(mats["up"], origin + Vector(0, 0,  size), Vector(0, 0,-1), size)
+        drawFace(upMat, origin + Vector(0, 0,  size), Vector(0, 0,-1), size, cv_rot_up:GetFloat())
         -- Down (dn): plane at -Z, facing inward (+Z)
-        drawFace(mats["dn"], origin + Vector(0, 0, -size), Vector(0, 0, 1), size)
+        drawFace(dnMat, origin + Vector(0, 0, -size), Vector(0, 0, 1), size, cv_rot_dn:GetFloat())
 
         render.SetColorModulation(1, 1, 1)
         if cv_useDepthRange:GetBool() then
