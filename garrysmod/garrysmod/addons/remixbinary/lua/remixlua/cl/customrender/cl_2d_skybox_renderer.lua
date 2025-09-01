@@ -10,14 +10,19 @@ local cv_override = CreateClientConVar("rtx_sky2d_name", "", true, false, "Overr
 local cv_brightness = CreateClientConVar("rtx_sky2d_brightness", "1.0", true, false, "Brightness multiplier for custom 2D skybox")
 local cv_useDepthRange = CreateClientConVar("rtx_sky2d_use_depthrange", "1", true, false, "Use DepthRange(near,1) during 2D sky draw for RTX detection")
 local cv_depthNear = CreateClientConVar("rtx_sky2d_depthnear", "0.999", true, false, "DepthRange near (0..1) when enabled")
-local cv_swapUD = CreateClientConVar("rtx_sky2d_swap_ud", "1", true, false, "Swap up/down sky faces to match Source orientation")
+local cv_swapUD = CreateClientConVar("rtx_sky2d_swap_ud", "0", true, false, "Swap up/down sky faces to match Source orientation")
 local cv_swapLR = CreateClientConVar("rtx_sky2d_swap_lr", "1", true, false, "Swap left/right sky faces to match Source orientation")
-local cv_rot_rt = CreateClientConVar("rtx_sky2d_rot_rt", "0", true, false, "Rotation deg for right face")
-local cv_rot_lf = CreateClientConVar("rtx_sky2d_rot_lf", "0", true, false, "Rotation deg for left face")
-local cv_rot_bk = CreateClientConVar("rtx_sky2d_rot_bk", "0", true, false, "Rotation deg for back face")
-local cv_rot_ft = CreateClientConVar("rtx_sky2d_rot_ft", "0", true, false, "Rotation deg for front face")
-local cv_rot_up = CreateClientConVar("rtx_sky2d_rot_up", "0", true, false, "Rotation deg for up face")
-local cv_rot_dn = CreateClientConVar("rtx_sky2d_rot_dn", "0", true, false, "Rotation deg for down face")
+-- Default all faces to 180 as per pictured working setup
+local cv_rot_rt = CreateClientConVar("rtx_sky2d_rot_rt", "180", true, false, "Rotation deg for right face")
+local cv_rot_lf = CreateClientConVar("rtx_sky2d_rot_lf", "180", true, false, "Rotation deg for left face")
+local cv_rot_bk = CreateClientConVar("rtx_sky2d_rot_bk", "180", true, false, "Rotation deg for back face")
+local cv_rot_ft = CreateClientConVar("rtx_sky2d_rot_ft", "180", true, false, "Rotation deg for front face")
+local cv_rot_up = CreateClientConVar("rtx_sky2d_rot_up", "180", true, false, "Rotation deg for up face")
+local cv_rot_dn = CreateClientConVar("rtx_sky2d_rot_dn", "180", true, false, "Rotation deg for down face")
+-- Global rotation (rotates the entire cube orientation)
+local cv_rot_yaw   = CreateClientConVar("rtx_sky2d_rot_yaw", "0", true, false, "Rotate entire skybox around Z (yaw) degrees")
+local cv_rot_pitch = CreateClientConVar("rtx_sky2d_rot_pitch", "0", true, false, "Rotate entire skybox around Y (pitch) degrees")
+local cv_rot_roll  = CreateClientConVar("rtx_sky2d_rot_roll", "0", true, false, "Rotate entire skybox around X (roll) degrees")
 local cv_debug = CreateClientConVar("rtx_sky2d_debug", "0", true, false, "Debug prints for 2D skybox renderer")
 
 local function DebugPrint(...)
@@ -103,6 +108,15 @@ local function Draw2DSky()
         end
         render.SetColorModulation(br, br, br)
 
+        -- Global rotation basis
+        local ang = Angle(cv_rot_pitch:GetFloat() or 0, cv_rot_yaw:GetFloat() or 0, cv_rot_roll:GetFloat() or 0)
+        local axisX = Vector(1, 0, 0)
+        local axisY = Vector(0, 1, 0)
+        local axisZ = Vector(0, 0, 1)
+        axisX:Rotate(ang)
+        axisY:Rotate(ang)
+        axisZ:Rotate(ang)
+
         -- Sides
         -- Right/Left with optional swap
         local rtMat = mats["rt"]
@@ -111,13 +125,13 @@ local function Draw2DSky()
             rtMat, lfMat = lfMat, rtMat
         end
         -- Right (rt): plane at +X, facing inward (-X)
-        drawFace(rtMat, origin + Vector( size, 0, 0), Vector(-1, 0, 0), size, cv_rot_rt:GetFloat())
+        drawFace(rtMat, origin + axisX * size, -axisX, size, cv_rot_rt:GetFloat())
         -- Left (lf): plane at -X, facing inward (+X)
-        drawFace(lfMat, origin + Vector(-size, 0, 0), Vector( 1, 0, 0), size, cv_rot_lf:GetFloat())
+        drawFace(lfMat, origin - axisX * size,  axisX, size, cv_rot_lf:GetFloat())
         -- Back (bk): plane at -Y, facing inward (+Y)
-        drawFace(mats["bk"], origin + Vector(0, -size, 0), Vector(0, 1, 0), size, cv_rot_bk:GetFloat())
+        drawFace(mats["bk"], origin - axisY * size,  axisY, size, cv_rot_bk:GetFloat())
         -- Front (ft): plane at +Y, facing inward (-Y)
-        drawFace(mats["ft"], origin + Vector(0,  size, 0), Vector(0,-1, 0), size, cv_rot_ft:GetFloat())
+        drawFace(mats["ft"], origin + axisY * size, -axisY, size, cv_rot_ft:GetFloat())
         -- Up/Down with optional swap
         local upMat = mats["up"]
         local dnMat = mats["dn"]
@@ -125,9 +139,10 @@ local function Draw2DSky()
             upMat, dnMat = dnMat, upMat
         end
         -- Up (up): plane at +Z, facing inward (-Z)
-        drawFace(upMat, origin + Vector(0, 0,  size), Vector(0, 0,-1), size, cv_rot_up:GetFloat())
+        local gyaw = (cv_rot_yaw:GetFloat() or 0)
+        drawFace(upMat, origin + axisZ * size, -axisZ, size, cv_rot_up:GetFloat() - gyaw)
         -- Down (dn): plane at -Z, facing inward (+Z)
-        drawFace(dnMat, origin + Vector(0, 0, -size), Vector(0, 0, 1), size, cv_rot_dn:GetFloat())
+        drawFace(dnMat, origin - axisZ * size,  axisZ, size, cv_rot_dn:GetFloat() - gyaw)
 
         render.SetColorModulation(1, 1, 1)
         if cv_useDepthRange:GetBool() then
