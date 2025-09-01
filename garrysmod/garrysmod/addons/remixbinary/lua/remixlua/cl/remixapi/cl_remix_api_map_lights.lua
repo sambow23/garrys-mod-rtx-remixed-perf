@@ -5,6 +5,7 @@ local max_size = CreateClientConVar("rtx_api_map_lights_max_size", "1000", true,
 local visual_mode = CreateClientConVar("rtx_api_map_lights_visual", "0", true, false, "Show visible models for lights")
 local debug_mode = CreateClientConVar("rtx_api_map_lights_debug", "0", true, false, "Enable debug messages")
 local env_max_brightness = CreateClientConVar("rtx_api_map_lights_env_max_brightness", "0", true, false, "Max brightness (0-100 scale) for directional lights; 0 disables clamping")
+local env_dir_flip = CreateClientConVar("rtx_api_map_lights_env_dir_flip", "0", true, false, "Flip directional vector for light_environment if needed")
 local creation_delay = CreateClientConVar("rtx_api_map_lights_creation_delay", "0.0", true, false, "Delay between light creation in seconds")
 local creation_batch_size = CreateClientConVar("rtx_api_map_lights_batch_size", "1", true, false, "Number of lights to create in each batch")
 local creation_batch_delay = CreateClientConVar("rtx_api_map_lights_batch_delay", "0.0", true, false, "Delay between batches in seconds")
@@ -80,13 +81,24 @@ end
 
 -- Robustly parse Source entity angle fields. Returns Angle or nil, and a debug source tag
 local function ParseEntityAngles(ent)
+    local function applyEnvPitchOverride(ent, ang, tag)
+        if ent and ent.classname == "light_environment" then
+            local pOverride = tonumber(ent.pitch or ent._pitch)
+            if pOverride then
+                ang.p = -(pOverride)
+                tag = tostring(tag or "") .. "+envpitch"
+            end
+        end
+        return ang, tag
+    end
     local angField = ent.angles or ent._angles
     -- Support string angles: "pitch yaw roll" or just "yaw"
     if type(angField) == "string" then
         local ax, ay, az = string.match(angField, "([%-%.%d]+)%s+([%-%.%d]+)%s+([%-%.%d]+)")
         if ax and ay and az then
             -- Source convention: +pitch looks down -> negate when building Angle
-            return Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0), "angles_xyz"
+            local a = Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0)
+            return applyEnvPitchOverride(ent, a, "angles_xyz")
         end
         local yawOnly = tonumber(angField)
         if yawOnly then
@@ -99,35 +111,42 @@ local function ParseEntityAngles(ent)
         return Angle(-pitch, angField, 0), "angles_yaw_num"
     elseif (isvector and isvector(angField)) or type(angField) == "Vector" then
         -- Some BSP libs may expose angles as a Vector
-        return Angle(-(angField.x or 0), angField.y or 0, angField.z or 0), "angles_vec"
+        local a = Angle(-(angField.x or 0), angField.y or 0, angField.z or 0)
+        return applyEnvPitchOverride(ent, a, "angles_vec")
     elseif istable(angField) and angField.x and angField.y and angField.z then
-        return Angle(-(angField.x or 0), angField.y or 0, angField.z or 0), "angles_tbl"
+        local a = Angle(-(angField.x or 0), angField.y or 0, angField.z or 0)
+        return applyEnvPitchOverride(ent, a, "angles_tbl")
     elseif istable(angField) then
         -- Support array-like tables: {pitch, yaw, roll}
         local ax, ay, az = tonumber(angField[1] or 0), tonumber(angField[2] or 0), tonumber(angField[3] or 0)
         if ax ~= 0 or ay ~= 0 or az ~= 0 then
-            return Angle(-ax, ay, az), "angles_tbl_idx"
+            local a = Angle(-ax, ay, az)
+            return applyEnvPitchOverride(ent, a, "angles_tbl_idx")
         end
     elseif (isangle and isangle(angField)) then
         -- GLua Angle userdata
-        return Angle(-(angField.p or 0), angField.y or 0, angField.r or 0), "angles_glua"
+        local a = Angle(-(angField.p or 0), angField.y or 0, angField.r or 0)
+        return applyEnvPitchOverride(ent, a, "angles_glua")
     elseif type(angField) == "Angle" then
         -- Angle type without isangle available
-        return Angle(-(angField.p or 0), angField.y or 0, angField.r or 0), "angles_type_Angle"
+        local a = Angle(-(angField.p or 0), angField.y or 0, angField.r or 0)
+        return applyEnvPitchOverride(ent, a, "angles_type_Angle")
     elseif type(angField) == "userdata" then
         -- Generic userdata exposing p/y/r or pitch/yaw/roll
         local p = angField.p or angField.pitch
         local y = angField.y or angField.yaw
         local r = angField.r or angField.roll
         if p ~= nil or y ~= nil or r ~= nil then
-            return Angle(-(tonumber(p) or 0), tonumber(y) or 0, tonumber(r) or 0), "angles_userdata"
+            local a = Angle(-(tonumber(p) or 0), tonumber(y) or 0, tonumber(r) or 0)
+            return applyEnvPitchOverride(ent, a, "angles_userdata")
         end
         -- Try parsing its string representation (e.g., "-16.000 45.000 0.000")
         local s = tostring(angField)
         if type(s) == "string" then
             local ax, ay, az = string.match(s, "([%-%.%d]+)%s+([%-%.%d]+)%s+([%-%.%d]+)")
             if ax and ay and az then
-                return Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0), "angles_userdata_str"
+                local a = Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0)
+                return applyEnvPitchOverride(ent, a, "angles_userdata_str")
             end
         end
     end
@@ -137,7 +156,8 @@ local function ParseEntityAngles(ent)
         if type(s) == "string" then
             local ax, ay, az = string.match(s, "([%-%.%d]+)%s+([%-%.%d]+)%s+([%-%.%d]+)")
             if ax and ay and az then
-                return Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0), "angles_any_str"
+                local a = Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0)
+                return applyEnvPitchOverride(ent, a, "angles_any_str")
             end
         end
     end
@@ -220,9 +240,30 @@ local function getLightProperties(entity)
         lightProps.angularDiameter = spread or 0.53
         -- Derive directional angles (reuse robust parser)
         local a, src = ParseEntityAngles(entity)
+        if debug_mode:GetBool() then
+            local function tv(v)
+                local t = type(v)
+                if t == "table" then return "table" end
+                if t == "Vector" or (isvector and isvector(v)) then
+                    return string.format("Vector(%.2f,%.2f,%.2f)", v.x or 0, v.y or 0, v.z or 0)
+                end
+                return tostring(v)
+            end
+            print("[Light2RTX Debug] env raw angle fields:",
+                "angles=", tv(entity.angles),
+                "_angles=", tv(entity._angles),
+                "angle=", tv(entity.angle),
+                "_angle=", tv(entity._angle),
+                "yaw=", tv(entity.yaw),
+                "_yaw=", tv(entity._yaw),
+                "pitch=", tv(entity.pitch),
+                "_pitch=", tv(entity._pitch))
+        end
         if a then
             lightProps.angles = a
-            lightProps.direction = a:Forward()
+            local dir = a:Forward()
+            if env_dir_flip:GetBool() then dir = -dir end
+            lightProps.direction = dir
             lightProps.debugSource = (src or "?") .. "+light_environment"
         end
     elseif entity.classname == "light_spot" then
