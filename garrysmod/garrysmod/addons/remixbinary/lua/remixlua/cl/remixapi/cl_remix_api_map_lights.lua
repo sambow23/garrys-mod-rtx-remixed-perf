@@ -7,6 +7,16 @@ local debug_mode = CreateClientConVar("rtx_api_map_lights_debug", "0", true, fal
 local env_max_brightness = CreateClientConVar("rtx_api_map_lights_env_max_brightness", "0", true, false, "Max brightness (0-100 scale) for directional lights; 0 disables clamping")
 local env_dir_flip = CreateClientConVar("rtx_api_map_lights_env_dir_flip", "0", true, false, "Flip directional vector for light_environment if needed")
 local creation_delay = CreateClientConVar("rtx_api_map_lights_creation_delay", "0.0", true, false, "Delay between light creation in seconds")
+
+-- Per-type runtime controls
+local point_radius_mult = CreateClientConVar("rtx_api_map_lights_point_radius_mult", "1.0", true, false, "Radius multiplier for point lights")
+local spot_radius_mult = CreateClientConVar("rtx_api_map_lights_spot_radius_mult", "1.0", true, false, "Radius multiplier for spot lights")
+local env_angular_mult = CreateClientConVar("rtx_api_map_lights_env_angular_mult", "1.0", true, false, "Angular diameter multiplier for directional lights")
+
+local point_brightness_mult = CreateClientConVar("rtx_api_map_lights_point_brightness_mult", "1.0", true, false, "Brightness multiplier for point lights")
+local spot_brightness_mult = CreateClientConVar("rtx_api_map_lights_spot_brightness_mult", "1.0", true, false, "Brightness multiplier for spot lights")
+local env_brightness_mult = CreateClientConVar("rtx_api_map_lights_env_brightness_mult", "1.0", true, false, "Brightness multiplier for directional lights")
+
 local creation_batch_size = CreateClientConVar("rtx_api_map_lights_batch_size", "1", true, false, "Number of lights to create in each batch")
 local creation_batch_delay = CreateClientConVar("rtx_api_map_lights_batch_delay", "0.0", true, false, "Delay between batches in seconds")
 local pos_jitter = CreateClientConVar("rtx_api_map_lights_position_jitter", "1", true, false, "Add a small random offset to light positions to prevent conflicts")
@@ -34,6 +44,9 @@ local createdLights = {}
 local last_entity_id = 0
 local createdLightPositions = {}
 local lastSpawnedMap = ""
+-- Per-kind registries for quick runtime updates
+local lightsByKind = { point = {}, spot = {}, env = {} } -- values: lightId -> true
+local idToIndex = {} -- lightId -> index in createdLights
 
 -- Light entity classes we want to detect
 local lightClasses = {
@@ -455,9 +468,14 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         end
     end
     local scale = appliedBrightness / 100.0
+    -- Per-type brightness multiplier
+    local kind = (classname == "light_environment") and "env" or ((classname == "light_spot") and "spot" or "point")
+    local typeBrightnessMult = (kind == "env") and env_brightness_mult:GetFloat()
+        or ((kind == "spot") and spot_brightness_mult:GetFloat() or point_brightness_mult:GetFloat())
+    local bscale = scale * (typeBrightnessMult or 1.0)
     local base = {
         hash = tonumber(util.CRC(string.format("maplight_%s", posKey))) or entityId,
-        radiance = { x = color.r * scale, y = color.g * scale, z = color.b * scale },
+        radiance = { x = color.r * bscale, y = color.g * bscale, z = color.b * bscale },
     }
 
     -- Direction from angles if present
@@ -485,9 +503,10 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
     -- Special-case directional: use Distant lights
     local lightId = nil
     if classname == "light_environment" then
+        local baseAngular = (lightProps and tonumber(lightProps.angularDiameter)) or 0.53
         local distant = {
             direction = { x = dir.x, y = dir.y, z = dir.z },
-            angularDiameterDegrees = (lightProps and tonumber(lightProps.angularDiameter)) or 0.53,
+            angularDiameterDegrees = baseAngular * (env_angular_mult:GetFloat() or 1.0),
             volumetricRadianceScale = 1.0,
         }
         if istable(RemixLightQueue) and RemixLightQueue.CreateDistant then
@@ -497,9 +516,11 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         end
     else
         -- Sphere info as a reasonable default representation
+        local baseRadius = tonumber(size) or 200
+        local rmult = (kind == "spot") and (spot_radius_mult:GetFloat() or 1.0) or (point_radius_mult:GetFloat() or 1.0)
         local sphere = {
             position = { x = pos.x, y = pos.y, z = pos.z },
-            radius = tonumber(size) or 200,
+            radius = baseRadius * rmult,
             volumetricRadianceScale = 1.0,
         }
         if lightProps and lightProps.shapingEnabled then
@@ -541,9 +562,16 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         shapingEnabled = lightProps and lightProps.shapingEnabled or false,
         classname = classname,
         visualProp = visualProp,
+        kind = kind,
+        baseBrightness = appliedBrightness,
+        baseAngular = (classname == "light_environment") and ((lightProps and tonumber(lightProps.angularDiameter)) or 0.53) or nil,
+        baseRadius = (classname ~= "light_environment") and (tonumber(size) or 200) or nil,
         -- Debug/inspection fields
         angles = angles,
         direction = dir,
+        -- Preserve spot shaping parameters for safe updates
+        coneAngleDegrees = (lightProps and tonumber(lightProps.coneAngle)) or nil,
+        coneSoftness = (lightProps and tonumber(lightProps.coneSoftness)) or nil,
     }
     return entry
 end
@@ -648,6 +676,11 @@ local function batchCreateRTXLights()
                 
                 if entry and entry.id then
                     table.insert(createdLights, entry)
+                    local idx = #createdLights
+                    idToIndex[entry.id] = idx
+                    if entry.kind and lightsByKind[entry.kind] then
+                        lightsByKind[entry.kind][entry.id] = true
+                    end
                     lightsCreated = lightsCreated + 1
                     
                     -- Last light in batch
@@ -693,7 +726,110 @@ local function clearRTXLights()
         end
     end
     createdLights = {}
+    -- reset registries
+    lightsByKind = { point = {}, spot = {}, env = {} }
+    idToIndex = {}
     print("[Light2RTX] Cleared all RTX lights")
+end
+
+-- Recompute and push updates for a single light entry based on current CVars
+local function updateEntryRuntime(entry)
+    if not entry or not entry.id then return end
+    -- Determine kind reliably
+    local kind = entry.kind or ((entry.classname == "light_environment") and "env" or ((entry.classname == "light_spot") and "spot" or "point"))
+    -- Brightness scale from stored baseBrightness (0-100) and current per-kind multiplier
+    local baseBright = tonumber(entry.baseBrightness) or 100
+    local scale = baseBright / 100.0
+    local bmult = 1.0
+    if kind == "env" then
+        bmult = env_brightness_mult:GetFloat()
+    elseif kind == "spot" then
+        bmult = spot_brightness_mult:GetFloat()
+    else
+        bmult = point_brightness_mult:GetFloat()
+    end
+    local base = {
+        hash = tonumber(util.CRC("upd_" .. tostring(entry.id))) or entry.entityId,
+        radiance = { x = entry.color.r * scale * (bmult or 1.0), y = entry.color.g * scale * (bmult or 1.0), z = entry.color.b * scale * (bmult or 1.0) },
+    }
+    -- Helper to compute direction for distant/spot from stored angles if available
+    local function computeDir()
+        local dir = entry.direction or Vector(0, 0, -1)
+        if entry.angles then
+            if entry.classname == "light_environment" then
+                dir = entry.angles:Forward()
+                if env_dir_flip:GetBool() then dir = -dir end
+            elseif entry.shapingEnabled then
+                -- For spotlights keep stored basis simple to avoid jitter; prefer stored direction
+                dir = entry.direction or entry.angles:Forward()
+            end
+        end
+        return dir
+    end
+    if entry.type == "distant" or entry.classname == "light_environment" then
+        local baseAngular = tonumber(entry.baseAngular) or 0.53
+        local distant = {
+            direction = (function() local d = computeDir(); return { x = d.x, y = d.y, z = d.z } end)(),
+            angularDiameterDegrees = baseAngular * (env_angular_mult:GetFloat() or 1.0),
+            volumetricRadianceScale = 1.0,
+        }
+        if istable(RemixLightQueue) and RemixLightQueue.UpdateDistant then
+            RemixLightQueue.UpdateDistant(base, distant, entry.id)
+        elseif istable(RemixLight) and RemixLight.UpdateDistant then
+            RemixLight.UpdateDistant(base, distant, entry.id)
+        end
+    else
+        local rmult = (kind == "spot") and (spot_radius_mult:GetFloat() or 1.0) or (point_radius_mult:GetFloat() or 1.0)
+        local sphere = {
+            position = { x = entry.pos.x, y = entry.pos.y, z = entry.pos.z },
+            radius = (tonumber(entry.baseRadius) or tonumber(entry.size) or 200) * rmult,
+            volumetricRadianceScale = 1.0,
+        }
+        if entry.shapingEnabled then
+            local d = computeDir()
+            sphere.shaping = {
+                direction = { x = d.x, y = d.y, z = d.z },
+                coneAngleDegrees = entry.coneAngleDegrees or 45.0,
+                coneSoftness = entry.coneSoftness or 0.2,
+                focusExponent = 1.0,
+            }
+        end
+        if istable(RemixLightQueue) and RemixLightQueue.UpdateSphere then
+            RemixLightQueue.UpdateSphere(base, sphere, entry.id)
+        elseif istable(RemixLight) and RemixLight.UpdateSphere then
+            RemixLight.UpdateSphere(base, sphere, entry.id)
+        end
+    end
+end
+
+-- Update all lights of a given kind: "point", "spot", or "env"
+local function updateAllOfKind(kind)
+    local map = lightsByKind[kind]
+    if not map then return end
+    for lightId, _ in pairs(map) do
+        local idx = idToIndex[lightId]
+        local entry = idx and createdLights[idx] or nil
+        if entry then updateEntryRuntime(entry) end
+    end
+    DebugPrint("Updated all lights of kind:", tostring(kind))
+end
+
+local function refreshAllLights()
+    updateAllOfKind("point")
+    updateAllOfKind("spot")
+    updateAllOfKind("env")
+end
+
+-- CVar change callbacks to trigger runtime updates
+if cvars and cvars.AddChangeCallback then
+    cvars.AddChangeCallback("rtx_api_map_lights_point_brightness_mult", function() updateAllOfKind("point") end, "rtx_maplights_point_bmult")
+    cvars.AddChangeCallback("rtx_api_map_lights_spot_brightness_mult", function() updateAllOfKind("spot") end, "rtx_maplights_spot_bmult")
+    cvars.AddChangeCallback("rtx_api_map_lights_env_brightness_mult", function() updateAllOfKind("env") end, "rtx_maplights_env_bmult")
+    cvars.AddChangeCallback("rtx_api_map_lights_point_radius_mult", function() updateAllOfKind("point") end, "rtx_maplights_point_rmult")
+    cvars.AddChangeCallback("rtx_api_map_lights_spot_radius_mult", function() updateAllOfKind("spot") end, "rtx_maplights_spot_rmult")
+    cvars.AddChangeCallback("rtx_api_map_lights_env_angular_mult", function() updateAllOfKind("env") end, "rtx_maplights_env_amult")
+    -- Flip callback: re-evaluate env directions from stored angles when toggled
+    cvars.AddChangeCallback("rtx_api_map_lights_env_dir_flip", function() updateAllOfKind("env") end, "rtx_maplights_env_flip")
 end
 
 -- Toggle light visibility
@@ -859,6 +995,11 @@ concommand.Add("rtx_api_map_lights_reset", function()
     resetLightTracking()
 end)
 
+concommand.Add("rtx_api_map_lights_refresh", function()
+    refreshAllLights()
+    print("[Light2RTX] Refreshed all lights with current multipliers")
+end)
+
 -- Add context menu for lights
 properties.Add("rtx_light_edit", {
     MenuLabel = "Edit RTX Light",
@@ -966,7 +1107,8 @@ end)
 Light2RTX = {
     Process = batchCreateRTXLights,
     Clear = clearRTXLights,
-    ToggleVisual = toggleVisualMode
+    ToggleVisual = toggleVisualMode,
+    Refresh = refreshAllLights
 }
 
 print("[Light2RTX] Loaded! Use 'rtx_api_map_lights_process' to convert map lights to RTX lights")
