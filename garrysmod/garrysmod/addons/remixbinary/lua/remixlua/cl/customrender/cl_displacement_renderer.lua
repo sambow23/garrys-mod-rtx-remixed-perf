@@ -7,6 +7,7 @@ local debugMode = CreateClientConVar("rtx_cdr_debug", "0", true, false, "Enable 
 local wireframeMode = CreateClientConVar("rtx_cdr_wireframe", "0", true, false, "Enable wireframe rendering")
 local cvarWhitelist = CreateClientConVar("rtx_cdr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include")
 local cvarBlacklist = CreateClientConVar("rtx_cdr_mat_blacklist", "", true, false, "Comma-separated material name substrings to exclude")
+local usePVS = CreateClientConVar("rtx_cdr_use_pvs", "1", true, false, "Enable PVS culling for displacement chunks")
 
 local dispFaces = {}
 local dispMeshes = {}
@@ -29,6 +30,18 @@ local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
     end
 
 local wireframeMaterial = Material("models/wireframe")
+
+-- Sphere-vs-AABB test: returns true if AABB lies entirely outside sphere
+local function AABBOutsideSphere(mins, maxs, origin, radius)
+    if not mins or not maxs or not origin or (radius or 0) <= 0 then return false end
+    local dx = 0
+    if origin.x < mins.x then dx = mins.x - origin.x elseif origin.x > maxs.x then dx = origin.x - maxs.x end
+    local dy = 0
+    if origin.y < mins.y then dy = mins.y - origin.y elseif origin.y > maxs.y then dy = origin.y - maxs.y end
+    local dz = 0
+    if origin.z < mins.z then dz = mins.z - origin.z elseif origin.z > maxs.z then dz = origin.z - maxs.z end
+    return (dx*dx + dy*dy + dz*dz) > (radius * radius)
+end
 
 local function IsMaterialAllowedName(matName)
     if not matName then return false end
@@ -125,7 +138,8 @@ function CreateDispMeshes(cancelToken)
                 verts = {},
                 count = 0,
                 bmins = Vector(math.huge, math.huge, math.huge),
-                bmaxs = Vector(-math.huge, -math.huge, -math.huge)
+                bmaxs = Vector(-math.huge, -math.huge, -math.huge),
+                translucent = (mat and mat.IsTranslucent and mat:IsTranslucent()) or false
             }
         end
 
@@ -149,7 +163,8 @@ function CreateDispMeshes(cancelToken)
                 material = g.material,
                 mins = g.bmins,
                 maxs = g.bmaxs,
-                center = center
+                center = center,
+                translucent = g.translucent
             })
             if RenderCore and RenderCore.TrackMesh then
                 RenderCore.TrackMesh(m)
@@ -199,6 +214,11 @@ function CreateDispMeshes(cancelToken)
                         if not g then
                             g = newGroup(mat)
                             groups[gkey] = g
+                        else
+                            -- If the group's translucency differs due to material reload, update it
+                            if mat and mat.IsTranslucent and g.translucent ~= mat:IsTranslucent() then
+                                g.translucent = mat:IsTranslucent()
+                            end
                         end
                         -- append face triangles to group
                         for _, v in ipairs(vertexData) do
@@ -273,7 +293,7 @@ RenderCore.Register("PreDrawOpaqueRenderables", "DisplacementRenderer", function
 
     -- Build PVS once per call with caching
     local pvs
-    if NikNaks and NikNaks.CurrentMap then
+    if usePVS:GetBool() and NikNaks and NikNaks.CurrentMap then
         if NikNaks.CurrentMap.PointInLeafCache then
             local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, playerPos, lastLeafDisp)
             if changed or not pvsCacheDisp then
@@ -287,9 +307,11 @@ RenderCore.Register("PreDrawOpaqueRenderables", "DisplacementRenderer", function
     end
 
     for _, dispData in ipairs(dispMeshes) do
-        if hasSkyAABB and dispData.center and dispData.center.WithinAABox and dispData.center:WithinAABox(skyMins, skyMaxs) then
-            -- Skip miniature 3D sky displacements
-            continue
+        if hasSkyAABB and dispData.mins and dispData.maxs and dispData.mins.WithinAABox and dispData.maxs.WithinAABox then
+            -- Skip only if the entire displacement AABB lies within the miniature 3D skybox region
+            if dispData.mins:WithinAABox(skyMins, skyMaxs) and dispData.maxs:WithinAABox(skyMins, skyMaxs) then
+                continue
+            end
         end
         -- PVS test (lazy-compute cluster set from AABB)
         if pvs then
@@ -315,7 +337,7 @@ RenderCore.Register("PreDrawOpaqueRenderables", "DisplacementRenderer", function
                 end
             end
         end
-        if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(dispData.center, playerPos, maxDistance) then
+        if useDistanceLimit and AABBOutsideSphere(dispData.mins or dispData.center, dispData.maxs or dispData.center, playerPos, maxDistance) then
             distanceSkipped = distanceSkipped + 1
             continue
         end
@@ -324,7 +346,7 @@ RenderCore.Register("PreDrawOpaqueRenderables", "DisplacementRenderer", function
             RenderCore.Submit({
                 material = mat,
                 mesh = dispData.mesh,
-                translucent = false
+                translucent = dispData.translucent or false
             })
         end
         renderedCount = renderedCount + 1
