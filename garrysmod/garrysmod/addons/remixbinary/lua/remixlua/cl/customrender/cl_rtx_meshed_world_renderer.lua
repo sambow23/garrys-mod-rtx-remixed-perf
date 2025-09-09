@@ -12,7 +12,8 @@ local CONVARS = {
     CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode"),
     MAT_WHITELIST = CreateClientConVar("rtx_mwr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include"),
     MAT_BLACKLIST = CreateClientConVar("rtx_mwr_mat_blacklist", "toolsskybox,skybox/", true, false, "Comma-separated material name substrings to exclude"),
-    DISTANCE = CreateClientConVar("rtx_mwr_distance", "0", true, false, "World chunk distance limit (0 = off)")
+    DISTANCE = CreateClientConVar("rtx_mwr_distance", "0", true, false, "World chunk distance limit (0 = off)"),
+    USE_PVS = CreateClientConVar("rtx_mwr_use_pvs", "1", true, false, "Enable PVS culling for world chunks")
 }
 
 -- Local Variables and Caches
@@ -22,6 +23,7 @@ local mapMeshes = {
 }
 local isEnabled = false
 local renderStats = {draws = 0}
+local buildState = { active = false, processed = 0, total = 0 }
 local Vector = Vector
 local math_min = math.min
 local math_max = math.max
@@ -89,10 +91,8 @@ local function IsSkyboxFace(face)
     
     local matName = material:GetName():lower()
     
-    return matName:find("tools/toolsskybox") or
-           matName:find("skybox/") or
-           matName:find("sky_") or
-           false
+    return matName:find("tools/toolsskybox", 1, true) ~= nil or
+           matName:find("skybox/", 1, true) ~= nil
 end
 
 -- Forward declare to allow usage in SplitChunk
@@ -316,11 +316,16 @@ local function BuildMapMeshes(cancelToken)
             ErrorNoHalt("[RTX Fixes] GetLeafs failed\n")
             return
         end
+        buildState.active = true
+        buildState.processed = 0
+        buildState.total = 0
+        for _ in pairs(allLeafs) do buildState.total = buildState.total + 1 end
         for _, leaf in pairs(allLeafs) do  
             if cancelToken and cancelToken.cancelled then return end
             if leaf and not leaf:IsOutsideMap() then
                 local okFaces, leafFaces = pcall(function() return leaf:GetFaces(true) end)
                 if leafFaces then
+                    local leafCluster = leaf.GetCluster and leaf:GetCluster() or -1
                     for _, face in pairs(leafFaces) do
                         if cancelToken and cancelToken.cancelled then return end
                         local process = true
@@ -356,11 +361,16 @@ local function BuildMapMeshes(cancelToken)
                                             end
                                             local chunkGroup = face:IsTranslucent() and chunks.translucent or chunks.opaque
                                             chunkGroup[chunkKey] = chunkGroup[chunkKey] or {}
-                                            chunkGroup[chunkKey][matName] = chunkGroup[chunkKey][matName] or {
+                                            local chunkData = chunkGroup[chunkKey]
+                                            if leafCluster and leafCluster >= 0 then
+                                                chunkData._clusters = chunkData._clusters or {}
+                                                chunkData._clusters[leafCluster] = true
+                                            end
+                                            chunkData[matName] = chunkData[matName] or {
                                                 material = material,
                                                 faces = {}
                                             }
-                                            table_insert(chunkGroup[chunkKey][matName].faces, face)
+                                            table_insert(chunkData[matName].faces, face)
                                         end
                                     end
                                 end
@@ -379,6 +389,7 @@ local function BuildMapMeshes(cancelToken)
                     end
                 end
             end
+            buildState.processed = buildState.processed + 1
             if SysTime() - startTime > frameBudget then
                 coroutine.yield()
                 local spent = SysTime() - startTime
@@ -394,6 +405,10 @@ local function BuildMapMeshes(cancelToken)
         for renderType, chunkGroup in pairs(chunks) do
             for chunkKey, materials in pairs(chunkGroup) do
                 mapMeshes[renderType][chunkKey] = {}
+                -- carry forward precomputed cluster set for PVS culling
+                if materials._clusters then
+                    mapMeshes[renderType][chunkKey]._clusters = materials._clusters
+                end
                 for matName, group in pairs(materials) do
                     if cancelToken and cancelToken.cancelled then return end
                     if group.faces and #group.faces > 0 then
@@ -437,6 +452,7 @@ local function BuildMapMeshes(cancelToken)
                 end
             end
         end
+        buildState.active = false
         print(string.format("[RTX Fixes] Built chunked meshes in %.2f seconds", SysTime() - startTime))
     end)
 
@@ -468,9 +484,9 @@ local function RenderCustomWorld(translucent)
     local useDist = maxDist > 0
     local ply = LocalPlayer and LocalPlayer() or nil
     local eyePos = ply and ply.GetPos and ply:GetPos() or nil
-    -- Build PVS once per pass with caching
+    -- Build PVS once per pass with caching (optional)
     local pvs
-    if NikNaks and NikNaks.CurrentMap and eyePos then
+    if CONVARS.USE_PVS:GetBool() and NikNaks and NikNaks.CurrentMap and eyePos then
         if NikNaks.CurrentMap.PointInLeafCache then
             local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, eyePos, lastLeafWorld)
             if changed or not pvsCacheWorld then
@@ -492,10 +508,11 @@ local function RenderCustomWorld(translucent)
                 continue
             end
         end
-        -- Lazily compute chunk cluster set for PVS testing
-        if pvs and cmins and cmaxs and not chunkMaterials._clusters and NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.AABBInLeafs then
+        -- Ensure cluster set exists: if empty or missing, compute once from AABB
+        local clusters = chunkMaterials._clusters
+        if pvs and cmins and cmaxs and (not clusters or next(clusters) == nil) and NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.AABBInLeafs then
             local leaves = NikNaks.CurrentMap:AABBInLeafs(0, cmins, cmaxs)
-            local clusters = {}
+            clusters = {}
             if leaves then
                 for i = 1, #leaves do
                     local leaf = leaves[i]
@@ -506,9 +523,9 @@ local function RenderCustomWorld(translucent)
             chunkMaterials._clusters = clusters
         end
         -- PVS culling: skip chunks with no cluster visible in player's PVS
-        if pvs and chunkMaterials._clusters then
+        if pvs and clusters and next(clusters) ~= nil then
             local anyVisible = false
-            for cl, _ in pairs(chunkMaterials._clusters) do
+            for cl, _ in pairs(clusters) do
                 if pvs[cl] then
                     anyVisible = true
                     break
@@ -543,9 +560,14 @@ end
 
 -- Stats provider for unified overlay
 RenderCore.RegisterStats("RTXWorld", function()
-    return string.format("World draws: %d | chunks: %d",
+    local extra = ""
+    if buildState.active and (buildState.total or 0) > 0 then
+        extra = string.format(" | build: %d/%d", buildState.processed or 0, buildState.total or 0)
+    end
+    return string.format("World draws: %d | chunks: %d%s",
         renderStats.draws or 0,
-        renderStats.chunksVisited or 0)
+        renderStats.chunksVisited or 0,
+        extra)
 end)
 
 -- Enable/Disable Functions

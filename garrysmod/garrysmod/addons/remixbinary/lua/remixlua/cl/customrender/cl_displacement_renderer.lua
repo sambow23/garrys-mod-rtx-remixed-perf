@@ -367,7 +367,7 @@ end)
 RenderCore.Register("HUDPaint", "DisplacementRendererLoading", function()
     if not hasLoaded and loadProgress > 0 then
         local w, h = ScrW(), ScrH()
-        draw.SimpleText("Loading Custom Displacements: " .. math.floor(loadProgress * 100) .. "%", "DermaLarge", w/2, h/2, Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        draw.SimpleText("Loading Map Geometry: " .. math.floor(loadProgress * 100) .. "%", "DermaLarge", w/2, h/2, Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
     end
 end)
 
