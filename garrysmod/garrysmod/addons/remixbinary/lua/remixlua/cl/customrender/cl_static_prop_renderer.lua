@@ -9,6 +9,7 @@ local convar_Debug = CreateClientConVar("rtx_spr_debug", "0", true, false, "Enab
 local convar_RenderDistance = CreateClientConVar("rtx_spr_distance", "10000", true, false, "Maximum distance to render static props (0 = no limit)")
 local convar_Whitelist = CreateClientConVar("rtx_spr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include")
 local convar_Blacklist = CreateClientConVar("rtx_spr_mat_blacklist", "", true, false, "Comma-separated material name substrings to exclude")
+local convar_UsePVS = CreateClientConVar("rtx_spr_use_pvs", "1", true, false, "Enable PVS culling for static props")
 
 -- Global state
 local isDataReady = false
@@ -24,6 +25,15 @@ local sprBuildStats = { startTime = 0, endTime = 0, built = 0 }
 -- PVS cache
 local lastLeaf = nil
 local pvsCache = nil
+local pvsLastValid = 0
+
+local function IsPVSValid(pvs)
+    if not pvs then return false end
+    for _, v in pairs(pvs) do
+        if v then return true end
+    end
+    return false
+end
 
 -- Debug helper function
 local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
@@ -374,20 +384,43 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     local skippedProps = 0
     local distanceSkipped = 0
     
-    -- Get player position for distance check
-    local playerPos = LocalPlayer():GetPos()
-    -- Build PVS with caching
+    -- Get player eye position for PVS and distance checks (more stable while jumping)
+    local ply = LocalPlayer and LocalPlayer() or nil
+    local playerPos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
+    -- Build PVS with caching and validation
     local pvs = nil
-    if NikNaks and NikNaks.CurrentMap then
+    if convar_UsePVS:GetBool() and NikNaks and NikNaks.CurrentMap and playerPos then
         if NikNaks.CurrentMap.PointInLeafCache then
             local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, playerPos, lastLeaf)
-            if changed or not pvsCache then
-                pvsCache = NikNaks.CurrentMap:PVSForOrigin(playerPos)
-                lastLeaf = leaf
+            if changed or not IsPVSValid(pvsCache) then
+                local newPVS = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+                if IsPVSValid(newPVS) then
+                    pvsCache = newPVS
+                    lastLeaf = leaf
+                    pvsLastValid = SysTime()
+                end
             end
-            pvs = pvsCache
+            if IsPVSValid(pvsCache) then
+                pvs = pvsCache
+            else
+                if pvsLastValid > 0 and (SysTime() - pvsLastValid) < 0.2 then
+                    pvs = pvsCache
+                else
+                    pvs = nil
+                end
+            end
         elseif NikNaks.CurrentMap.PVSForOrigin then
-            pvs = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+            local tmp = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+            if IsPVSValid(tmp) then
+                pvs = tmp
+                pvsLastValid = SysTime()
+            else
+                if pvsLastValid > 0 and (SysTime() - pvsLastValid) < 0.2 then
+                    pvs = pvsCache
+                else
+                    pvs = nil
+                end
+            end
         end
     end
     local maxDistance = convar_RenderDistance:GetFloat()

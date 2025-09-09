@@ -19,6 +19,15 @@ local dispStats = { rendered = 0, total = 0 }
 -- PVS cache for displacements
 local lastLeafDisp = nil
 local pvsCacheDisp = nil
+local pvsLastValidDisp = 0
+
+local function IsPVSValid(pvs)
+    if not pvs then return false end
+    for _, v in pairs(pvs) do
+        if v then return true end
+    end
+    return false
+end
 
 -- Debug helper function
 local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
@@ -276,7 +285,8 @@ end
 RenderCore.Register("PreDrawOpaqueRenderables", "DisplacementRenderer", function(bDrawingDepth)
     if not renderDisplacements:GetBool() or not hasLoaded then return end
     
-    local playerPos = LocalPlayer():GetPos()
+    local ply = LocalPlayer and LocalPlayer() or nil
+    local playerPos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
     local maxDistance = renderDistance:GetFloat()
     local useDistanceLimit = (maxDistance > 0)
     local renderedCount = 0
@@ -291,18 +301,40 @@ RenderCore.Register("PreDrawOpaqueRenderables", "DisplacementRenderer", function
         end
     end
 
-    -- Build PVS once per call with caching
+    -- Build PVS once per call with caching and validation
     local pvs
-    if usePVS:GetBool() and NikNaks and NikNaks.CurrentMap then
+    if usePVS:GetBool() and NikNaks and NikNaks.CurrentMap and playerPos then
         if NikNaks.CurrentMap.PointInLeafCache then
             local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, playerPos, lastLeafDisp)
-            if changed or not pvsCacheDisp then
-                pvsCacheDisp = NikNaks.CurrentMap:PVSForOrigin(playerPos)
-                lastLeafDisp = leaf
+            if changed or not IsPVSValid(pvsCacheDisp) then
+                local newPVS = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+                if IsPVSValid(newPVS) then
+                    pvsCacheDisp = newPVS
+                    lastLeafDisp = leaf
+                    pvsLastValidDisp = SysTime()
+                end
             end
-            pvs = pvsCacheDisp
+            if IsPVSValid(pvsCacheDisp) then
+                pvs = pvsCacheDisp
+            else
+                if pvsLastValidDisp > 0 and (SysTime() - pvsLastValidDisp) < 0.2 then
+                    pvs = pvsCacheDisp
+                else
+                    pvs = nil -- disable PVS culling this frame if invalid
+                end
+            end
         elseif NikNaks.CurrentMap.PVSForOrigin then
-            pvs = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+            local tmp = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+            if IsPVSValid(tmp) then
+                pvs = tmp
+                pvsLastValidDisp = SysTime()
+            else
+                if pvsLastValidDisp > 0 and (SysTime() - pvsLastValidDisp) < 0.2 then
+                    pvs = pvsCacheDisp
+                else
+                    pvs = nil
+                end
+            end
         end
     end
 

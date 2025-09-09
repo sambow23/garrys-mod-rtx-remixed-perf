@@ -37,6 +37,15 @@ local MAX_CHUNK_VERTS = 32768
 -- PVS cache for world renderer
 local lastLeafWorld = nil
 local pvsCacheWorld = nil
+local pvsLastValidWorld = 0
+
+local function IsPVSValid(pvs)
+    if not pvs then return false end
+    for _, v in pairs(pvs) do
+        if v then return true end
+    end
+    return false
+end
 
 -- Deprecated BuildMatcherList removed; use RenderCore.IsMaterialAllowed
 
@@ -483,19 +492,42 @@ local function RenderCustomWorld(translucent)
     local maxDist = CONVARS.DISTANCE:GetFloat()
     local useDist = maxDist > 0
     local ply = LocalPlayer and LocalPlayer() or nil
-    local eyePos = ply and ply.GetPos and ply:GetPos() or nil
+    local eyePos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
     -- Build PVS once per pass with caching (optional)
     local pvs
     if CONVARS.USE_PVS:GetBool() and NikNaks and NikNaks.CurrentMap and eyePos then
         if NikNaks.CurrentMap.PointInLeafCache then
             local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, eyePos, lastLeafWorld)
-            if changed or not pvsCacheWorld then
-                pvsCacheWorld = NikNaks.CurrentMap:PVSForOrigin(eyePos)
-                lastLeafWorld = leaf
+            if changed or not IsPVSValid(pvsCacheWorld) then
+                local newPVS = NikNaks.CurrentMap:PVSForOrigin(eyePos)
+                if IsPVSValid(newPVS) then
+                    pvsCacheWorld = newPVS
+                    lastLeafWorld = leaf
+                    pvsLastValidWorld = SysTime()
+                end
             end
-            pvs = pvsCacheWorld
+            if IsPVSValid(pvsCacheWorld) then
+                pvs = pvsCacheWorld
+            else
+                -- Hysteresis: keep using last valid PVS briefly to avoid flicker
+                if pvsLastValidWorld > 0 and (SysTime() - pvsLastValidWorld) < 0.2 then
+                    pvs = pvsCacheWorld
+                else
+                    pvs = nil -- disable PVS culling this frame if we don't have a valid set
+                end
+            end
         elseif NikNaks.CurrentMap.PVSForOrigin then
-            pvs = NikNaks.CurrentMap:PVSForOrigin(eyePos)
+            local tmp = NikNaks.CurrentMap:PVSForOrigin(eyePos)
+            if IsPVSValid(tmp) then
+                pvs = tmp
+                pvsLastValidWorld = SysTime()
+            else
+                if pvsLastValidWorld > 0 and (SysTime() - pvsLastValidWorld) < 0.2 then
+                    pvs = pvsCacheWorld
+                else
+                    pvs = nil
+                end
+            end
         end
     end
 
