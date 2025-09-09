@@ -28,9 +28,13 @@ local math_max = math.max
 local math_huge = math.huge
 local math_floor = math.floor
 local table_insert = table.insert
-local MAX_VERTICES = 10000
+local MAX_VERTICES = 30000
 local MAX_CHUNK_VERTS = 32768
 -- PVS culling removed
+
+-- PVS cache for world renderer
+local lastLeafWorld = nil
+local pvsCacheWorld = nil
 
 -- Deprecated BuildMatcherList removed; use RenderCore.IsMaterialAllowed
 
@@ -226,6 +230,17 @@ local function BuildMapMeshes(cancelToken)
         opaque = {},
         translucent = {},
     }
+
+    -- Determine 3D skybox bounds (to exclude miniature skybox geometry from world pass)
+    local hasSkyAABB = false
+    local skyMins, skyMaxs
+    if NikNaks.CurrentMap and NikNaks.CurrentMap.HasSkyBox and NikNaks.CurrentMap:HasSkyBox() and NikNaks.CurrentMap.GetSkyboxSize then
+        local okSky, mins, maxs = pcall(function() return NikNaks.CurrentMap:GetSkyboxSize() end)
+        if okSky and mins and maxs then
+            hasSkyAABB = true
+            skyMins, skyMaxs = mins, maxs
+        end
+    end
     
     -- Sort faces into chunks with optimized table operations
     local okLeafs, allLeafs = pcall(function() return NikNaks.CurrentMap:GetLeafs() end)
@@ -260,6 +275,11 @@ local function BuildMapMeshes(cancelToken)
                 center:Add(vert)
             end
             center:Div(vertCount)
+
+            -- Skip miniature 3D skybox faces (drawn in engine skybox pass)
+            if hasSkyAABB and center.WithinAABox and center:WithinAABox(skyMins, skyMaxs) then
+                continue
+            end
             
             local chunkX = math_floor(center.x / chunkSize)
             local chunkY = math_floor(center.y / chunkSize)
@@ -325,15 +345,10 @@ local function BuildMapMeshes(cancelToken)
             end
         end
         
-        -- Check chunk size and split if needed
-        local chunkSize = maxBounds - minBounds
-        if chunkSize.x > MAX_CHUNK_VERTS or 
-           chunkSize.y > MAX_CHUNK_VERTS or 
-           chunkSize.z > MAX_CHUNK_VERTS then
-            -- Split into sub-chunks and process each
+        -- If vertex count is too large, split into sub-chunks and process each
+        if #allVertices > MAX_VERTICES then
             local subChunks = SplitChunk(faces, CONVARS.CHUNK_SIZE:GetInt())
             local allMeshes = {}
-            
             for _, subFaces in pairs(subChunks) do
                 local subMeshes = CreateRegularMeshGroup(subFaces, material)
                 if subMeshes then
@@ -342,7 +357,6 @@ local function BuildMapMeshes(cancelToken)
                     end
                 end
             end
-            
             return allMeshes
         end
         
@@ -405,20 +419,17 @@ local function BuildMapMeshes(cancelToken)
         end
     end)
 
-    -- Drive the coroutine over frames
-    local function StepBuilder()
-        if not co then return end
-        if coroutine.status(co) == "dead" then return end
+    -- Drive the coroutine over frames via RenderCore job scheduler (less timer overhead)
+    local jobId = "RTXWorldMeshBuildJob"
+    RenderCore.ScheduleJob(jobId, function()
+        if not co or coroutine.status(co) == "dead" then return false end
         local ok, err = coroutine.resume(co)
         if not ok then
             ErrorNoHalt("[RTX Fixes] Build coroutine error: " .. tostring(err) .. "\n")
-            return
+            return false
         end
-        if coroutine.status(co) ~= "dead" then
-            timer.Simple(0, StepBuilder)
-        end
-    end
-    StepBuilder()
+        return coroutine.status(co) ~= "dead"
+    end)
 
     print(string.format("[RTX Fixes] Built chunked meshes in %.2f seconds", SysTime() - startTime))
 end
@@ -437,12 +448,53 @@ local function RenderCustomWorld(translucent)
     local useDist = maxDist > 0
     local ply = LocalPlayer and LocalPlayer() or nil
     local eyePos = ply and ply.GetPos and ply:GetPos() or nil
+    -- Build PVS once per pass with caching
+    local pvs
+    if NikNaks and NikNaks.CurrentMap and eyePos then
+        if NikNaks.CurrentMap.PointInLeafCache then
+            local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, eyePos, lastLeafWorld)
+            if changed or not pvsCacheWorld then
+                pvsCacheWorld = NikNaks.CurrentMap:PVSForOrigin(eyePos)
+                lastLeafWorld = leaf
+            end
+            pvs = pvsCacheWorld
+        elseif NikNaks.CurrentMap.PVSForOrigin then
+            pvs = NikNaks.CurrentMap:PVSForOrigin(eyePos)
+        end
+    end
+
     for _, chunkMaterials in pairs(groups) do
         chunksVisited = chunksVisited + 1
         local cmins, cmaxs = chunkMaterials._mins, chunkMaterials._maxs
         if cmins and cmaxs and useDist and eyePos then
             local center = (cmins + cmaxs) * 0.5
             if RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(center, eyePos, maxDist) then
+                continue
+            end
+        end
+        -- Lazily compute chunk cluster set for PVS testing
+        if pvs and cmins and cmaxs and not chunkMaterials._clusters and NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.AABBInLeafs then
+            local leaves = NikNaks.CurrentMap:AABBInLeafs(0, cmins, cmaxs)
+            local clusters = {}
+            if leaves then
+                for i = 1, #leaves do
+                    local leaf = leaves[i]
+                    local cl = leaf and leaf:GetCluster() or -1
+                    if cl and cl >= 0 then clusters[cl] = true end
+                end
+            end
+            chunkMaterials._clusters = clusters
+        end
+        -- PVS culling: skip chunks with no cluster visible in player's PVS
+        if pvs and chunkMaterials._clusters then
+            local anyVisible = false
+            for cl, _ in pairs(chunkMaterials._clusters) do
+                if pvs[cl] then
+                    anyVisible = true
+                    break
+                end
+            end
+            if not anyVisible then
                 continue
             end
         end

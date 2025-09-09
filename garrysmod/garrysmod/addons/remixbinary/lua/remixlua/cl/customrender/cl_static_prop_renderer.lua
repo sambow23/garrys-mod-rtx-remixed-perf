@@ -21,6 +21,9 @@ local skyboxProps = {}
 local worldProps = {}
 local sprStats = { rendered = 0, total = 0 }
 local sprBuildStats = { startTime = 0, endTime = 0, built = 0 }
+-- PVS cache
+local lastLeaf = nil
+local pvsCache = nil
 
 -- Debug helper function
 local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
@@ -73,6 +76,12 @@ local function ProcessStaticProp(propData)
         color = propData.DiffuseModulation or Color(255, 255, 255)
     }
 
+    -- Precompute transform matrix (static props don't move)
+    local matrix = Matrix()
+    matrix:Translate(prop.origin)
+    matrix:Rotate(prop.angles)
+    prop.matrix = matrix
+
     -- Check if this is a skybox prop
     local isSkyboxProp = false
     if NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap:HasSkyBox() then
@@ -87,6 +96,12 @@ local function ProcessStaticProp(propData)
     
     -- Store this information in the prop data
     prop.isSkybox = isSkyboxProp
+    -- Cache BSP cluster for PVS checks
+    if NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.ClusterFromPoint then
+        prop.cluster = NikNaks.CurrentMap:ClusterFromPoint(prop.origin) or -1
+    else
+        prop.cluster = -1
+    end
     
     -- Check if we already cached this model's mesh
     local cacheKey = modelPath .. "_skin" .. prop.skin
@@ -291,20 +306,18 @@ local function CacheMapStaticProps()
         sprStats.total = processedSoFar
         sprBuildStats.endTime = SysTime()
     end)
-    local function Step()
-        if not co then return end
-        if coroutine.status(co) == "dead" then return end
+    -- Schedule coroutine advancement via RenderCore job system to reduce timer overhead
+    local jobId = "StaticPropsCacheJob"
+    RenderCore.ScheduleJob(jobId, function()
+        if not co or coroutine.status(co) == "dead" then return false end
         local ok, err = coroutine.resume(co)
         if not ok then
             ErrorNoHalt("[Static Render] Cache coroutine error: " .. tostring(err) .. "\n")
             isCachingInProgress = false
-            return
+            return false
         end
-        if coroutine.status(co) ~= "dead" then
-            timer.Simple(0, Step)
-        end
-    end
-    Step()
+        return coroutine.status(co) ~= "dead"
+    end)
 end
 
 -- Skybox detection hooks
@@ -363,6 +376,20 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     
     -- Get player position for distance check
     local playerPos = LocalPlayer():GetPos()
+    -- Build PVS with caching
+    local pvs = nil
+    if NikNaks and NikNaks.CurrentMap then
+        if NikNaks.CurrentMap.PointInLeafCache then
+            local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, playerPos, lastLeaf)
+            if changed or not pvsCache then
+                pvsCache = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+                lastLeaf = leaf
+            end
+            pvs = pvsCache
+        elseif NikNaks.CurrentMap.PVSForOrigin then
+            pvs = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+        end
+    end
     local maxDistance = convar_RenderDistance:GetFloat()
     local useDistanceLimit = (maxDistance > 0)
     
@@ -383,19 +410,21 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
             skippedProps = skippedProps + 1
             continue
         end
+        -- PVS culling for world props only (skip skybox props)
+        if not bDrawingSkybox and pvs and prop.cluster and prop.cluster >= 0 and not pvs[prop.cluster] then
+            skippedProps = skippedProps + 1
+            continue
+        end
         if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(prop.origin, playerPos, maxDistance) then
             distanceSkipped = distanceSkipped + 1
             continue
         end
-        local matrix = Matrix()
-        matrix:Translate(prop.origin)
-        matrix:Rotate(prop.angles)
         for _, meshInfo in ipairs(meshData.meshes) do
             if meshInfo.mesh and meshInfo.material then
                 RenderCore.Submit({
                     material = meshInfo.material,
                     mesh = meshInfo.mesh,
-                    matrix = matrix,
+                    matrix = prop.matrix,
                     translucent = false,
                     color = prop.color
                 })

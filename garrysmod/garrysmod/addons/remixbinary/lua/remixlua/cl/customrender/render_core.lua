@@ -11,7 +11,7 @@ do
     local tokens = RemixRenderCore._tokens or {}
     local rebuildSinks = RemixRenderCore._rebuildSinks or {}
     -- Render queues and frame/job state
-    local queues = RemixRenderCore._queues or { opaque = {}, translucent = {} }
+    local queues = RemixRenderCore._queues or { opaque = { buckets = {}, order = {} }, translucent = { buckets = {}, order = {} } }
     local frameState = RemixRenderCore._frame or { began = false, skybox = false }
     local jobs = RemixRenderCore._jobs or {}
 
@@ -29,8 +29,8 @@ do
     -- ============================
     function RemixRenderCore.BeginFrame(_, bSkybox)
         -- Clear queues once per opaque frame begin
-        queues.opaque = {}
-        queues.translucent = {}
+        queues.opaque = { buckets = {}, order = {} }
+        queues.translucent = { buckets = {}, order = {} }
         frameState.began = true
         frameState.skybox = bSkybox or false
         -- Advance scheduled jobs conservatively
@@ -51,31 +51,43 @@ do
         local q = item.translucent and queues.translucent or queues.opaque
         -- store normalized color for fast modulation
         if item.color then item._ncolor = normalizeColor(item.color) end
-        q[#q + 1] = item
+        -- bucket by material to avoid per-frame material name sorting
+        local buckets = q.buckets
+        local order = q.order
+        local mat = item.material
+        local bucket = buckets[mat]
+        if not bucket then
+            bucket = {}
+            buckets[mat] = bucket
+            order[#order + 1] = mat
+        end
+        bucket[#bucket + 1] = item
     end
 
     local function flushQueue(queue)
-        if #queue == 0 then return end
-        -- Sort by material to reduce state changes
-        table.sort(queue, function(a, b)
-            local an = a.material and a.material:GetName() or ""
-            local bn = b.material and b.material:GetName() or ""
-            return an < bn
-        end)
+        if not queue or not queue.order then return end
         local lastMat = nil
-        for i = 1, #queue do
-            local it = queue[i]
-            if it.material ~= lastMat then
-                render.SetMaterial(it.material)
-                lastMat = it.material
+        local order = queue.order
+        local buckets = queue.buckets
+        for i = 1, #order do
+            local mat = order[i]
+            local bucket = buckets[mat]
+            if bucket and #bucket > 0 then
+                if mat ~= lastMat then
+                    render.SetMaterial(mat)
+                    lastMat = mat
+                end
+                for j = 1, #bucket do
+                    local it = bucket[j]
+                    if it._ncolor then
+                        render.SetColorModulation(it._ncolor.r, it._ncolor.g, it._ncolor.b)
+                    end
+                    if it.matrix then cam.PushModelMatrix(it.matrix) end
+                    it.mesh:Draw()
+                    if it.matrix then cam.PopModelMatrix() end
+                    if it._ncolor then render.SetColorModulation(1, 1, 1) end
+                end
             end
-            if it._ncolor then
-                render.SetColorModulation(it._ncolor.r, it._ncolor.g, it._ncolor.b)
-            end
-            if it.matrix then cam.PushModelMatrix(it.matrix) end
-            it.mesh:Draw()
-            if it.matrix then cam.PopModelMatrix() end
-            if it._ncolor then render.SetColorModulation(1, 1, 1) end
         end
     end
 
@@ -166,13 +178,17 @@ do
     -- ============================
     -- Shared Material Filtering
     -- ============================
+    local _matcherCache = {}
     function RemixRenderCore.BuildMatcherList(str)
+        if not str or str == "" then return {} end
+        local cached = _matcherCache[str]
+        if cached then return cached end
         local list = {}
-        if not str or str == "" then return list end
         for token in string.gmatch(str, "[^,]+") do
             token = string.Trim(string.lower(token))
             if token ~= "" then list[#list+1] = token end
         end
+        _matcherCache[str] = list
         return list
     end
 
@@ -439,6 +455,10 @@ do
             panel:NumSlider("Rot Front", "rtx_sky2d_rot_ft", 0, 360, 0)
             panel:NumSlider("Rot Up", "rtx_sky2d_rot_up", 0, 360, 0)
             panel:NumSlider("Rot Down", "rtx_sky2d_rot_dn", 0, 360, 0)
+
+            panel:Help("Sky Depth Mask")
+            panel:CheckBox("Sky Clip Enable", "rtx_sky_clip_enable")
+            panel:CheckBox("Sky Clip Debug", "rtx_sky_clip_debug")
 
             panel:NumSlider("World Chunk Size", "rtx_mwr_chunk_size", 4096, 65536, 0)
             panel:NumSlider("World Distance (0=off)", "rtx_mwr_distance", 0, 524288, 0)

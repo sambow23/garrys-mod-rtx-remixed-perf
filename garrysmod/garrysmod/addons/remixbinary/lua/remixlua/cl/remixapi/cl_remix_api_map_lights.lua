@@ -1,10 +1,10 @@
-local brightness_multiplier = CreateClientConVar("rtx_api_map_lights_brightness", "5.0", true, false, "Brightness multiplier for converted lights")
+local brightness_multiplier = CreateClientConVar("rtx_api_map_lights_brightness", "1.0", true, false, "Brightness multiplier for converted lights")
 local size_multiplier = CreateClientConVar("rtx_api_map_lights_size", "5.0", true, false, "Size multiplier for converted lights")
 local min_size = CreateClientConVar("rtx_api_map_lights_min_size", "100", true, false, "Minimum size for RTX lights")
 local max_size = CreateClientConVar("rtx_api_map_lights_max_size", "1000", true, false, "Maximum size for RTX lights")
 local visual_mode = CreateClientConVar("rtx_api_map_lights_visual", "0", true, false, "Show visible models for lights")
 local debug_mode = CreateClientConVar("rtx_api_map_lights_debug", "0", true, false, "Enable debug messages")
-local env_max_brightness = CreateClientConVar("rtx_api_map_lights_env_max_brightness", "0", true, false, "Max brightness (0-100 scale) for directional lights; 0 disables clamping")
+local env_max_brightness = CreateClientConVar("rtx_api_map_lights_env_max_brightness", "3", true, false, "Max brightness (0-100 scale) for directional lights; 0 disables clamping")
 local env_dir_flip = CreateClientConVar("rtx_api_map_lights_env_dir_flip", "0", true, false, "Flip directional vector for light_environment if needed")
 local creation_delay = CreateClientConVar("rtx_api_map_lights_creation_delay", "0.0", true, false, "Delay between light creation in seconds")
 
