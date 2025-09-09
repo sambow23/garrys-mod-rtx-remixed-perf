@@ -15,6 +15,9 @@ local totalDisplacements = 0
 local hasLoaded = false
 local shouldReload = false
 local dispStats = { rendered = 0, total = 0 }
+-- PVS cache for displacements
+local lastLeafDisp = nil
+local pvsCacheDisp = nil
 
 -- Debug helper function
 local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
@@ -268,10 +271,19 @@ RenderCore.Register("PreDrawOpaqueRenderables", "DisplacementRenderer", function
         end
     end
 
-    -- Build PVS once per call
+    -- Build PVS once per call with caching
     local pvs
-    if NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.PVSForOrigin then
-        pvs = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+    if NikNaks and NikNaks.CurrentMap then
+        if NikNaks.CurrentMap.PointInLeafCache then
+            local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, playerPos, lastLeafDisp)
+            if changed or not pvsCacheDisp then
+                pvsCacheDisp = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+                lastLeafDisp = leaf
+            end
+            pvs = pvsCacheDisp
+        elseif NikNaks.CurrentMap.PVSForOrigin then
+            pvs = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+        end
     end
 
     for _, dispData in ipairs(dispMeshes) do
@@ -342,6 +354,8 @@ RenderCore.Register("ShutDown", "DisplacementRenderer_Cleanup", function()
     dispMeshes = {}
     hasLoaded = false
     loadProgress = 0
+    lastLeafDisp = nil
+    pvsCacheDisp = nil
 end)
 
 concommand.Add("disp_reload", function()
@@ -370,6 +384,8 @@ RenderCore.RegisterRebuildSink("DisplacementsRebuild", function(token, reason)
     loadProgress = 0
     dispFaces = {}
     dispMeshes = {}
+    lastLeafDisp = nil
+    pvsCacheDisp = nil
     if RenderCore and RenderCore.DestroyTrackedMeshes then
         RenderCore.DestroyTrackedMeshes()
     end

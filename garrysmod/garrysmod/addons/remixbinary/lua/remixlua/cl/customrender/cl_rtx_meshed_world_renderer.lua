@@ -95,6 +95,9 @@ local function IsSkyboxFace(face)
            false
 end
 
+-- Forward declare to allow usage in SplitChunk
+local GetChunkKey
+
 local function SplitChunk(faces, chunkSize)
     local subChunks = {}
     for _, face in ipairs(faces) do
@@ -182,7 +185,7 @@ local function CreateMeshBatch(vertices, material, maxVertsPerMesh)
     return meshes
 end
 
-local function GetChunkKey(x, y, z)
+GetChunkKey = function(x, y, z)
     return x .. "," .. y .. "," .. z
 end
 
@@ -213,101 +216,6 @@ local function BuildMapMeshes(cancelToken)
     print("[RTX Fixes] Building chunked meshes...")
     local startTime = SysTime()
     
-    -- Count total faces for chunk size optimization
-    local totalFaces = 0
-    for _, leaf in pairs(NikNaks.CurrentMap:GetLeafs()) do
-        if not leaf or leaf:IsOutsideMap() then continue end
-        local leafFaces = leaf:GetFaces(true)
-        if leafFaces then
-            totalFaces = totalFaces + #leafFaces
-        end
-    end
-    
-    local chunkSize = DetermineOptimalChunkSize(totalFaces)
-    CONVARS.CHUNK_SIZE:SetInt(chunkSize)
-    
-    local chunks = {
-        opaque = {},
-        translucent = {},
-    }
-
-    -- Determine 3D skybox bounds (to exclude miniature skybox geometry from world pass)
-    local hasSkyAABB = false
-    local skyMins, skyMaxs
-    if NikNaks.CurrentMap and NikNaks.CurrentMap.HasSkyBox and NikNaks.CurrentMap:HasSkyBox() and NikNaks.CurrentMap.GetSkyboxSize then
-        local okSky, mins, maxs = pcall(function() return NikNaks.CurrentMap:GetSkyboxSize() end)
-        if okSky and mins and maxs then
-            hasSkyAABB = true
-            skyMins, skyMaxs = mins, maxs
-        end
-    end
-    
-    -- Sort faces into chunks with optimized table operations
-    local okLeafs, allLeafs = pcall(function() return NikNaks.CurrentMap:GetLeafs() end)
-    if not okLeafs or not allLeafs then
-        ErrorNoHalt("[RTX Fixes] GetLeafs failed\n")
-        return
-    end
-    for _, leaf in pairs(allLeafs) do  
-        if not leaf or leaf:IsOutsideMap() then continue end
-        
-        local okFaces, leafFaces = pcall(function() return leaf:GetFaces(true) end)
-        if not leafFaces then continue end
-    
-        for _, face in pairs(leafFaces) do
-            if not face or 
-               face:IsDisplacement() or -- Skip displacements early
-               IsBrushEntity(face) or
-               not face:ShouldRender() or 
-               IsSkyboxFace(face) then 
-                continue 
-            end
-            
-            local vertices = face:GetVertexs()
-            if not vertices or #vertices == 0 then continue end
-            
-            -- Optimized center calculation
-            local center = Vector(0, 0, 0)
-            local vertCount = #vertices
-            for i = 1, vertCount do
-                local vert = vertices[i]
-                if not vert then continue end
-                center:Add(vert)
-            end
-            center:Div(vertCount)
-
-            -- Skip miniature 3D skybox faces (drawn in engine skybox pass)
-            if hasSkyAABB and center.WithinAABox and center:WithinAABox(skyMins, skyMaxs) then
-                continue
-            end
-            
-            local chunkX = math_floor(center.x / chunkSize)
-            local chunkY = math_floor(center.y / chunkSize)
-            local chunkZ = math_floor(center.z / chunkSize)
-            local chunkKey = GetChunkKey(chunkX, chunkY, chunkZ)
-            
-            local material = face:GetMaterial()
-            if not material then continue end
-            
-            local matName = material:GetName()
-            if not matName then continue end
-            if not IsMaterialAllowed(matName) then continue end
-            if RenderCore and RenderCore.GetMaterial then
-                material = RenderCore.GetMaterial(matName)
-            end
-            
-            local chunkGroup = face:IsTranslucent() and chunks.translucent or chunks.opaque
-            
-            chunkGroup[chunkKey] = chunkGroup[chunkKey] or {}
-            chunkGroup[chunkKey][matName] = chunkGroup[chunkKey][matName] or {
-                material = material,
-                faces = {}
-            }
-            
-            table_insert(chunkGroup[chunkKey][matName].faces, face)
-        end
-    end
-    
     -- Create separate mesh creation functions for regular faces and displacements
     local function CreateRegularMeshGroup(faces, material)
         if not faces or #faces == 0 or not material then return nil end
@@ -316,8 +224,11 @@ local function BuildMapMeshes(cancelToken)
         local minBounds = Vector(math_huge, math_huge, math_huge)
         local maxBounds = Vector(-math_huge, -math_huge, -math_huge)
         
-        -- Collect and validate vertices
-        local allVertices = {}
+        -- Stream vertices to avoid massive intermediate arrays
+        local meshes = {}
+        local batchVerts = {}
+        local batchCount = 0
+        local processed = 0
         for _, face in ipairs(faces) do
             local verts = face:GenerateVertexTriangleData()
             if verts then
@@ -339,29 +250,40 @@ local function BuildMapMeshes(cancelToken)
                 
                 if faceValid then
                     for _, vert in ipairs(verts) do
-                        table_insert(allVertices, vert)
+                        batchCount = batchCount + 1
+                        batchVerts[batchCount] = vert
+                        if batchCount >= (MAX_VERTICES - 3) then
+                            local chunkMeshes = CreateMeshBatch(batchVerts, material, MAX_VERTICES)
+                            if chunkMeshes then
+                                for i = 1, #chunkMeshes do
+                                    table_insert(meshes, chunkMeshes[i])
+                                end
+                            end
+                            batchVerts = {}
+                            batchCount = 0
+                        end
                     end
+                end
+            end
+            processed = processed + 1
+            if processed % 128 == 0 then
+                -- Cooperative yield during very large groups
+                if coroutine.isyieldable and coroutine.isyieldable() then
+                    coroutine.yield()
                 end
             end
         end
         
-        -- If vertex count is too large, split into sub-chunks and process each
-        if #allVertices > MAX_VERTICES then
-            local subChunks = SplitChunk(faces, CONVARS.CHUNK_SIZE:GetInt())
-            local allMeshes = {}
-            for _, subFaces in pairs(subChunks) do
-                local subMeshes = CreateRegularMeshGroup(subFaces, material)
-                if subMeshes then
-                    for _, mesh in ipairs(subMeshes) do
-                        table_insert(allMeshes, mesh)
-                    end
+        -- Flush any remaining vertices
+        if batchCount > 0 then
+            local chunkMeshes = CreateMeshBatch(batchVerts, material, MAX_VERTICES)
+            if chunkMeshes then
+                for i = 1, #chunkMeshes do
+                    table_insert(meshes, chunkMeshes[i])
                 end
             end
-            return allMeshes
         end
         
-        -- Create mesh batches for this chunk
-        local meshes = CreateMeshBatch(allVertices, material, MAX_VERTICES)
         return meshes, minBounds, maxBounds
     end
 
@@ -371,6 +293,104 @@ local function BuildMapMeshes(cancelToken)
         local startTime = SysTime()
         local frameBudget = 0.003 -- start ~3ms per frame
         local targetBudget = 0.003
+
+        -- Prepare chunk table and inputs inside coroutine
+        local chunks = { opaque = {}, translucent = {} }
+        local chunkSize = CONVARS.CHUNK_SIZE:GetInt()
+        if not chunkSize or chunkSize <= 0 then chunkSize = 65536 end
+
+        -- Determine 3D skybox bounds (to exclude miniature skybox geometry from world pass)
+        local hasSkyAABB = false
+        local skyMins, skyMaxs
+        if NikNaks.CurrentMap and NikNaks.CurrentMap.HasSkyBox and NikNaks.CurrentMap:HasSkyBox() and NikNaks.CurrentMap.GetSkyboxSize then
+            local okSky, mins, maxs = pcall(function() return NikNaks.CurrentMap:GetSkyboxSize() end)
+            if okSky and mins and maxs then
+                hasSkyAABB = true
+                skyMins, skyMaxs = mins, maxs
+            end
+        end
+
+        -- Sort faces into chunks with time-budgeted yields
+        local okLeafs, allLeafs = pcall(function() return NikNaks.CurrentMap:GetLeafs() end)
+        if not okLeafs or not allLeafs then
+            ErrorNoHalt("[RTX Fixes] GetLeafs failed\n")
+            return
+        end
+        for _, leaf in pairs(allLeafs) do  
+            if cancelToken and cancelToken.cancelled then return end
+            if leaf and not leaf:IsOutsideMap() then
+                local okFaces, leafFaces = pcall(function() return leaf:GetFaces(true) end)
+                if leafFaces then
+                    for _, face in pairs(leafFaces) do
+                        if cancelToken and cancelToken.cancelled then return end
+                        local process = true
+                        if not face or face:IsDisplacement() or IsBrushEntity(face) or not face:ShouldRender() or IsSkyboxFace(face) then
+                            process = false
+                        end
+                        if process then
+                            local vertices = face:GetVertexs()
+                            if not vertices or #vertices == 0 then
+                                process = false
+                            else
+                                -- Optimized center calculation
+                                local center = Vector(0, 0, 0)
+                                local vertCount = #vertices
+                                for i = 1, vertCount do
+                                    local vert = vertices[i]
+                                    if vert then center:Add(vert) end
+                                end
+                                center:Div(vertCount)
+                                if hasSkyAABB and center.WithinAABox and center:WithinAABox(skyMins, skyMaxs) then
+                                    process = false
+                                else
+                                    local chunkX = math_floor(center.x / chunkSize)
+                                    local chunkY = math_floor(center.y / chunkSize)
+                                    local chunkZ = math_floor(center.z / chunkSize)
+                                    local chunkKey = GetChunkKey(chunkX, chunkY, chunkZ)
+                                    local material = face:GetMaterial()
+                                    if material then
+                                        local matName = material:GetName()
+                                        if matName and IsMaterialAllowed(matName) then
+                                            if RenderCore and RenderCore.GetMaterial then
+                                                material = RenderCore.GetMaterial(matName)
+                                            end
+                                            local chunkGroup = face:IsTranslucent() and chunks.translucent or chunks.opaque
+                                            chunkGroup[chunkKey] = chunkGroup[chunkKey] or {}
+                                            chunkGroup[chunkKey][matName] = chunkGroup[chunkKey][matName] or {
+                                                material = material,
+                                                faces = {}
+                                            }
+                                            table_insert(chunkGroup[chunkKey][matName].faces, face)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        if SysTime() - startTime > frameBudget then
+                            coroutine.yield()
+                            local spent = SysTime() - startTime
+                            if spent > frameBudget * 1.2 then
+                                frameBudget = math.max(0.001, frameBudget * 0.9)
+                            elseif spent < frameBudget * 0.8 then
+                                frameBudget = math.min(0.006, frameBudget * 1.1)
+                            end
+                            startTime = SysTime()
+                        end
+                    end
+                end
+            end
+            if SysTime() - startTime > frameBudget then
+                coroutine.yield()
+                local spent = SysTime() - startTime
+                if spent > frameBudget * 1.2 then
+                    frameBudget = math.max(0.001, frameBudget * 0.9)
+                elseif spent < frameBudget * 0.8 then
+                    frameBudget = math.min(0.006, frameBudget * 1.1)
+                end
+                startTime = SysTime()
+            end
+        end
+
         for renderType, chunkGroup in pairs(chunks) do
             for chunkKey, materials in pairs(chunkGroup) do
                 mapMeshes[renderType][chunkKey] = {}
@@ -417,6 +437,7 @@ local function BuildMapMeshes(cancelToken)
                 end
             end
         end
+        print(string.format("[RTX Fixes] Built chunked meshes in %.2f seconds", SysTime() - startTime))
     end)
 
     -- Drive the coroutine over frames via RenderCore job scheduler (less timer overhead)
@@ -431,7 +452,6 @@ local function BuildMapMeshes(cancelToken)
         return coroutine.status(co) ~= "dead"
     end)
 
-    print(string.format("[RTX Fixes] Built chunked meshes in %.2f seconds", SysTime() - startTime))
 end
 
 -- Rendering Functions
