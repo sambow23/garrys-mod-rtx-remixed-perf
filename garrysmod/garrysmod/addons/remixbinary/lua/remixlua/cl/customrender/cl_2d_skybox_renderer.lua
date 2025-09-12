@@ -8,8 +8,17 @@ local RenderCore = include("remixlua/cl/customrender/render_core.lua") or RemixR
 local cv_enable = CreateClientConVar("rtx_sky2d_enable", "1", true, false, "Enable custom 2D skybox rendering")
 local cv_override = CreateClientConVar("rtx_sky2d_name", "", true, false, "Override skybox name (leave blank to use sv_skyname)")
 local cv_brightness = CreateClientConVar("rtx_sky2d_brightness", "1.0", true, false, "Brightness multiplier for custom 2D skybox")
-local cv_useDepthRange = CreateClientConVar("rtx_sky2d_use_depthrange", "1", true, false, "Use DepthRange(near,1) during 2D sky draw for RTX detection")
+local cv_useDepthRange = CreateClientConVar("rtx_sky2d_use_depthrange", "1", true, false, "Use DepthRange(near,far) during 2D sky draw for RTX detection")
 local cv_depthNear = CreateClientConVar("rtx_sky2d_depthnear", "0.999", true, false, "DepthRange near (0..1) when enabled")
+local cv_depthFar  = CreateClientConVar("rtx_sky2d_depthfar",  "1.0",  true, false, "DepthRange far (0..1) when enabled")
+-- Depth behavior and sizing
+local cv_zTest  = CreateClientConVar("rtx_sky2d_ztest", "1", true, false, "Enable depth test during 2D sky draw")
+local cv_zWrite = CreateClientConVar("rtx_sky2d_zwrites", "1", true, false, "Enable depth writes during 2D sky draw")
+local cv_clearDepth = CreateClientConVar("rtx_sky2d_clear_depth", "0", true, false, "Clear depth buffer before drawing 2D sky")
+local cv_size = CreateClientConVar("rtx_sky2d_size", "8196", true, false, "Half-extent of the sky cube in units")
+local cv_camNear = CreateClientConVar("rtx_sky2d_cam_znear", "1", true, false, "Camera z-near for 2D sky pass")
+local cv_camFar  = CreateClientConVar("rtx_sky2d_cam_zfar", "65536", true, false, "Camera z-far for 2D sky pass")
+local cv_disableCull = CreateClientConVar("rtx_sky2d_disable_cull", "0", true, false, "Disable backface culling when drawing sky quads")
 local cv_swapUD = CreateClientConVar("rtx_sky2d_swap_ud", "0", true, false, "Swap up/down sky faces to match Source orientation")
 local cv_swapLR = CreateClientConVar("rtx_sky2d_swap_lr", "1", true, false, "Swap left/right sky faces to match Source orientation")
 -- Default all faces to 180 as per pictured working setup
@@ -54,9 +63,9 @@ local function getSkyMaterials(name)
         -- Use RenderCore material cache if available
         local mat = (RenderCore and RenderCore.GetMaterial) and RenderCore.GetMaterial(path) or Material(path)
         if mat and mat.SetInt then
-            -- Hint to ignore Z for sky materials
+            -- Keep $ignorez in sync with z-test setting so we can force-visibility when needed
             pcall(function()
-                mat:SetInt("$ignorez", 1)
+                mat:SetInt("$ignorez", cv_zTest:GetBool() and 0 or 1)
             end)
         end
         mats[s] = mat
@@ -93,18 +102,28 @@ local function Draw2DSky()
 
     -- Rendering parameters
     local origin = EyePos()
-    local size = 16384 -- large enough to surround the map
+    local size = math.max(1024, math.floor(cv_size:GetFloat() or 16384)) -- configurable cube size
     local br = math.max(0.0, cv_brightness:GetFloat())
 
     -- Render background cube with depth test/write disabled so it behaves like engine sky
     local fov = (IsValid(LocalPlayer()) and LocalPlayer().GetFOV and LocalPlayer():GetFOV()) or 90
-    cam.Start3D(EyePos(), EyeAngles(), fov)
+    local znear = math.max(0.01, cv_camNear:GetFloat() or 1)
+    local zfar  = math.max(znear + 1, cv_camFar:GetFloat() or (size * 2))
+    cam.Start3D(EyePos(), EyeAngles(), fov, 0, 0, ScrW(), ScrH(), znear, zfar)
         render.SuppressEngineLighting(true)
-        -- Disable depth test and disable depth writes
-        render.OverrideDepthEnable(true, true)
+        if cv_disableCull:GetBool() then
+            render.CullMode(MATERIAL_CULLMODE_NONE)
+        end
+        -- Control depth test/write and optional clear
+        if cv_clearDepth:GetBool() then
+            render.ClearDepth()
+        end
+        render.OverrideDepthEnable(cv_zTest:GetBool(), cv_zWrite:GetBool())
         if cv_useDepthRange:GetBool() then
             local dn = math.Clamp(cv_depthNear:GetFloat() or 0.999, 0, 1)
-            render.DepthRange(dn, 1)
+            local df = math.Clamp((cv_depthFar and cv_depthFar:GetFloat()) or 1, 0, 1)
+            if df < dn then df = dn end
+            render.DepthRange(dn, df)
         end
         render.SetColorModulation(br, br, br)
 
@@ -149,6 +168,9 @@ local function Draw2DSky()
             render.DepthRange(0, 1)
         end
         render.OverrideDepthEnable(false, false)
+        if cv_disableCull:GetBool() then
+            render.CullMode(MATERIAL_CULLMODE_CCW)
+        end
         render.SuppressEngineLighting(false)
     cam.End3D()
 end
