@@ -57,38 +57,6 @@ hook.Add( "PopulateToolMenu", "RTXOptionsClient", function()
         end
         
         panel:ControlHelp("Enables/Disables Map Fixes for the current map and remembers the setting for future loads of this map. This helps fix map rendering issues.")
-
-        panel:Help("Remix Lights")
-        local lightPanel = vgui.Create("DPanel", panel)
-        lightPanel:SetTall(120)
-        lightPanel:SetPaintBackground(false)
-        panel:AddItem(lightPanel)
-
-        local radiusSlider = vgui.Create("DNumSlider", lightPanel)
-        radiusSlider:SetText("Sphere Radius")
-        radiusSlider:SetMin(1)
-        radiusSlider:SetMax(200)
-        radiusSlider:SetDecimals(0)
-        radiusSlider:SetValue(40)
-
-        local colorMixer = vgui.Create("DColorMixer", lightPanel)
-        colorMixer:Dock(BOTTOM)
-        colorMixer:SetTall(85)
-        colorMixer:SetAlphaBar(false)
-        colorMixer:SetPalette(true)
-        colorMixer:SetWangs(true)
-        colorMixer:SetColor(Color(255, 220, 180))
-
-        local spawnBtn = vgui.Create("DButton", lightPanel)
-        spawnBtn:SetText("Spawn Sphere At Crosshair")
-        spawnBtn:Dock(TOP)
-        spawnBtn:DockMargin(0, 5, 0, 5)
-        spawnBtn.DoClick = function()
-            local c = colorMixer:GetColor()
-            -- radiance units are not [0..1]; scale up slightly
-            RunConsoleCommand("remix_light_spawn_at_crosshair", tostring(math.floor(radiusSlider:GetValue())), tostring(math.floor(c.r/12)), tostring(math.floor(c.g/12)), tostring(math.floor(c.b/12)))
-        end
-
     end )
 end )
 

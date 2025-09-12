@@ -446,11 +446,9 @@ do
         spawnmenu.AddToolMenuOption("Utilities", "User", "Remix_Render", "Remix Render", "", "", function(panel)
             panel:ClearControls()
             panel:CheckBox("Show Render Debug", "rtx_render_debug")
-
-            panel:Help("")
             panel:CheckBox("2D Skybox", "rtx_sky2d_enable")
             panel:CheckBox("Entity Anti-Culling", "rtx_rearview_enabled")
-            panel:NumSlider("Entity Anti-Culling Max Distance", "rtx_rearview_off_forward", 100, 5000, 0)
+            panel:NumSlider("Distance (units)", "rtx_rearview_off_forward", 100, 5000, 0)
             panel:Help("This can severely impact performance")
 
         end)
