@@ -84,6 +84,10 @@ end
 local function Draw2DSky()
     if not cv_enable:GetBool() then return end
     -- Avoid drawing multiple times per frame if multiple hooks call us
+    -- Skip entirely during offscreen RT renders (e.g., rearview RenderView)
+    if RenderCore and RenderCore.IsOffscreen and RenderCore.IsOffscreen() then
+        return
+    end
     local fn = FrameNumber()
     if lastDrawFrame == fn then return end
     lastDrawFrame = fn

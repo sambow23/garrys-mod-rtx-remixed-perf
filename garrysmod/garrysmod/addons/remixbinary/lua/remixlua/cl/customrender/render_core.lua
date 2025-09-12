@@ -14,6 +14,7 @@ do
     local queues = RemixRenderCore._queues or { opaque = { buckets = {}, order = {} }, translucent = { buckets = {}, order = {} } }
     local frameState = RemixRenderCore._frame or { began = false, skybox = false }
     local jobs = RemixRenderCore._jobs or {}
+    local offscreenCount = RemixRenderCore._offscreenCount or 0
 
     local function safeCall(id, fn, ...)
         local ok, a, b, c, d = pcall(fn, ...)
@@ -174,6 +175,24 @@ do
     RemixRenderCore._queues = queues
     RemixRenderCore._frame = frameState
     RemixRenderCore._jobs = jobs
+    RemixRenderCore._offscreenCount = offscreenCount
+
+    -- ============================
+    -- Offscreen RT Tracking
+    -- ============================
+    function RemixRenderCore.PushOffscreen()
+        offscreenCount = (offscreenCount or 0) + 1
+        RemixRenderCore._offscreenCount = offscreenCount
+    end
+
+    function RemixRenderCore.PopOffscreen()
+        offscreenCount = math.max(0, (offscreenCount or 1) - 1)
+        RemixRenderCore._offscreenCount = offscreenCount
+    end
+
+    function RemixRenderCore.IsOffscreen()
+        return (offscreenCount or 0) > 0
+    end
 
     -- ============================
     -- Shared Material Filtering
@@ -422,21 +441,18 @@ do
         print("[RemixRenderCore] Cleared mesh/material caches.")
     end)
 
-    -- Unified configuration menu
+    -- Configuration menu
     hook.Add("PopulateToolMenu", "RemixUnifiedMenu", function()
-        spawnmenu.AddToolMenuOption("Utilities", "User", "RTX_Remix_Rendering", "RTX Remix Rendering", "", "", function(panel)
+        spawnmenu.AddToolMenuOption("Utilities", "User", "Remix_Render", "Remix Render", "", "", function(panel)
             panel:ClearControls()
-
-            panel:CheckBox("Remix Capture Mode", "rtx_capture_mode")
-            panel:ControlHelp("Toggles engine draw flags for RTX Remix capture")
-
             panel:CheckBox("Show Render Debug", "rtx_render_debug")
 
             panel:Help("")
             panel:CheckBox("2D Skybox", "rtx_sky2d_enable")
-            panel:CheckBox("Displacements", "rtx_cdr_enable")
-            panel:CheckBox("Static Props", "rtx_spr_enable")
-            panel:CheckBox("World", "rtx_mwr_enable")
+            panel:CheckBox("Entity Anti-Culling", "rtx_rearview_enabled")
+            panel:NumSlider("Entity Anti-Culling Max Distance", "rtx_rearview_off_forward", 100, 5000, 0)
+            panel:Help("This can severely impact performance")
+
         end)
     end)
 

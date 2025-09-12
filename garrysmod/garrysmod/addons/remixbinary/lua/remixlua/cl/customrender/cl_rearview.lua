@@ -2,6 +2,8 @@
 
 if SERVER then return end
 
+local RenderCore = include("remixlua/cl/customrender/render_core.lua") or RemixRenderCore
+
 local REARVIEW = REARVIEW or {}
 REARVIEW.rtName = "rearview_rt"
 REARVIEW.matName = "rearview_rt_mat"
@@ -151,8 +153,10 @@ local function UpdateRearRT()
         drawmonitors = false
     }
 
-    -- Render scene into our RT
+    -- Render scene into our RT (flag as offscreen so other systems like skybox skip per-frame logic)
+    if RenderCore and RenderCore.PushOffscreen then RenderCore.PushOffscreen() end
     render.RenderView(view)
+    if RenderCore and RenderCore.PopOffscreen then RenderCore.PopOffscreen() end
 
     render.PopRenderTarget()
     REARVIEW._rendering = false
@@ -246,10 +250,10 @@ end
 
 -- ConVars and commands
 CreateClientConVar("rtx_rearview_enabled", "0", true, false, "Enable the rear-view camera panel")
-CreateClientConVar("rtx_rearview_size", "512", true, false, "Rear-view panel size (square), requires toggle to re-create")
-CreateClientConVar("rtx_rearview_fov", "-1", true, false, "Rear-view camera FOV in degrees. Set -1 to follow player FOV (fov_desired)")
+CreateClientConVar("rtx_rearview_size", "1", true, false, "Rear-view panel size (square), requires toggle to re-create")
+CreateClientConVar("rtx_rearview_fov", "173", true, false, "Rear-view camera FOV in degrees. Set -1 to follow player FOV (fov_desired)")
 -- Movement/offset convars
-CreateClientConVar("rtx_rearview_off_forward", "0", true, false, "Rear-view local forward offset in units")
+CreateClientConVar("rtx_rearview_off_forward", "1000", true, false, "Rear-view local forward offset in units")
 CreateClientConVar("rtx_rearview_off_right", "0", true, false, "Rear-view local right offset in units")
 CreateClientConVar("rtx_rearview_off_up", "0", true, false, "Rear-view local up offset in units")
 CreateClientConVar("rtx_rearview_yaw_add", "180", true, false, "Additional yaw in degrees (default 180 = look behind)")

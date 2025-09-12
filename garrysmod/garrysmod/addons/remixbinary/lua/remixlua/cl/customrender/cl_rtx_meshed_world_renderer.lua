@@ -6,7 +6,7 @@ local RenderCore = include("remixlua/cl/customrender/render_core.lua") or RemixR
 
 -- ConVars
 local CONVARS = {
-    ENABLED = CreateClientConVar("rtx_mwr", "1", true, false, "Forces custom mesh rendering of map"),
+    ENABLED = CreateClientConVar("rtx_mwr_enable", "1", true, false, "Forces custom mesh rendering of map"),
     DEBUG = CreateClientConVar("rtx_mwr_debug", "0", true, false, "Shows debug info for mesh rendering"),
     CHUNK_SIZE = CreateClientConVar("rtx_mwr_chunk_size", "65536", true, false, "Size of chunks for mesh combining"),
     CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode"),
@@ -702,21 +702,6 @@ DebounceRebuildOnCvar("rtx_mwr_chunk_size")
 DebounceRebuildOnCvar("rtx_mwr_mat_whitelist")
 DebounceRebuildOnCvar("rtx_mwr_mat_blacklist")
 DebounceRebuildOnCvar("rtx_mwr_distance")
-
--- Menu
-hook.Add("PopulateToolMenu", "RTXCustomWorldMenu", function()
-    spawnmenu.AddToolMenuOption("Utilities", "User", "RTX_ForceRender", "#RTX Custom World", "", "", function(panel)
-        panel:ClearControls()
-        
-        panel:CheckBox("Enable Custom World Rendering", "rtx_mwr")
-        panel:ControlHelp("Renders the world using chunked meshes")
-
-        panel:CheckBox("Remix Capture Mode", "rtx_mwr_capture_mode")
-        panel:ControlHelp("Enable this if you're taking a capture with RTX Remix")
-        
-        panel:CheckBox("Show Debug Info", "rtx_mwr_debug")
-    end)
-end)
 
 -- Console Commands
 concommand.Add("rtx_rebuild_meshes", BuildMapMeshes)

@@ -29,7 +29,7 @@ local function ApplyCustomRenderPreset(enable)
     RunConsoleCommand("r_DrawDisp", enable and "0" or "1")
     RunConsoleCommand("r_drawdecals", enable and "0" or "1")
     RunConsoleCommand("r_DrawDetailProps", enable and "0" or "1")
-    RunConsoleCommand("rtx_mwr", enable and "1" or "0")
+    RunConsoleCommand("rtx_mwr_enable", enable and "1" or "0")
     RunConsoleCommand("rtx_spr_enable", enable and "1" or "0")
     RunConsoleCommand("rtx_cdr_enable", enable and "1" or "0")
 end
