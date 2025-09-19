@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 #include <mutex>
+#include <unordered_set>
 
 namespace RemixAPI {
     // Forward declarations
@@ -125,6 +126,7 @@ namespace RemixAPI {
         std::mutex m_mutex;
         std::unordered_map<uint64_t, ManagedLight> m_lights; // lightId -> data
         std::unordered_multimap<uint64_t, uint64_t> m_entityToLight; // entityId -> lightId
+        std::unordered_set<remixapi_LightHandle> m_activeLightHandles;
         uint64_t m_nextLightId { 1 };
         // No per-frame queue needed with internal auto-instancing
     };

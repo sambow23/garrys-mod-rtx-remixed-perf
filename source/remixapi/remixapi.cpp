@@ -152,9 +152,12 @@ uint64_t LightManager::CreateSphereLight(const remix::LightInfo& base, const rem
     }
     
     uint64_t id = m_nextLightId++;
-    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = true; ml.cachedBase = base; ml.cachedBase.pNext = nullptr; ml.cachedSphere = ext;
+    remixapi_LightHandle handle = created.value();
+    ManagedLight ml; ml.handle = handle; ml.entityId = entityId; ml.isSphere = true; ml.cachedBase = base; ml.cachedBase.pNext = nullptr; ml.cachedSphere = ext;
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
+    m_activeLightHandles.insert(handle);
+    Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
     return id;
 }
 
@@ -174,9 +177,12 @@ uint64_t LightManager::CreateRectLight(const remix::LightInfo& base, const remix
     }
     
     uint64_t id = m_nextLightId++;
-    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr; // no sphere cache
+    remixapi_LightHandle handle = created.value();
+    ManagedLight ml; ml.handle = handle; ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr; // no sphere cache
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
+    m_activeLightHandles.insert(handle);
+    Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
     return id;
 }
 
@@ -196,9 +202,12 @@ uint64_t LightManager::CreateDiskLight(const remix::LightInfo& base, const remix
     }
     
     uint64_t id = m_nextLightId++;
-    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
+    remixapi_LightHandle handle = created.value();
+    ManagedLight ml; ml.handle = handle; ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
+    m_activeLightHandles.insert(handle);
+    Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
     return id;
 }
 
@@ -218,9 +227,12 @@ uint64_t LightManager::CreateDistantLight(const remix::LightInfo& base, const re
     }
     
     uint64_t id = m_nextLightId++;
-    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
+    remixapi_LightHandle handle = created.value();
+    ManagedLight ml; ml.handle = handle; ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
+    m_activeLightHandles.insert(handle);
+    Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
     return id;
 }
 
@@ -239,9 +251,12 @@ uint64_t LightManager::CreateCylinderLight(const remix::LightInfo& base, const r
     }
     
     uint64_t id = m_nextLightId++;
-    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
+    remixapi_LightHandle handle = created.value();
+    ManagedLight ml; ml.handle = handle; ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
+    m_activeLightHandles.insert(handle);
+    Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
     return id;
 }
 
@@ -260,15 +275,22 @@ uint64_t LightManager::CreateDomeLight(const remix::LightInfo& base, const remix
     }
     
     uint64_t id = m_nextLightId++;
-    ManagedLight ml; ml.handle = created.value(); ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
+    remixapi_LightHandle handle = created.value();
+    ManagedLight ml; ml.handle = handle; ml.entityId = entityId; ml.isSphere = false; ml.cachedBase = base; ml.cachedBase.pNext = nullptr;
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
+    m_activeLightHandles.insert(handle);
+    Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
     return id;
 }
 
 bool LightManager::DestroyLight(uint64_t lightId) {
     remixapi_LightHandle handleToDestroy = nullptr;
     uint64_t entityId = 0;
+    // Copy of cached state for optional zero-radiance update before destroy
+    bool wasSphere = false;
+    remix::LightInfo cachedBaseCopy{};
+    remix::LightInfoSphereEXT cachedSphereCopy{};
     
     {
         std::lock_guard<std::mutex> guard(m_mutex);
@@ -281,6 +303,10 @@ bool LightManager::DestroyLight(uint64_t lightId) {
         
         handleToDestroy = it->second.handle;
         entityId = it->second.entityId;
+        // Stash cached state for zero-radiance update outside the lock
+        wasSphere = it->second.isSphere;
+        cachedBaseCopy = it->second.cachedBase; cachedBaseCopy.pNext = nullptr;
+        if (wasSphere) cachedSphereCopy = it->second.cachedSphere;
         
         // remove from entity map while holding the lock
         if (it->second.entityId) {
@@ -293,11 +319,26 @@ bool LightManager::DestroyLight(uint64_t lightId) {
         m_lights.erase(it);
     }
     
+    // Optional: make the light invisible immediately to avoid one-frame persistence
+    if (handleToDestroy && wasSphere) {
+        remix::LightInfo zeroInfo = cachedBaseCopy;
+        zeroInfo.radiance = { 0.0f, 0.0f, 0.0f };
+        zeroInfo.pNext = const_cast<remix::LightInfoSphereEXT*>(&cachedSphereCopy);
+        auto ok = m_remixInterface->UpdateLightDefinition(handleToDestroy, zeroInfo);
+        if (!ok) {
+            Msg("[LightManager] Zero-radiance pre-destroy update failed for handle %p\n", handleToDestroy);
+        } else {
+            Msg("[LightManager] Zeroed radiance before destroy for handle %p\n", handleToDestroy);
+        }
+    }
+    
     // Destroy the light handle outside of the mutex lock
     // The batched API will handle persistent light unregistration internally
     if (handleToDestroy) {
+        Msg("[LightManager] Destroying light ID %llu, handle %p. Active handles before: %zu\n", lightId, handleToDestroy, m_activeLightHandles.size());
         m_remixInterface->DestroyLight(handleToDestroy);
-        Msg("[LightManager] Destroyed light ID %llu (entity %llu, handle %p)\n", lightId, entityId, handleToDestroy);
+        m_activeLightHandles.erase(handleToDestroy); // Ensure it's removed from active list
+        Msg("[LightManager] Destroyed light ID %llu, handle %p. Active handles after: %zu\n", lightId, handleToDestroy, m_activeLightHandles.size());
     }
     
     return true;
@@ -435,21 +476,13 @@ size_t LightManager::GetLightCount() const {
 void LightManager::SubmitLightsForCurrentFrame() {
     if (!m_remixInterface) return;
     
-    // Only use auto-instancing OR manual submission, not both to avoid double submission
-    EnsureRemixCApiResolved();
-    if (s_pfnAutoInstancePersistentLights) {
-        // Use auto-instancing if available (preferred method)
-        s_pfnAutoInstancePersistentLights();
-        // Don't manually submit if auto-instancing is available
-        return;
-    }
-    
-    // Fallback to manual submission only if auto-instancing isn't available
-    // This ensures lights are submitted even without the auto-instance API
-    std::lock_guard<std::mutex> guard(m_mutex);
-    for (const auto& kv : m_lights) {
-        if (kv.second.handle) {
-            m_remixInterface->DrawLightInstance(kv.second.handle);
+    // Always clear and resubmit the active lights each frame
+    // This ensures that destroyed lights are removed and new/updated lights are included
+    Msg("[LightManager] Submitting %zu active light handles this frame.\n", m_activeLightHandles.size());
+    for (const auto& handle : m_activeLightHandles) {
+        if (handle) {
+            // Msg("  - Submitting handle %p\n", handle); // uncomment for very verbose logging
+            m_remixInterface->DrawLightInstance(handle);
         }
     }
 }

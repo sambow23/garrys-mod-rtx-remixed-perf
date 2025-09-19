@@ -544,31 +544,9 @@ properties.Add("remix_rt_light_edit", {
 })
 
 function ENT:OnRemove()
-    -- Defensive cleanup - ensure we properly destroy the light
-    if self.LightId then
-        local destroyed = false
-        
-        -- Try the queue first (which now does synchronous destroy)
-        if RemixLightQueue and RemixLightQueue.DestroyLight then
-            destroyed = RemixLightQueue.DestroyLight(self.LightId)
-        end
-        
-        -- Fallback to direct API if queue failed
-        if not destroyed and RemixLight and RemixLight.DestroyLight then
-            RemixLight.DestroyLight(self.LightId)
-        end
-        
-        self.LightId = nil
-    end
-    
-    -- Also try to clean up by entity ID as a fallback
-    -- This catches cases where the light was created but LightId wasn't set properly
     if RemixLight and RemixLight.DestroyLightsForEntity then
         RemixLight.DestroyLightsForEntity(self:EntIndex())
     end
-    
-    -- Clear any pending creation flag
-    self.LightCreateQueued = nil
 end
 
 

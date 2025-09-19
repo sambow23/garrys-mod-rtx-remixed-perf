@@ -97,7 +97,8 @@ GMOD_MODULE_OPEN() {
                     GetProcAddress(hRemix, "remixapi_RegisterCallbacks"));
                 if (pfnRegister) {
                     // Use present callback to auto-instance all persistent external API lights each frame
-                    PFN_remixapi_BridgeCallback presentCb = g_pfnAutoInstancePersistentLights ? &RemixPresentCallback : nullptr;
+                    // Disabled: rely on explicit per-frame submissions from RemixAPI::LightManager
+                    PFN_remixapi_BridgeCallback presentCb = nullptr;
                     pfnRegister(nullptr, nullptr, presentCb);
                 } else {
                     Msg("[gmRTX - Binary Module] remixapi_RegisterCallbacks not found in d3d9.dll, skipping callback registration.\n");
