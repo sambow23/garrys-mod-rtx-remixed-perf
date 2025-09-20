@@ -1,25 +1,38 @@
 if not CLIENT then return end
+require("niknaks")
 local RenderCore = include("remixlua/cl/customrender/render_core.lua") or RemixRenderCore
 
-local renderDisplacements = CreateClientConVar("rtx_cdr_enable", "1", true, false, "Enable/disable custom displacement rendering")
-local renderDistance = CreateClientConVar("rtx_cdr_distance", "10000", true, false, "Maximum distance to render displacements")
-local debugMode = CreateClientConVar("rtx_cdr_debug", "0", true, false, "Enable debug mode")
-local wireframeMode = CreateClientConVar("rtx_cdr_wireframe", "0", true, false, "Enable wireframe rendering")
-local cvarWhitelist = CreateClientConVar("rtx_cdr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include")
-local cvarBlacklist = CreateClientConVar("rtx_cdr_mat_blacklist", "", true, false, "Comma-separated material name substrings to exclude")
-local usePVS = CreateClientConVar("rtx_cdr_use_pvs", "1", true, false, "Enable PVS culling for displacement chunks")
+-- ConVars
+local CONVARS = {
+    ENABLED = CreateClientConVar("rtx_dpr_enable", "1", true, false, "Enable custom displacement rendering"),
+    DEBUG = CreateClientConVar("rtx_dpr_debug", "0", true, false, "Debug prints for displacement renderer"),
+    CHUNK_SIZE = CreateClientConVar("rtx_dpr_chunk_size", "65536", true, false, "Size of chunks for displacement grouping"),
+    MAT_WHITELIST = CreateClientConVar("rtx_dpr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include"),
+    MAT_BLACKLIST = CreateClientConVar("rtx_dpr_mat_blacklist", "toolsskybox,skybox/", true, false, "Comma-separated material name substrings to exclude"),
+    DISTANCE = CreateClientConVar("rtx_dpr_distance", "0", true, false, "Displacement chunk distance limit (0 = off)"),
+    USE_PVS = CreateClientConVar("rtx_dpr_use_pvs", "1", true, false, "Enable PVS culling for displacement chunks")
+}
 
-local dispFaces = {}
+local function DebugPrint(...)
+    if CONVARS.DEBUG:GetBool() then
+        print("[DispRenderer]", ...)
+    end
+end
+
+-- Local state
 local dispMeshes = {}
-local loadProgress = 0
-local totalDisplacements = 0
-local hasLoaded = false
-local shouldReload = false
-local dispStats = { rendered = 0, total = 0 }
--- PVS cache for displacements
-local lastLeafDisp = nil
-local pvsCacheDisp = nil
-local pvsLastValidDisp = 0
+-- dispMeshes[chunkKey] = {
+--   _mins=Vector,_maxs=Vector,_clusters={ [cluster]=true },
+--   [matKey] = { material=IMaterial, meshes=IMesh[] }
+-- }
+
+local buildState = { active = false, processed = 0, total = 0 }
+local stats = { draws = 0, chunksVisited = 0 }
+
+-- PVS cache for displacement renderer
+local lastLeaf = nil
+local pvsCache = nil
+local pvsLastValid = 0
 
 local function IsPVSValid(pvs)
     if not pvs then return false end
@@ -29,224 +42,284 @@ local function IsPVSValid(pvs)
     return false
 end
 
--- Debug helper function
-local DebugPrint = (RenderCore and RenderCore.CreateDebugPrint)
-    and RenderCore.CreateDebugPrint("Displacement Render Debug", debugMode)
-    or function(...)
-        if debugMode:GetBool() then
-            print("[Displacement Render Debug]", ...)
-        end
-    end
-
-local wireframeMaterial = Material("models/wireframe")
-
--- Sphere-vs-AABB test: returns true if AABB lies entirely outside sphere
-local function AABBOutsideSphere(mins, maxs, origin, radius)
-    if not mins or not maxs or not origin or (radius or 0) <= 0 then return false end
-    local dx = 0
-    if origin.x < mins.x then dx = mins.x - origin.x elseif origin.x > maxs.x then dx = origin.x - maxs.x end
-    local dy = 0
-    if origin.y < mins.y then dy = mins.y - origin.y elseif origin.y > maxs.y then dy = origin.y - maxs.y end
-    local dz = 0
-    if origin.z < mins.z then dz = mins.z - origin.z elseif origin.z > maxs.z then dz = origin.z - maxs.z end
-    return (dx*dx + dy*dy + dz*dz) > (radius * radius)
-end
-
-local function IsMaterialAllowedName(matName)
+local function IsMaterialAllowed(matName)
     if not matName then return false end
     if RenderCore and RenderCore.IsMaterialAllowed then
-        return RenderCore.IsMaterialAllowed(matName, cvarWhitelist:GetString(), cvarBlacklist:GetString())
+        return RenderCore.IsMaterialAllowed(matName, CONVARS.MAT_WHITELIST:GetString(), CONVARS.MAT_BLACKLIST:GetString())
     end
-    -- Fallback if core helper missing: allow
     return true
 end
 
-function LoadDisplacements(cancelToken)
-    if not NikNaks or not NikNaks.CurrentMap then
-        print("[Displacement Renderer] ERROR: NikNaks not available or map not loaded")
-        return
-    end
-
-    dispFaces = {}
-    dispMeshes = {}
-    hasLoaded = false
-    
-    local okFaces, dispFacesList = pcall(function() return NikNaks.CurrentMap:GetDisplacmentFaces() end)
-    if not okFaces or not dispFacesList then
-        print("[Displacement Renderer] ERROR: GetDisplacmentFaces failed")
-        hasLoaded = true
-        return
-    end
-    totalDisplacements = #dispFacesList
-    
-    if totalDisplacements == 0 then
-        print("[Displacement Renderer] No displacements found in map")
-        hasLoaded = true
-        return
-    end
-    
-    print("[Displacement Renderer] Found " .. totalDisplacements .. " displacements")
-    
-    -- Coroutine-based loader to avoid freezing
-    local co
-    co = coroutine.create(function()
-        local startTime = SysTime()
-        local frameBudget = 0.003
-        for i = 1, totalDisplacements do
-            if cancelToken and cancelToken.cancelled then return end
-            local face = dispFacesList[i]
-            if face then
-                table.insert(dispFaces, face)
-                loadProgress = i / totalDisplacements
-            end
-            if SysTime() - startTime > frameBudget then
-                coroutine.yield()
-                startTime = SysTime()
-            end
-        end
-        if cancelToken and cancelToken.cancelled then return end
-        CreateDispMeshes(cancelToken)
-    end)
-    local function Step()
-        if not co then return end
-        if coroutine.status(co) == "dead" then return end
-        local ok, err = coroutine.resume(co)
-        if not ok then
-            ErrorNoHalt("[Displacement Renderer] Load coroutine error: " .. tostring(err) .. "\n")
-            return
-        end
-        if coroutine.status(co) ~= "dead" then
-            timer.Simple(0, Step)
-        end
-    end
-    timer.Simple(0.05, Step)
+local function GetChunkKey(x, y, z)
+    return x .. "," .. y .. "," .. z
 end
 
-function CreateDispMeshes(cancelToken)
-    print("[Displacement Renderer] Creating meshes for " .. #dispFaces .. " displacements")
+-- Try to get or build a material that supports 2-texture blending.
+-- Prefer the face's material if it already has $basetexture2; otherwise try a dynamic WorldVertexTransition.
+local dispMatCache = {}
+local function GetDispBlendMaterial(faceMat)
+    if not faceMat then return nil end
+    local baseTex = faceMat.GetTexture and faceMat:GetTexture("$basetexture")
+    if not baseTex then return faceMat end
+    local baseName = baseTex.GetName and baseTex:GetName() or nil
+    if not baseName or baseName == "" then return faceMat end
+
+    local second = faceMat.GetTexture and faceMat:GetTexture("$basetexture2")
+    if second then
+        -- Ensure the material uses vertex alpha/color so our per-vertex alpha blends
+        pcall(function()
+            faceMat:SetInt("$vertexalpha", 1)
+            faceMat:SetInt("$vertexcolor", 1)
+        end)
+        return faceMat
+    end
+
+    -- Try to find $basetexture2 via material proxies or alternatives; fallback: none
+    local secondName = nil
+    if second and second.GetName then secondName = second:GetName() end
+    if not secondName or secondName == "" then
+        return faceMat
+    end
+
+    -- Dynamic WorldVertexTransition (best-effort); cache per combo
+    local key = string.format("rtx_dispblend[%s|%s]", baseName, secondName)
+    local cached = dispMatCache[key]
+    if cached ~= nil then return cached end
+    local dyn
+    -- CreateMaterial can take a unique name and shader; this may fail on some branches so guard with pcall
+    local ok, err = pcall(function()
+        dyn = CreateMaterial(key, "WorldVertexTransition", {
+            ["$basetexture"] = baseName,
+            ["$basetexture2"] = secondName,
+            ["$vertexalpha"] = 1,
+            ["$vertexcolor"] = 1,
+            ["$translucent"] = 0
+        })
+    end)
+    if not ok or not dyn then
+        DebugPrint("Failed to create WorldVertexTransition material:", err)
+        dispMatCache[key] = faceMat
+        return faceMat
+    end
+    dispMatCache[key] = dyn
+    return dyn
+end
+
+-- Build a batch of IMesh objects from a streamed triangle vertex list, preserving per-vertex alpha via mesh.Color
+local MAX_VERTICES = 30000
+local function CreateMeshBatchWithAlpha(vertices, material, maxVertsPerMesh)
+    local meshes = {}
+    local currentVerts = {}
+    local currentAlphas = {}
+    local vertCount = 0
+
+    maxVertsPerMesh = maxVertsPerMesh or MAX_VERTICES
+
+    local function flush()
+        if #currentVerts == 0 then return end
+        local newMesh = Mesh(material)
+        mesh.Begin(newMesh, MATERIAL_TRIANGLES, #currentVerts / 3)
+        for i = 1, #currentVerts do
+            local v = currentVerts[i]
+            local a = currentAlphas[i] or 1
+            mesh.Position(v.pos)
+            mesh.Normal(v.normal or Vector(0, 0, 1))
+            mesh.TexCoord(0, v.u or 0, v.v or 0)
+            if v.u1 and v.v1 then
+                mesh.TexCoord(1, v.u1, v.v1)
+            end
+            local ia = math.Clamp(math.floor((a or 1) * 255 + 0.5), 0, 255)
+            mesh.Color(255, 255, 255, ia)
+            mesh.AdvanceVertex()
+        end
+        mesh.End()
+        if RenderCore and RenderCore.TrackMesh then RenderCore.TrackMesh(newMesh) end
+        table.insert(meshes, newMesh)
+        currentVerts = {}
+        currentAlphas = {}
+        vertCount = 0
+    end
+
+    for i = 1, #vertices do
+        local v = vertices[i]
+        currentVerts[#currentVerts + 1] = v
+        currentAlphas[#currentAlphas + 1] = v._alpha or 1
+        vertCount = vertCount + 1
+        if vertCount >= (maxVertsPerMesh - 3) then
+            flush()
+        end
+    end
+    flush()
+    return meshes
+end
+
+-- Triangulate a displacement grid (width x height) into a flat triangle vertex list, copying per-vertex alpha
+local function GridToTriangles(grid, alphas)
+    local tri = {}
+    if not grid or #grid == 0 then return tri end
+    local width = math.sqrt(#grid)
+    if width <= 1 then return tri end
+    local height = #grid / width
+    local n = 0
+    for i = 1, height - 1 do
+        for j = 1, width - 1 do
+            local idx1 = (i - 1) * width + j
+            local idx2 = i * width + j
+            local idx3 = i * width + j + 1
+            local idx4 = (i - 1) * width + j + 1
+
+            local v1, v2, v3 = grid[idx1], grid[idx2], grid[idx3]
+            v1 = { pos = v1.pos, normal = v1.normal, u = v1.u, v = v1.v, u1 = v1.u1, v1 = v1.v1, _alpha = (alphas and alphas[idx1]) or 1 }
+            v2 = { pos = v2.pos, normal = v2.normal, u = v2.u, v = v2.v, u1 = v2.u1, v1 = v2.v1, _alpha = (alphas and alphas[idx2]) or 1 }
+            v3 = { pos = v3.pos, normal = v3.normal, u = v3.u, v = v3.v, u1 = v3.u1, v1 = v3.v1, _alpha = (alphas and alphas[idx3]) or 1 }
+            tri[#tri + 1] = v1
+            tri[#tri + 1] = v2
+            tri[#tri + 1] = v3
+
+            local v4 = grid[idx4]
+            v1 = { pos = grid[idx1].pos, normal = grid[idx1].normal, u = grid[idx1].u, v = grid[idx1].v, u1 = grid[idx1].u1, v1 = grid[idx1].v1, _alpha = (alphas and alphas[idx1]) or 1 }
+            v3 = { pos = v3.pos, normal = v3.normal, u = v3.u, v = v3.v, u1 = v3.u1, v1 = v3.v1, _alpha = (alphas and alphas[idx3]) or 1 }
+            v4 = { pos = v4.pos, normal = v4.normal, u = v4.u, v = v4.v, u1 = v4.u1, v1 = v4.v1, _alpha = (alphas and alphas[idx4]) or 1 }
+            tri[#tri + 1] = v1
+            tri[#tri + 1] = v3
+            tri[#tri + 1] = v4
+        end
+    end
+    return tri
+end
+
+-- Build all displacement meshes in a coroutine with a frame budget
+local function BuildDisplacementMeshes(cancelToken)
+    -- Cleanup existing
+    for chunkKey, materials in pairs(dispMeshes) do
+        for matKey, group in pairs(materials) do
+            if type(group) == "table" and group.meshes then
+                for _, m in ipairs(group.meshes) do
+                    if m and m.Destroy then pcall(function() m:Destroy() end) end
+                end
+            end
+        end
+    end
+    dispMeshes = {}
+
+    if not NikNaks or not NikNaks.CurrentMap then return end
+
+    DebugPrint("Building displacement meshes...")
 
     local co
     co = coroutine.create(function()
         local startTime = SysTime()
         local frameBudget = 0.003
-        -- Batch by chunk and material; flush around ~30000 vertices per IMesh
-        local chunkSize = (GetConVar and GetConVar("rtx_mwr_chunk_size") and GetConVar("rtx_mwr_chunk_size"):GetInt()) or 65536
-        local MAX_VERTS = 30000
-        local groups = {}
 
-        local function getChunkKey(center)
-            local cx = math.floor(center.x / chunkSize)
-            local cy = math.floor(center.y / chunkSize)
-            local cz = math.floor(center.z / chunkSize)
-            return cx .. "," .. cy .. "," .. cz
+        -- Prepare chunk table
+        local chunks = {}
+        local chunkSize = CONVARS.CHUNK_SIZE:GetInt()
+        if not chunkSize or chunkSize <= 0 then chunkSize = 65536 end
+
+        -- Iterate leafs and include displacements (may insert duplicates across leaves)
+        local okLeafs, allLeafs = pcall(function() return NikNaks.CurrentMap:GetLeafs() end)
+        if not okLeafs or not allLeafs then
+            ErrorNoHalt("[DispRenderer] GetLeafs failed\n")
+            return
         end
-
-        local function newGroup(mat)
-            return {
-                material = mat,
-                verts = {},
-                count = 0,
-                bmins = Vector(math.huge, math.huge, math.huge),
-                bmaxs = Vector(-math.huge, -math.huge, -math.huge),
-                translucent = (mat and mat.IsTranslucent and mat:IsTranslucent()) or false
-            }
-        end
-
-        local function flushGroup(g)
-            if not g or g.count <= 0 then return end
-            local m = Mesh(g.material)
-            mesh.Begin(m, MATERIAL_TRIANGLES, g.count / 3)
-            for i = 1, g.count do
-                local v = g.verts[i]
-                mesh.Position(v.pos)
-                mesh.Normal(v.normal)
-                mesh.TexCoord(0, v.u or 0, v.v or 0)
-                mesh.TexCoord(1, v.u1 or 0, v.v1 or 0)
-                mesh.Color(255, 255, 255, 255)
-                mesh.AdvanceVertex()
-            end
-            mesh.End()
-            local center = (g.bmins + g.bmaxs) * 0.5
-            table.insert(dispMeshes, {
-                mesh = m,
-                material = g.material,
-                mins = g.bmins,
-                maxs = g.bmaxs,
-                center = center,
-                translucent = g.translucent
-            })
-            if RenderCore and RenderCore.TrackMesh then
-                RenderCore.TrackMesh(m)
-            end
-            -- reset batch
-            g.verts = {}
-            g.count = 0
-            g.bmins = Vector(math.huge, math.huge, math.huge)
-            g.bmaxs = Vector(-math.huge, -math.huge, -math.huge)
-        end
-
-        for i, face in ipairs(dispFaces) do
+        local seenFaces = {}
+        buildState.active = true
+        buildState.processed = 0
+        buildState.total = 0
+        for _ in pairs(allLeafs) do buildState.total = buildState.total + 1 end
+        for _, leaf in pairs(allLeafs) do
             if cancelToken and cancelToken.cancelled then return end
-            local okVerts, vertexData = pcall(function() return face:GenerateVertexTriangleData() end)
-            if not okVerts then vertexData = nil end
-            if vertexData and #vertexData > 0 then
-                local valid = true
-                if RenderCore and RenderCore.ValidateVertex then
-                    for _, v in ipairs(vertexData) do
-                        if not RenderCore.ValidateVertex(v.pos) then
-                            valid = false
-                            break
-                        end
-                    end
-                end
-                if valid then
-                    local mat = face:GetMaterial()
-                    local matName = mat and mat:GetName()
-                    if matName and IsMaterialAllowedName(matName) then
-                        if RenderCore and RenderCore.GetMaterial then
-                            mat = RenderCore.GetMaterial(matName)
-                        end
-                        -- compute face bounds and center
-                        local fmins = Vector(math.huge, math.huge, math.huge)
-                        local fmaxs = Vector(-math.huge, -math.huge, -math.huge)
-                        for _, vv in ipairs(vertexData) do
-                            if vv.pos.x < fmins.x then fmins.x = vv.pos.x end
-                            if vv.pos.y < fmins.y then fmins.y = vv.pos.y end
-                            if vv.pos.z < fmins.z then fmins.z = vv.pos.z end
-                            if vv.pos.x > fmaxs.x then fmaxs.x = vv.pos.x end
-                            if vv.pos.y > fmaxs.y then fmaxs.y = vv.pos.y end
-                            if vv.pos.z > fmaxs.z then fmaxs.z = vv.pos.z end
-                        end
-                        local center = (fmins + fmaxs) * 0.5
-                        local gkey = (matName or "") .. "|" .. getChunkKey(center)
-                        local g = groups[gkey]
-                        if not g then
-                            g = newGroup(mat)
-                            groups[gkey] = g
-                        else
-                            -- If the group's translucency differs due to material reload, update it
-                            if mat and mat.IsTranslucent and g.translucent ~= mat:IsTranslucent() then
-                                g.translucent = mat:IsTranslucent()
+            if leaf and not leaf:IsOutsideMap() then
+                local okFaces, leafFaces = pcall(function() return leaf:GetFaces(true) end) -- include displacements
+                if leafFaces then
+                    local leafCluster = leaf.GetCluster and leaf:GetCluster() or -1
+                    for _, face in pairs(leafFaces) do
+                        if cancelToken and cancelToken.cancelled then return end
+                        repeat
+                            if not face or not face.IsDisplacement or not face:IsDisplacement() then break end
+                            local faceId = face.GetIndex and face:GetIndex() or tostring(face)
+                            if seenFaces[faceId] then break end
+                            seenFaces[faceId] = true
+                            if not face.ShouldRender or not face:ShouldRender() then break end
+
+                            local mat = face.GetMaterial and face:GetMaterial() or nil
+                            if not mat then break end
+                            local matName = mat.GetName and mat:GetName() or ""
+                            if not IsMaterialAllowed(matName) then break end
+
+                            -- Determine center from base quad (use vertex grid average)
+                            local grid = face.GenerateVertexData and face:GenerateVertexData() or nil
+                            if not grid or #grid == 0 then break end
+                            local cx, cy, cz = 0, 0, 0
+                            for i = 1, #grid do local p = grid[i].pos cx = cx + p.x cy = cy + p.y cz = cz + p.z end
+                            cx = cx / #grid cy = cy / #grid cz = cz / #grid
+                            local center = Vector(cx, cy, cz)
+
+                            local chunkX = math.floor(center.x / chunkSize)
+                            local chunkY = math.floor(center.y / chunkSize)
+                            local chunkZ = math.floor(center.z / chunkSize)
+                            local chunkKey = GetChunkKey(chunkX, chunkY, chunkZ)
+
+                            chunks[chunkKey] = chunks[chunkKey] or {}
+                            local chunkData = chunks[chunkKey]
+                            if leafCluster and leafCluster >= 0 then
+                                chunkData._clusters = chunkData._clusters or {}
+                                chunkData._clusters[leafCluster] = true
                             end
-                        end
-                        -- append face triangles to group
-                        for _, v in ipairs(vertexData) do
-                            g.count = g.count + 1
-                            g.verts[g.count] = v
-                            if v.pos.x < g.bmins.x then g.bmins.x = v.pos.x end
-                            if v.pos.y < g.bmins.y then g.bmins.y = v.pos.y end
-                            if v.pos.z < g.bmins.z then g.bmins.z = v.pos.z end
-                            if v.pos.x > g.bmaxs.x then g.bmaxs.x = v.pos.x end
-                            if v.pos.y > g.bmaxs.y then g.bmaxs.y = v.pos.y end
-                            if v.pos.z > g.bmaxs.z then g.bmaxs.z = v.pos.z end
-                            if g.count >= (MAX_VERTS - 3) then
-                                flushGroup(g)
+
+                            -- Build per-vertex alpha from disp verts
+                            local dispInfo = face.GetDisplacementInfo and face:GetDisplacementInfo() or nil
+                            local power = dispInfo and dispInfo.power or 2
+                            local w = (2 ^ power) + 1
+                            local vertStart = dispInfo and dispInfo.DispVertStart or 0
+                            local vertEnd = vertStart + (w * w)
+                            local dispVerts = NikNaks.CurrentMap:GetDispVerts()
+                            local alphas = {}
+                            for v = vertStart, vertEnd - 1 do
+                                local dv = dispVerts[v]
+                                local idx = (v - vertStart) + 1
+                                alphas[idx] = math.Clamp((dv and dv.alpha) or 0, 0, 1)
                             end
+
+                            -- Triangulate and assign vertex alpha
+                            local triangles = GridToTriangles(grid, alphas)
+
+                            -- Choose material: prefer face mat with $basetexture2; best-effort dynamic fallback
+                            local useMat = GetDispBlendMaterial(mat)
+                            -- Group by material name to batch
+                            local useName = (useMat and useMat.GetName and useMat:GetName()) or matName or "__unnamed__"
+                            chunkData[useName] = chunkData[useName] or { material = useMat, _stream = {}, _mins = Vector(math.huge, math.huge, math.huge), _maxs = Vector(-math.huge, -math.huge, -math.huge) }
+                            local group = chunkData[useName]
+
+                            -- Stream triangles (with frame-budgeted flush later)
+                            for i = 1, #triangles do
+                                local v = triangles[i]
+                                group._stream[#group._stream + 1] = v
+                                -- Update bounds with positions
+                                local p = v.pos
+                                if p.x < group._mins.x then group._mins.x = p.x end
+                                if p.y < group._mins.y then group._mins.y = p.y end
+                                if p.z < group._mins.z then group._mins.z = p.z end
+                                if p.x > group._maxs.x then group._maxs.x = p.x end
+                                if p.y > group._maxs.y then group._maxs.y = p.y end
+                                if p.z > group._maxs.z then group._maxs.z = p.z end
+                            end
+                        until true
+
+                        if SysTime() - startTime > frameBudget then
+                            coroutine.yield()
+                            local spent = SysTime() - startTime
+                            if spent > frameBudget * 1.2 then
+                                frameBudget = math.max(0.001, frameBudget * 0.9)
+                            elseif spent < frameBudget * 0.8 then
+                                frameBudget = math.min(0.006, frameBudget * 1.1)
+                            end
+                            startTime = SysTime()
                         end
                     end
                 end
             end
-
+            buildState.processed = buildState.processed + 1
             if SysTime() - startTime > frameBudget then
                 coroutine.yield()
                 local spent = SysTime() - startTime
@@ -259,78 +332,107 @@ function CreateDispMeshes(cancelToken)
             end
         end
 
-        -- Flush remaining batches
-        for _, g in pairs(groups) do
-            flushGroup(g)
+        -- Build IMeshes per chunk/material
+        for chunkKey, materials in pairs(chunks) do
+            dispMeshes[chunkKey] = { _clusters = materials._clusters }
+            for matKey, group in pairs(materials) do
+                if matKey ~= "_clusters" then
+                    local material = group.material
+                    local triStream = group._stream
+                    if triStream and #triStream > 0 and material then
+                        local meshes = CreateMeshBatchWithAlpha(triStream, material, MAX_VERTICES)
+                        dispMeshes[chunkKey][matKey] = {
+                            meshes = meshes,
+                            material = material
+                        }
+                        -- Merge bounds into chunk level
+                        local c = dispMeshes[chunkKey]
+                        if not c._mins then
+                            c._mins = group._mins
+                            c._maxs = group._maxs
+                        else
+                            local cmins = c._mins
+                            local cmaxs = c._maxs
+                            local gmins = group._mins
+                            local gmaxs = group._maxs
+                            if gmins.x < cmins.x then cmins.x = gmins.x end
+                            if gmins.y < cmins.y then cmins.y = gmins.y end
+                            if gmins.z < cmins.z then cmins.z = gmins.z end
+                            if gmaxs.x > cmaxs.x then cmaxs.x = gmaxs.x end
+                            if gmaxs.y > cmaxs.y then cmaxs.y = gmaxs.y end
+                            if gmaxs.z > cmaxs.z then cmaxs.z = gmaxs.z end
+                        end
+                    end
+                end
+                if cancelToken and cancelToken.cancelled then return end
+                if SysTime() - startTime > frameBudget then
+                    coroutine.yield()
+                    local spent = SysTime() - startTime
+                    if spent > frameBudget * 1.2 then
+                        frameBudget = math.max(0.001, frameBudget * 0.9)
+                    elseif spent < frameBudget * 0.8 then
+                        frameBudget = math.min(0.006, frameBudget * 1.1)
+                    end
+                    startTime = SysTime()
+                end
+            end
         end
 
-        print("[Displacement Renderer] Created " .. #dispMeshes .. " displacement meshes")
-        hasLoaded = true
-        dispStats.total = #dispMeshes
+        buildState.active = false
+        DebugPrint("Built displacement meshes")
     end)
 
-    local jobId = "DispMeshBuildJob"
+    -- Drive coroutine
+    local jobId = "RTXDispMeshBuildJob"
     RenderCore.ScheduleJob(jobId, function()
         if not co or coroutine.status(co) == "dead" then return false end
         local ok, err = coroutine.resume(co)
         if not ok then
-            ErrorNoHalt("[Displacement Renderer] Build coroutine error: " .. tostring(err) .. "\n")
+            ErrorNoHalt("[DispRenderer] Build coroutine error: " .. tostring(err) .. "\n")
             return false
         end
         return coroutine.status(co) ~= "dead"
     end)
 end
 
--- Handle rendering
-RenderCore.Register("PreDrawOpaqueRenderables", "DisplacementRenderer", function(bDrawingDepth)
-    if not renderDisplacements:GetBool() or not hasLoaded then return end
-    
+-- Render
+local function RenderDisplacements()
+    if not CONVARS.ENABLED:GetBool() then return end
+    local maxDist = CONVARS.DISTANCE:GetFloat()
+    local useDist = maxDist > 0
     local ply = LocalPlayer and LocalPlayer() or nil
-    local playerPos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
-    local maxDistance = renderDistance:GetFloat()
-    local useDistanceLimit = (maxDistance > 0)
-    local renderedCount = 0
-    local distanceSkipped = 0
-    
-    -- Compute 3D sky bounds once per call
-    local hasSkyAABB, skyMins, skyMaxs = false, nil, nil
-    if NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.HasSkyBox and NikNaks.CurrentMap:HasSkyBox() and NikNaks.CurrentMap.GetSkyboxSize then
-        local okSky, mins, maxs = pcall(function() return NikNaks.CurrentMap:GetSkyboxSize() end)
-        if okSky and mins and maxs then
-            hasSkyAABB, skyMins, skyMaxs = true, mins, maxs
-        end
-    end
+    local eyePos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
 
-    -- Build PVS once per call with caching and validation
+    -- Build PVS
     local pvs
-    if usePVS:GetBool() and NikNaks and NikNaks.CurrentMap and playerPos then
+    if CONVARS.USE_PVS:GetBool() and NikNaks and NikNaks.CurrentMap and eyePos then
         if NikNaks.CurrentMap.PointInLeafCache then
-            local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, playerPos, lastLeafDisp)
-            if changed or not IsPVSValid(pvsCacheDisp) then
-                local newPVS = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+            local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, eyePos, lastLeaf)
+            if changed or not IsPVSValid(pvsCache) then
+                local newPVS = NikNaks.CurrentMap:PVSForOrigin(eyePos)
                 if IsPVSValid(newPVS) then
-                    pvsCacheDisp = newPVS
-                    lastLeafDisp = leaf
-                    pvsLastValidDisp = SysTime()
+                    pvsCache = newPVS
+                    lastLeaf = leaf
+                    pvsLastValid = SysTime()
                 end
             end
-            if IsPVSValid(pvsCacheDisp) then
-                pvs = pvsCacheDisp
+            if IsPVSValid(pvsCache) then
+                pvs = pvsCache
             else
-                if pvsLastValidDisp > 0 and (SysTime() - pvsLastValidDisp) < 0.2 then
-                    pvs = pvsCacheDisp
+                if pvsLastValid > 0 and (SysTime() - pvsLastValid) < 0.2 then
+                    pvs = pvsCache
                 else
-                    pvs = nil -- disable PVS culling this frame if invalid
+                    pvs = nil
                 end
             end
         elseif NikNaks.CurrentMap.PVSForOrigin then
-            local tmp = NikNaks.CurrentMap:PVSForOrigin(playerPos)
+            local tmp = NikNaks.CurrentMap:PVSForOrigin(eyePos)
             if IsPVSValid(tmp) then
                 pvs = tmp
-                pvsLastValidDisp = SysTime()
+                pvsLastValid = SysTime()
             else
-                if pvsLastValidDisp > 0 and (SysTime() - pvsLastValidDisp) < 0.2 then
-                    pvs = pvsCacheDisp
+                if pvsLastValid > 0 and (SysTime() - pvsLastValid) < 0.2 then
+                    pvs = pvsCache
                 else
                     pvs = nil
                 end
@@ -338,124 +440,152 @@ RenderCore.Register("PreDrawOpaqueRenderables", "DisplacementRenderer", function
         end
     end
 
-    for _, dispData in ipairs(dispMeshes) do
-        if hasSkyAABB and dispData.mins and dispData.maxs and dispData.mins.WithinAABox and dispData.maxs.WithinAABox then
-            -- Skip only if the entire displacement AABB lies within the miniature 3D skybox region
-            if dispData.mins:WithinAABox(skyMins, skyMaxs) and dispData.maxs:WithinAABox(skyMins, skyMaxs) then
-                continue
+    local draws = 0
+    local chunksVisited = 0
+    for _, chunkMaterials in pairs(dispMeshes) do
+        chunksVisited = chunksVisited + 1
+        local cmins, cmaxs = chunkMaterials._mins, chunkMaterials._maxs
+        local skipChunk = false
+        if cmins and cmaxs and useDist and eyePos then
+            local center = (cmins + cmaxs) * 0.5
+            if RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(center, eyePos, maxDist) then
+                skipChunk = true
             end
         end
-        -- PVS test (lazy-compute cluster set from AABB)
-        if pvs then
-            if not dispData._clusters and NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.AABBInLeafs then
-                local leaves = NikNaks.CurrentMap:AABBInLeafs(0, dispData.mins or dispData.center, dispData.maxs or dispData.center)
-                local clusters = {}
-                if leaves then
-                    for i = 1, #leaves do
-                        local leaf = leaves[i]
-                        local cl = leaf and leaf:GetCluster() or -1
-                        if cl and cl >= 0 then clusters[cl] = true end
+        -- Compute clusters for chunk on demand
+        local clusters = chunkMaterials._clusters
+        if not skipChunk and pvs and cmins and cmaxs and (not clusters or next(clusters) == nil) and NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.AABBInLeafs then
+            local leaves = NikNaks.CurrentMap:AABBInLeafs(0, cmins, cmaxs)
+            clusters = {}
+            if leaves then
+                for i = 1, #leaves do
+                    local leaf = leaves[i]
+                    local cl = leaf and leaf:GetCluster() or -1
+                    if cl and cl >= 0 then clusters[cl] = true end
+                end
+            end
+            chunkMaterials._clusters = clusters
+        end
+        -- PVS culling
+        if not skipChunk and pvs and clusters and next(clusters) ~= nil then
+            local anyVisible = false
+            for cl, _ in pairs(clusters) do
+                if pvs[cl] then anyVisible = true break end
+            end
+            if not anyVisible then skipChunk = true end
+        end
+
+        if not skipChunk then
+            for key, group in pairs(chunkMaterials) do
+                if key ~= "_mins" and key ~= "_maxs" and key ~= "_clusters" then
+                    if group and group.meshes then
+                        local meshes = group.meshes
+                        for i = 1, #meshes do
+                            local m = meshes[i]
+                            if m then
+                                RenderCore.Submit({
+                                    material = group.material,
+                                    mesh = m,
+                                    translucent = false
+                                })
+                                draws = draws + 1
+                            end
+                        end
                     end
                 end
-                dispData._clusters = clusters
-            end
-            if dispData._clusters then
-                local anyVisible = false
-                for cl, _ in pairs(dispData._clusters) do
-                    if pvs[cl] then anyVisible = true break end
-                end
-                if not anyVisible then
-                    continue
-                end
             end
         end
-        if useDistanceLimit and AABBOutsideSphere(dispData.mins or dispData.center, dispData.maxs or dispData.center, playerPos, maxDistance) then
-            distanceSkipped = distanceSkipped + 1
-            continue
-        end
-        local mat = wireframeMode:GetBool() and wireframeMaterial or dispData.material
-        if dispData.mesh and mat then
-            RenderCore.Submit({
-                material = mat,
-                mesh = dispData.mesh,
-                translucent = dispData.translucent or false
-            })
-        end
-        renderedCount = renderedCount + 1
     end
-    
-    dispStats.rendered = renderedCount
-    dispStats.distance = distanceSkipped
-    if debugMode:GetBool() then
-        draw.SimpleText("Rendered Displacements: " .. renderedCount .. "/" .. #dispMeshes, "DermaDefault", 10, 30, Color(255, 255, 255))
-        draw.SimpleText("Loading Progress: " .. math.floor(loadProgress * 100) .. "%", "DermaDefault", 10, 50, Color(255, 255, 255))
-    end
-end)
 
--- Check if map has changed
-RenderCore.Register("InitPostEntity", "DisplacementRendererMapLoad", function()
-    timer.Simple(2, function()
-        LoadDisplacements()
+    stats.draws = draws
+    stats.chunksVisited = chunksVisited
+end
+
+-- Enable/Disable
+local isEnabled = false
+local function EnableRendering()
+    if isEnabled then return end
+    isEnabled = true
+    RenderCore.Register("PreDrawOpaqueRenderables", "RTXDisp_Draw", function()
+        RenderDisplacements()
     end)
+end
+
+local function DisableRendering()
+    if not isEnabled then return end
+    isEnabled = false
+    RemixRenderCore.Unregister("PreDrawOpaqueRenderables", "RTXDisp_Draw")
+end
+
+-- Init / Rebuild
+local function Initialize(token)
+    local ok, err = pcall(BuildDisplacementMeshes, token)
+    if not ok then
+        ErrorNoHalt("[DispRenderer] Failed to build: " .. tostring(err) .. "\n")
+        DisableRendering()
+        return
+    end
+    timer.Simple(1, function()
+        if CONVARS.ENABLED:GetBool() then
+            local success, e = pcall(EnableRendering)
+            if not success then
+                ErrorNoHalt("[DispRenderer] Failed to enable: " .. tostring(e) .. "\n")
+                DisableRendering()
+            end
+        end
+    end)
+end
+
+RenderCore.Register("InitPostEntity", "RTXDisp_Init", Initialize)
+
+RenderCore.Register("PostCleanupMap", "RTXDisp_Rebuild", function()
+    RenderCore.RequestRebuild("PostCleanupMap")
 end)
 
--- Cleanup on shutdown
-RenderCore.Register("ShutDown", "DisplacementRenderer_Cleanup", function()
-    if RenderCore and RenderCore.DestroyTrackedMeshes then
-        RenderCore.DestroyTrackedMeshes()
+RenderCore.Register("ShutDown", "RTXDisp_Shutdown", function()
+    DisableRendering()
+    for _, mats in pairs(dispMeshes) do
+        for _, group in pairs(mats) do
+            if type(group) == "table" and group.meshes then
+                for _, m in ipairs(group.meshes) do
+                    if m and m.Destroy then pcall(function() m:Destroy() end) end
+                end
+            end
+        end
     end
-    dispFaces = {}
     dispMeshes = {}
-    hasLoaded = false
-    loadProgress = 0
-    lastLeafDisp = nil
-    pvsCacheDisp = nil
 end)
 
-concommand.Add("disp_reload", function()
-    LoadDisplacements()
-end)
-
-
--- Warning message when loading
-RenderCore.Register("HUDPaint", "DisplacementRendererLoading", function()
-    if not hasLoaded and loadProgress > 0 then
-        local w, h = ScrW(), ScrH()
-        draw.SimpleText("Loading Map Geometry: " .. math.floor(loadProgress * 100) .. "%", "DermaLarge", w/2, h/2, Color(255, 255, 255), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-    end
-end)
-
-print("[Displacement Renderer] Initialized")
-
--- Stats provider
+-- Stats
 RenderCore.RegisterStats("Displacements", function()
-    return string.format("Displacements: %d/%d (-D:%d)", dispStats.rendered or 0, dispStats.total or 0, dispStats.distance or 0)
+    local extra = ""
+    if buildState.active and (buildState.total or 0) > 0 then
+        extra = string.format(" | build: %d/%d", buildState.processed or 0, buildState.total or 0)
+    end
+    return string.format("Disp draws: %d | chunks: %d%s", stats.draws or 0, stats.chunksVisited or 0, extra)
 end)
 
--- Rebuild sink and debounced cvar watchers
-RenderCore.RegisterRebuildSink("DisplacementsRebuild", function(token, reason)
-    hasLoaded = false
-    loadProgress = 0
-    dispFaces = {}
-    dispMeshes = {}
-    lastLeafDisp = nil
-    pvsCacheDisp = nil
-    if RenderCore and RenderCore.DestroyTrackedMeshes then
-        RenderCore.DestroyTrackedMeshes()
-    end
-    timer.Simple(0.1, function()
-        LoadDisplacements(token)
-    end)
+-- Rebuild sink and debounced cvars
+RenderCore.RegisterRebuildSink("RTXDispRebuildSink", function(token, reason)
+    Initialize(token)
 end)
 
 local function DebounceRebuildOnCvar(name)
     cvars.AddChangeCallback(name, function()
-        if RenderCore and RenderCore.RequestRebuild then
-            RenderCore.RequestRebuild(name)
-        end
-    end, "DisplacementsRebuild-" .. name)
+        RenderCore.RequestRebuild(name)
+    end, "RTXDispRebuild-" .. name)
 end
 
-DebounceRebuildOnCvar("rtx_cdr_mat_whitelist")
-DebounceRebuildOnCvar("rtx_cdr_mat_blacklist")
-DebounceRebuildOnCvar("rtx_cdr_distance")
+DebounceRebuildOnCvar("rtx_dpr_chunk_size")
+DebounceRebuildOnCvar("rtx_dpr_mat_whitelist")
+DebounceRebuildOnCvar("rtx_dpr_mat_blacklist")
+DebounceRebuildOnCvar("rtx_dpr_distance")
+
+-- Console helper
+concommand.Add("rtx_rebuild_displacements", function()
+    Initialize(RenderCore and RenderCore.NewToken and RenderCore.NewToken("RTXDispRebuildManual") or {})
+end)
+
+print("[Custom Displacement Renderer] Loaded.")
+
+
