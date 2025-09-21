@@ -19,8 +19,8 @@ hook.Add("PopulateToolMenu", "RemixAPILights", function()
         panel:NumSlider("Point Radius", "rtx_api_map_lights_point_radius_mult", 0, 10, 2)
         local btnPointReset = panel:Button("Reset", "")
         btnPointReset.DoClick = function()
-            RunConsoleCommand("rtx_api_map_lights_point_brightness_mult", "1.0")
-            RunConsoleCommand("rtx_api_map_lights_point_radius_mult", "1.0")
+            RunConsoleCommand("rtx_api_map_lights_point_brightness_mult", "0.40")
+            RunConsoleCommand("rtx_api_map_lights_point_radius_mult", "2.25")
         end
 
         panel:Help("")

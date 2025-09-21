@@ -47,6 +47,7 @@ local lastSpawnedMap = ""
 -- Per-kind registries for quick runtime updates
 local lightsByKind = { point = {}, spot = {}, env = {} } -- values: lightId -> true
 local idToIndex = {} -- lightId -> index in createdLights
+local lightsByName = {} -- lower(targetname) -> { [lightId] = true }
 
 -- Light entity classes we want to detect
 local lightClasses = {
@@ -388,7 +389,8 @@ local function findLightsInBSP()
                 classname = ent.classname,
                 lightType = lightType,
                 lightProps = lightProps,
-                angles = lightProps.angles -- Store angles if available
+                angles = lightProps.angles, -- Store angles if available
+                targetname = ent.targetname or ent._targetname
             })
             
             DebugPrint(string.format("Found light: %s (RTX Type: %d) at %.2f,%.2f,%.2f - Color: %d,%d,%d - Brightness: %.1f - Size: %.1f", 
@@ -442,7 +444,7 @@ local function createVisualProp(pos, color, classname)
 end
 
 -- Create a Remix light using the newer RemixLight Lua API (sphere for now)
-local function createRemixLight(pos, color, brightness, size, lightType, lightProps, angles, visualProp, classname)
+local function createRemixLight(pos, color, brightness, size, lightType, lightProps, angles, visualProp, classname, targetname)
     -- Generate a unique position key with some tolerance (0.1 units)
     local posKey = string.format("%.1f_%.1f_%.1f", pos.x, pos.y, pos.z)
     if createdLightPositions[posKey] then
@@ -572,6 +574,10 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         -- Preserve spot shaping parameters for safe updates
         coneAngleDegrees = (lightProps and tonumber(lightProps.coneAngle)) or nil,
         coneSoftness = (lightProps and tonumber(lightProps.coneSoftness)) or nil,
+        -- Animation / linkage
+        targetname = targetname,
+        animMul = 1.0,
+        animEnabled = true,
     }
     return entry
 end
@@ -671,7 +677,8 @@ local function batchCreateRTXLights()
                     light.lightProps,
                     light.angles,
                     visualProp,
-                    light.classname
+                    light.classname,
+                    light.targetname
                 )
                 
                 if entry and entry.id then
@@ -680,6 +687,11 @@ local function batchCreateRTXLights()
                     idToIndex[entry.id] = idx
                     if entry.kind and lightsByKind[entry.kind] then
                         lightsByKind[entry.kind][entry.id] = true
+                    end
+                    if entry.targetname and entry.targetname ~= "" then
+                        local lname = string.lower(entry.targetname)
+                        lightsByName[lname] = lightsByName[lname] or {}
+                        lightsByName[lname][entry.id] = true
                     end
                     lightsCreated = lightsCreated + 1
                     
@@ -729,6 +741,7 @@ local function clearRTXLights()
     -- reset registries
     lightsByKind = { point = {}, spot = {}, env = {} }
     idToIndex = {}
+    lightsByName = {}
     print("[Light2RTX] Cleared all RTX lights")
 end
 
@@ -748,9 +761,10 @@ local function updateEntryRuntime(entry)
     else
         bmult = point_brightness_mult:GetFloat()
     end
+    local amult = tonumber(entry.animMul or 1.0) or 1.0
     local base = {
         hash = tonumber(util.CRC("upd_" .. tostring(entry.id))) or entry.entityId,
-        radiance = { x = entry.color.r * scale * (bmult or 1.0), y = entry.color.g * scale * (bmult or 1.0), z = entry.color.b * scale * (bmult or 1.0) },
+        radiance = { x = entry.color.r * scale * (bmult or 1.0) * amult, y = entry.color.g * scale * (bmult or 1.0) * amult, z = entry.color.b * scale * (bmult or 1.0) * amult },
     }
     -- Helper to compute direction for distant/spot from stored angles if available
     local function computeDir()
@@ -1110,6 +1124,83 @@ Light2RTX = {
     ToggleVisual = toggleVisualMode,
     Refresh = refreshAllLights
 }
+
+-- Expose a minimal API for animators to target lights by targetname
+function Light2RTX.GetEntriesByTargetName(name)
+    local result = {}
+    if not name or name == "" then return result end
+    local map = lightsByName[string.lower(name)]
+    if not map then return result end
+    for lightId, _ in pairs(map) do
+        local idx = idToIndex[lightId]
+        local entry = idx and createdLights[idx] or nil
+        if entry then table.insert(result, entry) end
+    end
+    return result
+end
+
+function Light2RTX.UpdateEntry(entry)
+    if entry then
+        updateEntryRuntime(entry)
+    end
+end
+
+function Light2RTX.SetEnabledByTargetName(name, enabled)
+    local on = enabled and true or false
+    for _, entry in ipairs(Light2RTX.GetEntriesByTargetName(name)) do
+        entry.animEnabled = on
+        entry.animMul = on and 1.0 or 0.0
+        updateEntryRuntime(entry)
+    end
+end
+
+function Light2RTX.ToggleByTargetName(name)
+    for _, entry in ipairs(Light2RTX.GetEntriesByTargetName(name)) do
+        entry.animEnabled = not entry.animEnabled
+        entry.animMul = entry.animEnabled and 1.0 or 0.0
+        updateEntryRuntime(entry)
+    end
+end
+
+function Light2RTX.SetBrightnessMulByTargetName(name, mul)
+    local m = tonumber(mul) or 1.0
+    m = math.max(0.0, m)
+    for _, entry in ipairs(Light2RTX.GetEntriesByTargetName(name)) do
+        entry.animEnabled = m > 0
+        entry.animMul = m
+        updateEntryRuntime(entry)
+    end
+end
+
+function Light2RTX.FadeBrightnessByTargetName(name, targetMul, duration)
+    local t = tonumber(targetMul) or 1.0
+    local d = math.max(0.0, tonumber(duration) or 0.0)
+    local entries = Light2RTX.GetEntriesByTargetName(name)
+    if d <= 0 then
+        for _, entry in ipairs(entries) do
+            entry.animEnabled = t > 0
+            entry.animMul = t
+            updateEntryRuntime(entry)
+        end
+        return
+    end
+    local steps = math.max(1, math.floor(d * 30))
+    local interval = d / steps
+    for _, entry in ipairs(entries) do
+        local startMul = tonumber(entry.animMul or 1.0) or 1.0
+        local timerName = "rtx_maplights_fade_" .. tostring(entry.id)
+        if timer.Exists(timerName) then timer.Remove(timerName) end
+        local i = 0
+        timer.Create(timerName, interval, steps, function()
+            if not entry then return end
+            i = i + 1
+            local alpha = i / steps
+            entry.animMul = startMul + (t - startMul) * alpha
+            entry.animEnabled = entry.animMul > 0
+            updateEntryRuntime(entry)
+        end)
+    end
+end
 
 print("[Light2RTX] Loaded! Use 'rtx_api_map_lights_process' to convert map lights to RTX lights")
 print("[Light2RTX] Use 'rtx_api_map_lights_clear' to remove all created lights")
