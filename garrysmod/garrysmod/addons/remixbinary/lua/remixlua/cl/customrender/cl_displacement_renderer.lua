@@ -59,26 +59,30 @@ end
 local dispMatCache = {}
 local function GetDispBlendMaterial(faceMat)
     if not faceMat then return nil end
-    local baseTex = faceMat.GetTexture and faceMat:GetTexture("$basetexture")
-    if not baseTex then return faceMat end
-    local baseName = baseTex.GetName and baseTex:GetName() or nil
-    if not baseName or baseName == "" then return faceMat end
+    -- Normalize to a shared material instance by name so adjacent faces use the same IMaterial object
+    local matName = faceMat.GetName and faceMat:GetName() or nil
+    local shared = (RenderCore and RenderCore.GetMaterial and matName) and RenderCore.GetMaterial(matName) or faceMat
 
-    local second = faceMat.GetTexture and faceMat:GetTexture("$basetexture2")
+    local baseTex = shared.GetTexture and shared:GetTexture("$basetexture")
+    if not baseTex then return shared end
+    local baseName = baseTex.GetName and baseTex:GetName() or nil
+    if not baseName or baseName == "" then return shared end
+
+    local second = shared.GetTexture and shared:GetTexture("$basetexture2")
     if second then
         -- Ensure the material uses vertex alpha/color so our per-vertex alpha blends
         pcall(function()
-            faceMat:SetInt("$vertexalpha", 1)
-            faceMat:SetInt("$vertexcolor", 1)
+            shared:SetInt("$vertexalpha", 1)
+            shared:SetInt("$vertexcolor", 1)
         end)
-        return faceMat
+        return shared
     end
 
     -- Try to find $basetexture2 via material proxies or alternatives; fallback: none
     local secondName = nil
     if second and second.GetName then secondName = second:GetName() end
     if not secondName or secondName == "" then
-        return faceMat
+        return shared
     end
 
     -- Dynamic WorldVertexTransition (best-effort); cache per combo
@@ -98,8 +102,8 @@ local function GetDispBlendMaterial(faceMat)
     end)
     if not ok or not dyn then
         DebugPrint("Failed to create WorldVertexTransition material:", err)
-        dispMatCache[key] = faceMat
-        return faceMat
+        dispMatCache[key] = shared
+        return shared
     end
     dispMatCache[key] = dyn
     return dyn
@@ -128,6 +132,8 @@ local function CreateMeshBatchWithAlpha(vertices, material, maxVertsPerMesh)
             if v.u1 and v.v1 then
                 mesh.TexCoord(1, v.u1, v.v1)
             end
+            -- Use base UVs on channel 2 so WorldVertexTransition $blendmodulatetexture is stable across seams
+            mesh.TexCoord(2, v.u or 0, v.v or 0)
             local ia = math.Clamp(math.floor((a or 1) * 255 + 0.5), 0, 255)
             mesh.Color(255, 255, 255, ia)
             mesh.AdvanceVertex()
@@ -215,6 +221,13 @@ local function BuildDisplacementMeshes(cancelToken)
         local chunks = {}
         local chunkSize = CONVARS.CHUNK_SIZE:GetInt()
         if not chunkSize or chunkSize <= 0 then chunkSize = 65536 end
+        -- For seam-free blending, collect vertex alphas across all displacements and average by position
+        local faceRecords = {}
+        local alphaSumByKey = {}
+        local alphaCountByKey = {}
+        local function posKey(p)
+            return string.format("%.3f,%.3f,%.3f", p.x, p.y, p.z)
+        end
 
         -- Iterate leafs and include displacements (may insert duplicates across leaves)
         local okLeafs, allLeafs = pcall(function() return NikNaks.CurrentMap:GetLeafs() end)
@@ -267,43 +280,35 @@ local function BuildDisplacementMeshes(cancelToken)
                                 chunkData._clusters[leafCluster] = true
                             end
 
-                            -- Build per-vertex alpha from disp verts
+                            -- Build per-vertex alpha from disp verts (pass 1: accumulate by position)
                             local dispInfo = face.GetDisplacementInfo and face:GetDisplacementInfo() or nil
                             local power = dispInfo and dispInfo.power or 2
                             local w = (2 ^ power) + 1
                             local vertStart = dispInfo and dispInfo.DispVertStart or 0
                             local vertEnd = vertStart + (w * w)
                             local dispVerts = NikNaks.CurrentMap:GetDispVerts()
-                            local alphas = {}
+                            local alphaKeys = {}
                             for v = vertStart, vertEnd - 1 do
                                 local dv = dispVerts[v]
                                 local idx = (v - vertStart) + 1
-                                alphas[idx] = math.Clamp((dv and dv.alpha) or 0, 0, 1)
+                                local a = math.Clamp((dv and dv.alpha) or 0, 0, 1)
+                                local pk = posKey(grid[idx].pos)
+                                alphaKeys[idx] = pk
+                                alphaSumByKey[pk] = (alphaSumByKey[pk] or 0) + a
+                                alphaCountByKey[pk] = (alphaCountByKey[pk] or 0) + 1
                             end
 
-                            -- Triangulate and assign vertex alpha
-                            local triangles = GridToTriangles(grid, alphas)
-
-                            -- Choose material: prefer face mat with $basetexture2; best-effort dynamic fallback
+                            -- Choose material now and record for pass 2
                             local useMat = GetDispBlendMaterial(mat)
-                            -- Group by material name to batch
                             local useName = (useMat and useMat.GetName and useMat:GetName()) or matName or "__unnamed__"
-                            chunkData[useName] = chunkData[useName] or { material = useMat, _stream = {}, _mins = Vector(math.huge, math.huge, math.huge), _maxs = Vector(-math.huge, -math.huge, -math.huge) }
-                            local group = chunkData[useName]
 
-                            -- Stream triangles (with frame-budgeted flush later)
-                            for i = 1, #triangles do
-                                local v = triangles[i]
-                                group._stream[#group._stream + 1] = v
-                                -- Update bounds with positions
-                                local p = v.pos
-                                if p.x < group._mins.x then group._mins.x = p.x end
-                                if p.y < group._mins.y then group._mins.y = p.y end
-                                if p.z < group._mins.z then group._mins.z = p.z end
-                                if p.x > group._maxs.x then group._maxs.x = p.x end
-                                if p.y > group._maxs.y then group._maxs.y = p.y end
-                                if p.z > group._maxs.z then group._maxs.z = p.z end
-                            end
+                            faceRecords[#faceRecords + 1] = {
+                                grid = grid,
+                                alphaKeys = alphaKeys,
+                                mat = useMat,
+                                matName = useName,
+                                chunkKey = chunkKey
+                            }
                         until true
 
                         if SysTime() - startTime > frameBudget then
@@ -320,6 +325,58 @@ local function BuildDisplacementMeshes(cancelToken)
                 end
             end
             buildState.processed = buildState.processed + 1
+            if SysTime() - startTime > frameBudget then
+                coroutine.yield()
+                local spent = SysTime() - startTime
+                if spent > frameBudget * 1.2 then
+                    frameBudget = math.max(0.001, frameBudget * 0.9)
+                elseif spent < frameBudget * 0.8 then
+                    frameBudget = math.min(0.006, frameBudget * 1.1)
+                end
+                startTime = SysTime()
+            end
+        end
+
+        -- Average alpha per shared vertex position across all faces
+        local alphaAvgByKey = {}
+        for k, sum in pairs(alphaSumByKey) do
+            local c = alphaCountByKey[k] or 1
+            alphaAvgByKey[k] = sum / c
+        end
+
+        -- Pass 2: stream triangles using averaged alphas into chunk/material groups
+        for i = 1, #faceRecords do
+            local rec = faceRecords[i]
+            local grid = rec.grid
+            local alphas = {}
+            for gi = 1, #grid do
+                local k = rec.alphaKeys[gi]
+                alphas[gi] = alphaAvgByKey[k] or 0
+            end
+            local triangles = GridToTriangles(grid, alphas)
+
+            local chunkKey = rec.chunkKey
+            local materials = chunks[chunkKey] or {}
+            chunks[chunkKey] = materials
+
+            local useName = rec.matName
+            local useMat = rec.mat
+            materials[useName] = materials[useName] or { material = useMat, _stream = {}, _mins = Vector(math.huge, math.huge, math.huge), _maxs = Vector(-math.huge, -math.huge, -math.huge) }
+            local group = materials[useName]
+
+            for t = 1, #triangles do
+                local v = triangles[t]
+                group._stream[#group._stream + 1] = v
+                local p = v.pos
+                if p.x < group._mins.x then group._mins.x = p.x end
+                if p.y < group._mins.y then group._mins.y = p.y end
+                if p.z < group._mins.z then group._mins.z = p.z end
+                if p.x > group._maxs.x then group._maxs.x = p.x end
+                if p.y > group._maxs.y then group._maxs.y = p.y end
+                if p.z > group._maxs.z then group._maxs.z = p.z end
+            end
+
+            if cancelToken and cancelToken.cancelled then return end
             if SysTime() - startTime > frameBudget then
                 coroutine.yield()
                 local spent = SysTime() - startTime
