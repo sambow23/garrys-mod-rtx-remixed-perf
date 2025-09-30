@@ -25,6 +25,13 @@ local rect_rotation_x = CreateClientConVar("rtx_api_map_lights_rect_rotation_x",
 local rect_rotation_y = CreateClientConVar("rtx_api_map_lights_rect_rotation_y", "0", true, false, "Y rotation offset for rectangle and disk lights")
 local rect_rotation_z = CreateClientConVar("rtx_api_map_lights_rect_rotation_z", "0", true, false, "Z rotation offset for rectangle and disk lights")
 
+-- env_projectedtexture specific tuning
+local projtex_radius_from_fov = CreateClientConVar("rtx_api_map_lights_projtex_radius_from_fov", "1", true, false, "Scale spotlight radius from FOV for env_projectedtexture")
+local projtex_fov_baseline = CreateClientConVar("rtx_api_map_lights_projtex_fov_baseline", "45", true, false, "Baseline FOV that maps to radius scale = 1.0")
+local projtex_fov_half_angle = CreateClientConVar("rtx_api_map_lights_projtex_fov_half_angle", "1", true, false, "Treat env_projectedtexture FOV as full FOV; convert to half-angle for cone")
+local projtex_dir_basis = CreateClientConVar("rtx_api_map_lights_projtex_dir_basis", "0", true, false, "Angles basis for env_projectedtexture: 0=F,1=-F,2=U,3=-U,4=R,5=-R")
+local projtex_invert_pitch = CreateClientConVar("rtx_api_map_lights_projtex_invert_pitch", "1", true, false, "Invert pitch sign parsed from angles for env_projectedtexture")
+
 -- Auto-spawn controls
 local autospawn = CreateClientConVar("rtx_api_map_lights_autospawn", "1", true, false, "Automatically convert map lights on map start")
 local autospawn_delay = CreateClientConVar("rtx_api_map_lights_autospawn_delay", "1.5", true, false, "Delay (seconds) before auto-processing after map start")
@@ -55,6 +62,7 @@ local lightClasses = {
     ["light_spot"] = true,
     ["light_dynamic"] = true,
     ["light_environment"] = true,
+    ["env_projectedtexture"] = true,
 }
 
 -- Mapping from Source light types to RTX light types
@@ -62,6 +70,7 @@ local rtxLightTypes = {
     ["light"] = 0, -- Sphere light
     ["light_dynamic"] = 0, -- Sphere light
     ["light_spot"] = 0, -- Disk light
+    ["env_projectedtexture"] = 0, -- Treated as spotlight (shaped sphere)
     ["light_environment"] = 3, -- Distant (directional) light
 }
 
@@ -71,6 +80,7 @@ local lightModels = {
     ["light_spot"] = "models/hunter/misc/sphere025x025.mdl",
     ["light_dynamic"] = "models/hunter/misc/sphere025x025.mdl",
     ["light_environment"] = "models/hunter/misc/sphere025x025.mdl",
+    ["env_projectedtexture"] = "models/hunter/misc/sphere025x025.mdl",
 }
 
 -- Print debug messages if debug mode is enabled
@@ -321,6 +331,103 @@ local function getLightProperties(entity)
             lightProps.shapingEnabled = true
             lightProps.debugSource = src .. "+getLightProperties"
         end
+    elseif entity.classname == "env_projectedtexture" then
+        if debug_mode:GetBool() then
+            local function tv(v)
+                local t = type(v)
+                if t == "table" then return "table" end
+                if t == "Vector" or (isvector and isvector(v)) then
+                    return string.format("Vector(%.2f,%.2f,%.2f)", v.x or 0, v.y or 0, v.z or 0)
+                end
+                return tostring(v)
+            end
+            print("[Light2RTX Debug] env_projectedtexture raw fields:",
+                "lightcolor=", tv(entity.lightcolor),
+                "_light=", tv(entity._light),
+                "lightfov=", tv(entity.lightfov),
+                "angles=", tv(entity.angles))
+        end
+        -- Color/brightness: prefer lightcolor (R G B [A]) then fallback to _light (R G B I)
+        local lr, lg, lb, la = string.match(tostring(entity.lightcolor or ""), "(%d+)%s+(%d+)%s+(%d+)%s*([%d%.%-]*)")
+        if lr and lg and lb then
+            lr, lg, lb = tonumber(lr), tonumber(lg), tonumber(lb)
+            color = Color(lr, lg, lb)
+            local iv = tonumber(la)
+            if iv then
+                -- Normalize env_projectedtexture brightness:
+                --  - Small values (0..10) are treated as 0..100
+                --  - Typical values (0..255) map to 0..100 via /2.55
+                --  - HDR values (>255, e.g. 10000) map to 0..100 via /100
+                if iv <= 10 then
+                    brightness = math.max(0, iv * 10)
+                elseif iv <= 255 then
+                    brightness = math.max(0, iv / 2.55)
+                else
+                    brightness = math.max(0, iv / 100.0)
+                end
+            end
+        elseif entity._light then
+            local r, g, b, i = string.match(entity._light or "", "(%d+)%s+(%d+)%s+(%d+)%s+(%d+)")
+            if r and g and b then
+                r, g, b = tonumber(r), tonumber(g), tonumber(b)
+                color = Color(r, g, b)
+                if i then
+                    local iv = tonumber(i)
+                    if iv then
+                        if iv <= 255 then brightness = math.max(0, iv / 2.55) else brightness = math.max(0, iv / 100.0) end
+                    end
+                end
+            end
+        end
+        -- Optional global/intensity scale property ("Light Strength" in Hammer)
+        local scale = tonumber(
+            entity.lightstrength or entity._lightstrength or
+            entity.lightbrightnessscale or entity._lightbrightnessscale or
+            entity.brightnessscale or entity._brightnessscale or
+            entity.brightness or entity._brightness or 1) or 1
+        -- Apply even when scale is 0 to allow disabling the light
+        brightness = brightness * math.max(0.0, scale)
+        -- FOV -> cone angle (support multiple common keys)
+        local fov = tonumber(entity.fov or entity.lightfov or entity._lightfov or 45) or 45
+        -- Optionally convert full FOV to half-angle, which is a common convention for cone apertures
+        local useAngle = fov
+        if projtex_fov_half_angle:GetBool() then
+            useAngle = fov * 0.5
+        end
+        lightProps.coneAngle = useAngle
+        lightProps.coneSoftness = 0.2
+        -- Rectangle proxy dimensions roughly scaled by size estimate
+        local aspectRatio = 1.0
+        lightProps.rectWidth = size * aspectRatio
+        lightProps.rectHeight = size
+        -- Optionally scale base size by FOV so cone gets wider/narrower instead of tilting direction
+        if projtex_radius_from_fov:GetBool() then
+            local base = math.max(1.0, projtex_fov_baseline:GetFloat() or 45)
+            local scaleFromFov = (fov / base)
+            size = size * math.max(0.1, scaleFromFov)
+        end
+        -- Derive direction from angles
+        local a, src = ParseEntityAngles(entity)
+        if a then
+            -- Optional pitch inversion for env_projectedtexture to match Hammer view gizmo
+            if projtex_invert_pitch:GetBool() then
+                a.p = -(a.p or 0)
+            end
+            -- Choose a basis vector from angles for projection direction
+            local basis = projtex_dir_basis:GetInt()
+            local dir = a:Forward()
+            if basis == 0 then dir = a:Forward()
+            elseif basis == 1 then dir = -a:Forward()
+            elseif basis == 2 then dir = a:Up()
+            elseif basis == 3 then dir = -a:Up()
+            elseif basis == 4 then dir = a:Right()
+            elseif basis == 5 then dir = -a:Right()
+            end
+            lightProps.angles = a
+            lightProps.direction = dir
+            lightProps.shapingEnabled = true
+            lightProps.debugSource = (src or "?") .. "+env_projectedtexture"
+        end
     end
     
     return color, brightness, size, lightType, lightProps
@@ -352,49 +459,59 @@ local function findLightsInBSP()
             -- Get position - convert to Vector if it's a string
             local pos = StringToVector(ent.origin)
             
-            -- Skip if no valid position
-            if pos == Vector(0, 0, 0) and ent.origin then
+            local invalidPos = (pos == Vector(0, 0, 0) and ent.origin)
+            if invalidPos then
                 DebugPrint("Could not parse position from:", ent.origin)
-                continue
-            end
-            
-            local color, brightness, size, lightType, lightProps = getLightProperties(ent)
-            
-            -- Derive direction for spotlights from target or angles when available
-            if ent.classname == "light_spot" then
-                local tgt = ent.target or ent._target
-                if tgt and nameToPos[tgt] then
-                    local dirVec = (nameToPos[tgt] - pos):GetNormalized()
-                    lightProps.direction = dirVec
-                    lightProps.shapingEnabled = true
-                    lightProps.debugSource = "target"
+            else
+                local color, brightness, size, lightType, lightProps = getLightProperties(ent)
+                
+                -- Derive direction for spotlights from target or angles when available
+                if ent.classname == "light_spot" or ent.classname == "env_projectedtexture" then
+                    local tgt = ent.target or ent._target
+                    if tgt and nameToPos[tgt] then
+                        local dirVec = (nameToPos[tgt] - pos):GetNormalized()
+                        lightProps.direction = dirVec
+                        lightProps.shapingEnabled = true
+                        lightProps.debugSource = "target"
                 elseif not lightProps.direction then
                     -- Fallback: parse angles only if not already set by getLightProperties
                     local a, src = ParseEntityAngles(ent)
                     if a then
-                        local f = a:Forward()
-                        lightProps.direction = f
+                        if ent.classname == "env_projectedtexture" and projtex_invert_pitch:GetBool() then
+                            a.p = -(a.p or 0)
+                        end
+                        local basis = (ent.classname == "env_projectedtexture") and projtex_dir_basis:GetInt() or spot_dir_basis:GetInt()
+                        local dir = a:Forward()
+                        if basis == 0 then dir = a:Forward()
+                        elseif basis == 1 then dir = -a:Forward()
+                        elseif basis == 2 then dir = a:Up()
+                        elseif basis == 3 then dir = -a:Up()
+                        elseif basis == 4 then dir = a:Right()
+                        elseif basis == 5 then dir = -a:Right()
+                        end
+                        lightProps.direction = dir
                         lightProps.shapingEnabled = true
                         lightProps.angles = a
                         lightProps.debugSource = src
                     end
                 end
+                end
+                
+                table.insert(lights, {
+                    pos = pos,
+                    color = color,
+                    brightness = brightness,
+                    size = size,
+                    classname = ent.classname,
+                    lightType = lightType,
+                    lightProps = lightProps,
+                    angles = lightProps.angles, -- Store angles if available
+                    targetname = ent.targetname or ent._targetname
+                })
+                
+                DebugPrint(string.format("Found light: %s (RTX Type: %d) at %.2f,%.2f,%.2f - Color: %d,%d,%d - Brightness: %.1f - Size: %.1f", 
+                    ent.classname, lightType, pos.x, pos.y, pos.z, color.r, color.g, color.b, brightness, size))
             end
-            
-            table.insert(lights, {
-                pos = pos,
-                color = color,
-                brightness = brightness,
-                size = size,
-                classname = ent.classname,
-                lightType = lightType,
-                lightProps = lightProps,
-                angles = lightProps.angles, -- Store angles if available
-                targetname = ent.targetname or ent._targetname
-            })
-            
-            DebugPrint(string.format("Found light: %s (RTX Type: %d) at %.2f,%.2f,%.2f - Color: %d,%d,%d - Brightness: %.1f - Size: %.1f", 
-                ent.classname, lightType, pos.x, pos.y, pos.z, color.r, color.g, color.b, brightness, size))
         end
     end
     
@@ -471,7 +588,8 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
     end
     local scale = appliedBrightness / 100.0
     -- Per-type brightness multiplier
-    local kind = (classname == "light_environment") and "env" or ((classname == "light_spot") and "spot" or "point")
+    local kind = (classname == "light_environment") and "env"
+        or ((classname == "light_spot" or classname == "env_projectedtexture") and "spot" or "point")
     local typeBrightnessMult = (kind == "env") and env_brightness_mult:GetFloat()
         or ((kind == "spot") and spot_brightness_mult:GetFloat() or point_brightness_mult:GetFloat())
     local bscale = scale * (typeBrightnessMult or 1.0)
@@ -749,7 +867,7 @@ end
 local function updateEntryRuntime(entry)
     if not entry or not entry.id then return end
     -- Determine kind reliably
-    local kind = entry.kind or ((entry.classname == "light_environment") and "env" or ((entry.classname == "light_spot") and "spot" or "point"))
+    local kind = entry.kind or ((entry.classname == "light_environment") and "env" or ((entry.classname == "light_spot" or entry.classname == "env_projectedtexture") and "spot" or "point"))
     -- Brightness scale from stored baseBrightness (0-100) and current per-kind multiplier
     local baseBright = tonumber(entry.baseBrightness) or 100
     local scale = baseBright / 100.0
@@ -1072,7 +1190,7 @@ hook.Add("PostDrawTranslucentRenderables", "rtx_api_map_lights_DebugDir", functi
     render.SetMaterial(debug_beam_mat)
     for _, entry in ipairs(createdLights) do
         if entry.pos then
-            local isSpot = entry.classname == "light_spot" and entry.shapingEnabled
+            local isSpot = (entry.classname == "light_spot" or entry.classname == "env_projectedtexture") and entry.shapingEnabled
             local isDistant = entry.type == "distant" or entry.classname == "light_environment"
             if isSpot or isDistant then
                 local startPos = entry.pos
