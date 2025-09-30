@@ -164,6 +164,13 @@ local function GridToTriangles(grid, alphas)
     local tri = {}
     if not grid or #grid == 0 then return tri end
     local width = math.sqrt(#grid)
+    
+    -- Validate that grid is a perfect square
+    if width ~= math.floor(width) then
+        ErrorNoHalt("[DispRenderer] Invalid grid size: " .. #grid .. " is not a perfect square\\n")
+        return tri
+    end
+    
     if width <= 1 then return tri end
     local height = #grid / width
     local n = 0
@@ -240,6 +247,7 @@ local function BuildDisplacementMeshes(cancelToken)
         buildState.processed = 0
         buildState.total = 0
         for _ in pairs(allLeafs) do buildState.total = buildState.total + 1 end
+        local faceCheckCounter = 0
         for _, leaf in pairs(allLeafs) do
             if cancelToken and cancelToken.cancelled then return end
             if leaf and not leaf:IsOutsideMap() then
@@ -247,7 +255,12 @@ local function BuildDisplacementMeshes(cancelToken)
                 if leafFaces then
                     local leafCluster = leaf.GetCluster and leaf:GetCluster() or -1
                     for _, face in pairs(leafFaces) do
-                        if cancelToken and cancelToken.cancelled then return end
+                        -- Check cancellation every 100 faces to avoid long delays
+                        faceCheckCounter = faceCheckCounter + 1
+                        if faceCheckCounter >= 100 then
+                            faceCheckCounter = 0
+                            if cancelToken and cancelToken.cancelled then return end
+                        end
                         repeat
                             if not face or not face.IsDisplacement or not face:IsDisplacement() then break end
                             local faceId = face.GetIndex and face:GetIndex() or tostring(face)
@@ -473,26 +486,20 @@ local function RenderDisplacements()
                     pvsLastValid = SysTime()
                 end
             end
+            -- Only use cache if it's valid
             if IsPVSValid(pvsCache) then
                 pvs = pvsCache
             else
-                if pvsLastValid > 0 and (SysTime() - pvsLastValid) < 0.2 then
-                    pvs = pvsCache
-                else
-                    pvs = nil
-                end
+                pvs = nil
             end
         elseif NikNaks.CurrentMap.PVSForOrigin then
             local tmp = NikNaks.CurrentMap:PVSForOrigin(eyePos)
             if IsPVSValid(tmp) then
                 pvs = tmp
+                pvsCache = tmp
                 pvsLastValid = SysTime()
             else
-                if pvsLastValid > 0 and (SysTime() - pvsLastValid) < 0.2 then
-                    pvs = pvsCache
-                else
-                    pvs = nil
-                end
+                pvs = nil
             end
         end
     end
@@ -571,7 +578,7 @@ end
 local function DisableRendering()
     if not isEnabled then return end
     isEnabled = false
-    RemixRenderCore.Unregister("PreDrawOpaqueRenderables", "RTXDisp_Draw")
+    RenderCore.Unregister("PreDrawOpaqueRenderables", "RTXDisp_Draw")
 end
 
 -- Init / Rebuild

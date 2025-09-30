@@ -122,44 +122,53 @@ local function UpdateRearRT()
 
     REARVIEW._rendering = true
 
-    render.PushRenderTarget(REARVIEW.rt)
-    render.Clear(0, 0, 0, 255, true, true)
+    -- Wrap entire render process in pcall for safety
+    local success, err = pcall(function()
+        render.PushRenderTarget(REARVIEW.rt)
+        render.Clear(0, 0, 0, 255, true, true)
 
-    -- Choose FOV: use rearview_fov if > 0, otherwise follow current camera fov or player's fov_desired
-    local desiredFov = -1
-    do
-        local rvFovCv = GetConVar and GetConVar("rtx_rearview_fov")
-        if rvFovCv then desiredFov = rvFovCv:GetFloat() end
-    end
-    local useFov
-    if desiredFov and desiredFov > 0 then
-        useFov = math.Clamp(desiredFov, 30, 500)
-    else
-        useFov = (REARVIEW.lastView and REARVIEW.lastView.fov)
-            or ((GetConVar and GetConVar("fov_desired") and GetConVar("fov_desired"):GetFloat()) or 90)
-    end
+        -- Choose FOV: use rearview_fov if > 0, otherwise follow current camera fov or player's fov_desired
+        local desiredFov = -1
+        do
+            local rvFovCv = GetConVar and GetConVar("rtx_rearview_fov")
+            if rvFovCv then desiredFov = rvFovCv:GetFloat() end
+        end
+        local useFov
+        if desiredFov and desiredFov > 0 then
+            useFov = math.Clamp(desiredFov, 30, 500)
+        else
+            useFov = (REARVIEW.lastView and REARVIEW.lastView.fov)
+                or ((GetConVar and GetConVar("fov_desired") and GetConVar("fov_desired"):GetFloat()) or 90)
+        end
 
-    local view = {
-        origin = GetCameraOrigin(),
-        angles = GetRearAngles(),
-        x = 0,
-        y = 0,
-        w = REARVIEW.w,
-        h = REARVIEW.h,
-        fov = useFov,
-        drawviewmodel = false,
-        drawhud = false,
-        dopostprocess = false,
-        drawmonitors = false
-    }
+        local view = {
+            origin = GetCameraOrigin(),
+            angles = GetRearAngles(),
+            x = 0,
+            y = 0,
+            w = REARVIEW.w,
+            h = REARVIEW.h,
+            fov = useFov,
+            drawviewmodel = false,
+            drawhud = false,
+            dopostprocess = false,
+            drawmonitors = false
+        }
 
-    -- Render scene into our RT (flag as offscreen so other systems like skybox skip per-frame logic)
-    if RenderCore and RenderCore.PushOffscreen then RenderCore.PushOffscreen() end
-    render.RenderView(view)
-    if RenderCore and RenderCore.PopOffscreen then RenderCore.PopOffscreen() end
+        -- Render scene into our RT (flag as offscreen so other systems like skybox skip per-frame logic)
+        if RenderCore and RenderCore.PushOffscreen then RenderCore.PushOffscreen() end
+        render.RenderView(view)
+        if RenderCore and RenderCore.PopOffscreen then RenderCore.PopOffscreen() end
 
-    render.PopRenderTarget()
+        render.PopRenderTarget()
+    end)
+
+    -- Always reset rendering flag, even if error occurred
     REARVIEW._rendering = false
+
+    if not success then
+        ErrorNoHalt("[RearView] Render error: " .. tostring(err) .. "\n")
+    end
 end
 
 -- Update the RT once per frame safely

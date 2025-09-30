@@ -31,7 +31,8 @@ local math_huge = math.huge
 local math_floor = math.floor
 local table_insert = table.insert
 local MAX_VERTICES = 30000
-local MAX_CHUNK_VERTS = 32768
+local MAX_TOTAL_VERTICES = 10000000 -- 10 million vertex budget (roughly 400MB)
+local totalVertexCount = 0
 -- PVS culling removed
 
 -- PVS cache for world renderer
@@ -220,6 +221,8 @@ local function BuildMapMeshes(cancelToken)
         translucent = {},
     }
     
+    totalVertexCount = 0
+    
     if not NikNaks or not NikNaks.CurrentMap then return end
 
     print("[RTX Fixes] Building chunked meshes...")
@@ -267,6 +270,12 @@ local function BuildMapMeshes(cancelToken)
                                 for i = 1, #chunkMeshes do
                                     table_insert(meshes, chunkMeshes[i])
                                 end
+                            end
+                            totalVertexCount = totalVertexCount + batchCount
+                            -- Check budget limit
+                            if totalVertexCount >= MAX_TOTAL_VERTICES then
+                                ErrorNoHalt("[RTX Fixes] Vertex budget exceeded! Stopping mesh build at " .. totalVertexCount .. " vertices\\n")
+                                return meshes, minBounds, maxBounds
                             end
                             batchVerts = {}
                             batchCount = 0
@@ -329,6 +338,7 @@ local function BuildMapMeshes(cancelToken)
         buildState.processed = 0
         buildState.total = 0
         for _ in pairs(allLeafs) do buildState.total = buildState.total + 1 end
+        local faceCheckCounter = 0
         for _, leaf in pairs(allLeafs) do  
             if cancelToken and cancelToken.cancelled then return end
             if leaf and not leaf:IsOutsideMap() then
@@ -336,7 +346,12 @@ local function BuildMapMeshes(cancelToken)
                 if leafFaces then
                     local leafCluster = leaf.GetCluster and leaf:GetCluster() or -1
                     for _, face in pairs(leafFaces) do
-                        if cancelToken and cancelToken.cancelled then return end
+                        -- Check cancellation every 100 faces to avoid long delays
+                        faceCheckCounter = faceCheckCounter + 1
+                        if faceCheckCounter >= 100 then
+                            faceCheckCounter = 0
+                            if cancelToken and cancelToken.cancelled then return end
+                        end
                         local process = true
                         if not face or face:IsDisplacement() or IsBrushEntity(face) or not face:ShouldRender() or IsSkyboxFace(face) then
                             process = false
@@ -462,7 +477,8 @@ local function BuildMapMeshes(cancelToken)
             end
         end
         buildState.active = false
-        print(string.format("[RTX Fixes] Built chunked meshes in %.2f seconds", SysTime() - startTime))
+        print(string.format("[RTX Fixes] Built chunked meshes in %.2f seconds (total vertices: %d, memory: ~%.1fMB)", 
+            SysTime() - startTime, totalVertexCount, (totalVertexCount * 40) / (1024 * 1024)))
     end)
 
     -- Drive the coroutine over frames via RenderCore job scheduler (less timer overhead)
@@ -506,27 +522,20 @@ local function RenderCustomWorld(translucent)
                     pvsLastValidWorld = SysTime()
                 end
             end
+            -- Only use cache if it's valid
             if IsPVSValid(pvsCacheWorld) then
                 pvs = pvsCacheWorld
             else
-                -- Hysteresis: keep using last valid PVS briefly to avoid flicker
-                if pvsLastValidWorld > 0 and (SysTime() - pvsLastValidWorld) < 0.2 then
-                    pvs = pvsCacheWorld
-                else
-                    pvs = nil -- disable PVS culling this frame if we don't have a valid set
-                end
+                pvs = nil -- disable PVS culling this frame if we don't have a valid set
             end
         elseif NikNaks.CurrentMap.PVSForOrigin then
             local tmp = NikNaks.CurrentMap:PVSForOrigin(eyePos)
             if IsPVSValid(tmp) then
                 pvs = tmp
+                pvsCacheWorld = tmp
                 pvsLastValidWorld = SysTime()
             else
-                if pvsLastValidWorld > 0 and (SysTime() - pvsLastValidWorld) < 0.2 then
-                    pvs = pvsCacheWorld
-                else
-                    pvs = nil
-                end
+                pvs = nil
             end
         end
     end
@@ -630,10 +639,10 @@ local function DisableCustomRendering()
     if not isEnabled then return end
     isEnabled = false
 
-    RemixRenderCore.Unregister("PreDrawWorld", "RTXHideWorld")
-    RemixRenderCore.Unregister("PostDrawWorld", "RTXHideWorld")
-    RemixRenderCore.Unregister("PreDrawOpaqueRenderables", "RTXCustomWorldOpaque")
-    RemixRenderCore.Unregister("PreDrawTranslucentRenderables", "RTXCustomWorldTranslucent")
+    RenderCore.Unregister("PreDrawWorld", "RTXHideWorld")
+    RenderCore.Unregister("PostDrawWorld", "RTXHideWorld")
+    RenderCore.Unregister("PreDrawOpaqueRenderables", "RTXCustomWorldOpaque")
+    RenderCore.Unregister("PreDrawTranslucentRenderables", "RTXCustomWorldTranslucent")
 end
 
 -- Initialization and Cleanup

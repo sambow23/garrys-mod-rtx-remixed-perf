@@ -400,26 +400,20 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
                     pvsLastValid = SysTime()
                 end
             end
+            -- Only use cache if it's valid
             if IsPVSValid(pvsCache) then
                 pvs = pvsCache
             else
-                if pvsLastValid > 0 and (SysTime() - pvsLastValid) < 0.2 then
-                    pvs = pvsCache
-                else
-                    pvs = nil
-                end
+                pvs = nil
             end
         elseif NikNaks.CurrentMap.PVSForOrigin then
             local tmp = NikNaks.CurrentMap:PVSForOrigin(playerPos)
             if IsPVSValid(tmp) then
                 pvs = tmp
+                pvsCache = tmp
                 pvsLastValid = SysTime()
             else
-                if pvsLastValid > 0 and (SysTime() - pvsLastValid) < 0.2 then
-                    pvs = pvsCache
-                else
-                    pvs = nil
-                end
+                pvs = nil
             end
         end
     end

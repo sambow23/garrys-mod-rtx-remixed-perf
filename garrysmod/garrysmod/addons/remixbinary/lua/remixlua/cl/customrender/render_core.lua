@@ -186,7 +186,13 @@ do
     end
 
     function RemixRenderCore.PopOffscreen()
-        offscreenCount = math.max(0, (offscreenCount or 1) - 1)
+        if not offscreenCount or offscreenCount == 0 then
+            ErrorNoHalt("[RemixRenderCore] PopOffscreen called without matching Push!\n")
+            offscreenCount = 0
+            RemixRenderCore._offscreenCount = 0
+            return
+        end
+        offscreenCount = offscreenCount - 1
         RemixRenderCore._offscreenCount = offscreenCount
     end
 
@@ -198,6 +204,9 @@ do
     -- Shared Material Filtering
     -- ============================
     local _matcherCache = {}
+    local _matcherCacheOrder = {}
+    local MAX_MATCHER_CACHE = 100
+    
     function RemixRenderCore.BuildMatcherList(str)
         if not str or str == "" then return {} end
         local cached = _matcherCache[str]
@@ -207,7 +216,15 @@ do
             token = string.Trim(string.lower(token))
             if token ~= "" then list[#list+1] = token end
         end
+        
+        -- LRU eviction if cache is full
+        if #_matcherCacheOrder >= MAX_MATCHER_CACHE then
+            local oldest = table.remove(_matcherCacheOrder, 1)
+            _matcherCache[oldest] = nil
+        end
+        
         _matcherCache[str] = list
+        _matcherCacheOrder[#_matcherCacheOrder + 1] = str
         return list
     end
 
@@ -302,12 +319,24 @@ do
         return pos:DistToSqr(playerPos) > (maxDist * maxDist)
     end
 
+    local matCacheOrder = RemixRenderCore._matCacheOrder or {}
+    local MAX_MATERIAL_CACHE = 500
+    RemixRenderCore._matCacheOrder = matCacheOrder
+    
     function RemixRenderCore.GetMaterial(name)
         if not name or name == "" then name = "debug/debugwhite" end
         local mat = matCache[name]
         if mat ~= nil then return mat end
+        
+        -- LRU eviction if cache is full
+        if #matCacheOrder >= MAX_MATERIAL_CACHE then
+            local oldest = table.remove(matCacheOrder, 1)
+            matCache[oldest] = nil
+        end
+        
         mat = Material(name)
         matCache[name] = mat
+        matCacheOrder[#matCacheOrder + 1] = name
         return mat
     end
 
@@ -343,9 +372,17 @@ do
     end
 
     function RemixRenderCore.DestroyTrackedMeshes()
+        -- Collect meshes to destroy first (don't modify table during iteration)
+        local toDestroy = {}
         for m, _ in pairs(meshRefs) do
+            toDestroy[#toDestroy + 1] = m
+        end
+        
+        -- Now safely destroy them
+        for i = 1, #toDestroy do
+            local m = toDestroy[i]
             if m and m.Destroy then
-                m:Destroy()
+                pcall(function() m:Destroy() end)
             end
             meshRefs[m] = nil
         end
