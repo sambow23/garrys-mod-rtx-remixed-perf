@@ -8,8 +8,17 @@ function ENT:Initialize()
     self:PhysicsInit(SOLID_VPHYSICS)
     self:SetMoveType(MOVETYPE_VPHYSICS)
     self:SetSolid(SOLID_VPHYSICS)
+    
+    -- Hide the physics prop
+    self:SetNoDraw(true)
+    self:DrawShadow(false)
+    
+    -- Configure physics: no gravity by default, but not frozen
     local phys = self:GetPhysicsObject()
-    if IsValid(phys) then phys:Wake() end
+    if IsValid(phys) then
+        phys:EnableGravity(false) -- Disable gravity
+        phys:Wake()
+    end
 
     self.LightId = nil
     self.NextUpdate = 0
@@ -127,6 +136,14 @@ function ENT:PostEntityPaste(ply, ent, createdEntities)
     if mod then
         applyNWTable(self, mod)
     end
+    
+    -- Ensure pasted entities also have physics configured correctly
+    local phys = self:GetPhysicsObject()
+    if IsValid(phys) then
+        phys:EnableGravity(false)
+    end
+    self:SetNoDraw(true)
+    self:DrawShadow(false)
 end
 
 

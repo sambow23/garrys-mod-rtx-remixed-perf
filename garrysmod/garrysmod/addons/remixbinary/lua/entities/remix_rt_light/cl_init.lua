@@ -13,8 +13,30 @@ local cv_vis_fill_opacity = CreateClientConVar("remix_rt_light_visualize_fill_op
 
 local function vec_to_table(v) return { x = v.x, y = v.y, z = v.z } end
 
--- Helper function to draw thick lines
+-- Helper function to determine outline color based on luminance
+local function GetOutlineColor(r, g, b)
+    -- Calculate perceived luminance (ITU-R BT.709)
+    local luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    -- Use white outline for dark colors, black for bright colors
+    if luminance < 128 then
+        return 255, 255, 255 -- White
+    else
+        return 0, 0, 0 -- Black
+    end
+end
+
+-- Helper function to draw thick lines with outline
 local function DrawThickLine(x1, y1, x2, y2, thickness, r, g, b, a)
+    -- Draw outline first (thicker, contrasting color)
+    local outlineR, outlineG, outlineB = GetOutlineColor(r, g, b)
+    surface.SetDrawColor(outlineR, outlineG, outlineB, a * 0.8)
+    for i = 0, thickness + 2 do
+        local offset = i - math.floor((thickness + 2) / 2)
+        surface.DrawLine(x1 + offset, y1, x2 + offset, y2)
+        surface.DrawLine(x1, y1 + offset, x2, y2 + offset)
+    end
+    
+    -- Draw main line on top
     surface.SetDrawColor(r, g, b, a)
     for i = 0, thickness - 1 do
         local offset = i - math.floor(thickness / 2)
@@ -23,13 +45,29 @@ local function DrawThickLine(x1, y1, x2, y2, thickness, r, g, b, a)
     end
 end
 
--- Helper function to draw filled polygon from world space points (both sides)
+-- Helper function to draw filled polygon from world space points (both sides) with outline
 local function DrawFilledWorldPoly(worldPoints, r, g, b, a)
     local screenVerts = {}
     for _, wp in ipairs(worldPoints) do
         local sp = wp:ToScreen()
         if not sp.visible then return end -- Skip if any vertex is not visible
         table.insert(screenVerts, { x = sp.x, y = sp.y })
+    end
+    
+    -- Draw outline first
+    local outlineR, outlineG, outlineB = GetOutlineColor(r, g, b)
+    for i = 1, #screenVerts do
+        local next_i = (i % #screenVerts) + 1
+        local v1 = screenVerts[i]
+        local v2 = screenVerts[next_i]
+        
+        -- Draw thick outline edge
+        surface.SetDrawColor(outlineR, outlineG, outlineB, a * 0.8)
+        for t = 0, 2 do
+            local offset = t - 1
+            surface.DrawLine(v1.x + offset, v1.y, v2.x + offset, v2.y)
+            surface.DrawLine(v1.x, v1.y + offset, v2.x, v2.y + offset)
+        end
     end
     
     surface.SetDrawColor(r, g, b, a)
@@ -66,7 +104,7 @@ local lightIcons = {
 }
 
 function ENT:Draw()
-    self:DrawModel()
+    -- Don't draw the physics prop - only visualizations in HUDPaint
 end
 
 -- HUD Paint visualization
@@ -121,17 +159,22 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
         local alpha = math.Clamp(255 * (1 - dist / maxRange), 50, 255)
         col.a = alpha
         
-        -- Draw icon/symbol
+        -- Get outline color (more subtle for text)
+        local outlineR, outlineG, outlineB = GetOutlineColor(col.r, col.g, col.b)
+        local outlineCol = Color(outlineR, outlineG, outlineB, alpha * 0.5)
+        
+        -- Draw icon/symbol with subtle outline
         local icon = lightIcons[lt] or "●"
-        draw.SimpleText(icon, "DermaLarge", x, y, col, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        draw.SimpleTextOutlined(icon, "DermaLarge", x, y, col, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 1, outlineCol)
         
-        -- Draw light type label
+        -- Draw light type label with subtle outline
         local label = string.upper(lt)
-        draw.SimpleText(label, "DermaDefault", x, y + 20, col, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        draw.SimpleTextOutlined(label, "DermaDefault", x, y + 20, col, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, outlineCol)
         
-        -- Draw properties
+        -- Draw properties with subtle outline
         local info = string.format("R:%.0f B:%.1f", radius, brightness)
-        draw.SimpleText(info, "DermaDefaultBold", x, y + 35, Color(255, 255, 255, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        local infoCol = Color(255, 255, 255, alpha * 0.8)
+        draw.SimpleTextOutlined(info, "DermaDefaultBold", x, y + 35, infoCol, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, Color(0, 0, 0, alpha * 0.4))
         
         -- Draw direction indicator for directional lights
         if lt == "distant" or lt == "rect" or lt == "disk" then
@@ -183,8 +226,10 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
                 end
             end
             
-            -- Draw cone angle text
-            draw.SimpleText(string.format("∠%.0f°", coneAngle), "DermaDefault", x, y + 50, Color(255, 200, 100, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            -- Draw cone angle text with subtle outline
+            local coneTextCol = Color(col.r, col.g, col.b, alpha * 0.8)
+            local subtleOutline = Color(outlineR, outlineG, outlineB, alpha * 0.3)
+            draw.SimpleTextOutlined(string.format("∠%.0f°", coneAngle), "DermaDefault", x, y + 50, coneTextCol, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, subtleOutline)
         end
         
         -- Draw 3D shape visualizations for physical dimensions
@@ -222,7 +267,10 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
                 end
             end
             
-            draw.SimpleText(string.format("%.0f×%.0f", xsize / vizScale, ysize / vizScale), "DermaDefault", x, y + 50, Color(200, 200, 255, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            -- Draw dimensions text with subtle outline
+            local dimTextCol = Color(col.r, col.g, col.b, alpha * 0.8)
+            local subtleOutline = Color(outlineR, outlineG, outlineB, alpha * 0.3)
+            draw.SimpleTextOutlined(string.format("%.0f×%.0f", xsize / vizScale, ysize / vizScale), "DermaDefault", x, y + 50, dimTextCol, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, subtleOutline)
             
         elseif lt == "disk" then
             local xrad = ent:GetNWFloat("rtx_light_xradius", 20) * vizScale
@@ -260,7 +308,10 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
                 end
             end
             
-            draw.SimpleText(string.format("R:%.0f,%.0f", xrad / vizScale, yrad / vizScale), "DermaDefault", x, y + 50, Color(255, 200, 255, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            -- Draw radii text with subtle outline
+            local radiiTextCol = Color(col.r, col.g, col.b, alpha * 0.8)
+            local subtleOutline = Color(outlineR, outlineG, outlineB, alpha * 0.3)
+            draw.SimpleTextOutlined(string.format("R:%.0f,%.0f", xrad / vizScale, yrad / vizScale), "DermaDefault", x, y + 50, radiiTextCol, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, subtleOutline)
             
         elseif lt == "cylinder" then
             local axisLen = ent:GetNWFloat("rtx_light_axis_len", 40) * vizScale
@@ -339,7 +390,10 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
                 end
             end
             
-            draw.SimpleText(string.format("L:%.0f R:%.0f", axisLen / vizScale, cylRadius / vizScale), "DermaDefault", x, y + 50, Color(200, 150, 255, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            -- Draw cylinder dimensions text with subtle outline
+            local cylTextCol = Color(col.r, col.g, col.b, alpha * 0.8)
+            local subtleOutline = Color(outlineR, outlineG, outlineB, alpha * 0.3)
+            draw.SimpleTextOutlined(string.format("L:%.0f R:%.0f", axisLen / vizScale, cylRadius / vizScale), "DermaDefault", x, y + 50, cylTextCol, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, subtleOutline)
             
         elseif lt == "sphere" then
             -- Draw a circle representing the sphere radius
@@ -390,7 +444,10 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
             
         elseif lt == "distant" then
             local angDiam = ent:GetNWFloat("rtx_light_distant_angle", 0.5)
-            draw.SimpleText(string.format("∅%.2f°", angDiam), "DermaDefault", x, y + 50, Color(255, 255, 150, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            -- Draw angular diameter text with subtle outline
+            local angTextCol = Color(col.r, col.g, col.b, alpha * 0.8)
+            local subtleOutline = Color(outlineR, outlineG, outlineB, alpha * 0.3)
+            draw.SimpleTextOutlined(string.format("∅%.2f°", angDiam), "DermaDefault", x, y + 50, angTextCol, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, subtleOutline)
         end
     end
 end)
@@ -764,12 +821,6 @@ properties.Add("remix_rt_light_edit", {
         distantang:SetDecimals(2)
         distantang:SetValue(ent:GetNWFloat("rtx_light_distant_angle", 0.5))
 
-        local dometex = vgui.Create("DTextEntry", body)
-        dometex:Dock(TOP)
-        dometex:DockMargin(10, 5, 10, 5)
-        dometex:SetPlaceholderText("Dome Texture Path")
-        dometex:SetValue(ent:GetNWString("rtx_light_dome_tex", ""))
-
         -- Realtime apply as user adjusts controls
         -- Throttled server apply helper
         local function sendApplyThrottled()
@@ -800,7 +851,6 @@ properties.Add("remix_rt_light_edit", {
                     rtx_light_yradius = yradius:GetValue(),
                     rtx_light_axis_len = axislen:GetValue(),
                     rtx_light_distant_angle = distantang:GetValue(),
-                    rtx_light_dome_tex = dometex:GetValue(),
                 }
                 local col = mixer:GetColor()
                 local scale = math.max(0.0, brightness:GetValue())
@@ -826,7 +876,6 @@ properties.Add("remix_rt_light_edit", {
             ent:SetNWFloat("rtx_light_yradius", yradius:GetValue())
             ent:SetNWFloat("rtx_light_axis_len", axislen:GetValue())
             ent:SetNWFloat("rtx_light_distant_angle", distantang:GetValue())
-            ent:SetNWString("rtx_light_dome_tex", dometex:GetValue())
             local scale = math.max(0.0, brightness:GetValue())
             ent:SetNWVector("rtx_light_col", Vector((col.r/12)*scale, (col.g/12)*scale, (col.b/12)*scale))
             local sid = typeCombo:GetSelectedID()
@@ -863,7 +912,6 @@ properties.Add("remix_rt_light_edit", {
         yradius.OnValueChanged = function(_, _val) applyRealtime() end
         axislen.OnValueChanged = function(_, _val) applyRealtime() end
         distantang.OnValueChanged = function(_, _val) applyRealtime() end
-        dometex.OnChange = function() applyRealtime() end
 
         -- Show only relevant controls per light type
         local function refreshVisibility()
@@ -880,7 +928,6 @@ properties.Add("remix_rt_light_edit", {
             yradius:SetVisible(false)
             axislen:SetVisible(false)
             distantang:SetVisible(false)
-            dometex:SetVisible(false)
             -- Always show common
             radius:SetVisible(true)
             brightness:SetVisible(true)
@@ -901,8 +948,6 @@ properties.Add("remix_rt_light_edit", {
                 axislen:SetVisible(true)
             elseif lt == "distant" then
                 distantang:SetVisible(true)
-            elseif lt == "dome" then
-                dometex:SetVisible(true)
             end
         end
         refreshVisibility()
