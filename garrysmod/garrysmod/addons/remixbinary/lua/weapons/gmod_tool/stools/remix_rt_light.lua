@@ -28,8 +28,8 @@ TOOL.ClientConVar["distantang"]	= "0.5"
 TOOL.ClientConVar["dometex"]		= ""
 
 if CLIENT then
-    language.Add("tool.remix_rt_light.name", "Remix RT Light")
-    language.Add("tool.remix_rt_light.desc", "Spawn and edit RTX Remix analytical lights")
+    language.Add("tool.remix_rt_light.name", "Remix API Light")
+    language.Add("tool.remix_rt_light.desc", "Spawn and edit Remix API Lights")
     language.Add("tool.remix_rt_light.0", "Left-click: Spawn light | Right-click: Update targeted light | Reload: Open editor on targeted light")
 end
 
@@ -158,7 +158,6 @@ function TOOL.BuildCPanel(panel)
     combo:AddChoice("Disk", "disk")
     combo:AddChoice("Cylinder", "cylinder")
     combo:AddChoice("Distant", "distant")
-    combo:AddChoice("Dome", "dome")
 
     panel:NumSlider("Radius", "remix_rt_light_radius", 1, 200, 0)
     panel:NumSlider("Brightness", "remix_rt_light_brightness", 0, 10, 2)
@@ -228,7 +227,9 @@ function TOOL.BuildCPanel(panel)
         end
     end
     refresh()
-    function combo:OnSelect()
+    function combo:OnSelect(index, value, data)
+        -- Ensure the ConVar is updated with the selected data value
+        RunConsoleCommand("remix_rt_light_light_type", data)
         refresh()
     end
 

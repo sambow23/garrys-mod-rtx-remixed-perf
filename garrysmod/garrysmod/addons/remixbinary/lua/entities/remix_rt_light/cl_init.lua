@@ -5,11 +5,369 @@ if file.Exists("remixlua/cl/remixapi/cl_remix_light_queue.lua", "LUA") then
     include("remixlua/cl/remixapi/cl_remix_light_queue.lua")
 end
 
+local cv_visualize = CreateClientConVar("remix_rt_light_visualize", "1", true, false, "Show HUD visualization for RTX lights")
+local cv_vis_range = CreateClientConVar("remix_rt_light_visualize_range", "2048", true, false, "Max distance to show light visualization")
+local cv_vis_always = CreateClientConVar("remix_rt_light_visualize_always", "0", true, false, "Always show visualization, even when not looking at lights")
+local cv_vis_scale = CreateClientConVar("remix_rt_light_visualize_scale", "1.0", true, false, "Scale factor for visualization size (0.1 to 10.0)")
+local cv_vis_fill_opacity = CreateClientConVar("remix_rt_light_visualize_fill_opacity", "30", true, false, "Fill opacity for shape visualization (0-255)")
+
 local function vec_to_table(v) return { x = v.x, y = v.y, z = v.z } end
+
+-- Helper function to draw thick lines
+local function DrawThickLine(x1, y1, x2, y2, thickness, r, g, b, a)
+    surface.SetDrawColor(r, g, b, a)
+    for i = 0, thickness - 1 do
+        local offset = i - math.floor(thickness / 2)
+        surface.DrawLine(x1 + offset, y1, x2 + offset, y2)
+        surface.DrawLine(x1, y1 + offset, x2, y2 + offset)
+    end
+end
+
+-- Helper function to draw filled polygon from world space points (both sides)
+local function DrawFilledWorldPoly(worldPoints, r, g, b, a)
+    local screenVerts = {}
+    for _, wp in ipairs(worldPoints) do
+        local sp = wp:ToScreen()
+        if not sp.visible then return end -- Skip if any vertex is not visible
+        table.insert(screenVerts, { x = sp.x, y = sp.y })
+    end
+    
+    surface.SetDrawColor(r, g, b, a)
+    draw.NoTexture()
+    
+    -- Draw front face
+    surface.DrawPoly(screenVerts)
+    
+    -- Draw back face (reversed winding order)
+    local reversedVerts = {}
+    for i = #screenVerts, 1, -1 do
+        table.insert(reversedVerts, screenVerts[i])
+    end
+    surface.DrawPoly(reversedVerts)
+end
+
+-- Color scheme for different light types
+local lightColors = {
+    sphere = Color(255, 200, 100),
+    rect = Color(100, 200, 255),
+    disk = Color(255, 100, 200),
+    cylinder = Color(200, 100, 255),
+    distant = Color(255, 255, 100),
+    dome = Color(100, 255, 200),
+}
+
+local lightIcons = {
+    sphere = "●",
+    rect = "▭",
+    disk = "◯",
+    cylinder = "▯",
+    distant = "☀",
+    dome = "⬒",
+}
 
 function ENT:Draw()
     self:DrawModel()
 end
+
+-- HUD Paint visualization
+hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
+    if not cv_visualize:GetBool() then return end
+    
+    local ply = LocalPlayer()
+    if not IsValid(ply) then return end
+    
+    local eyePos = ply:EyePos()
+    local eyeAng = ply:EyeAngles()
+    local maxRange = cv_vis_range:GetFloat()
+    local alwaysShow = cv_vis_always:GetBool()
+    local vizScale = math.Clamp(cv_vis_scale:GetFloat(), 0.1, 10.0)
+    local fillOpacity = math.Clamp(cv_vis_fill_opacity:GetInt(), 0, 255)
+    local lineThickness = 2
+    
+    for _, ent in ipairs(ents.FindByClass("remix_rt_light")) do
+        if not IsValid(ent) then continue end
+        
+        local pos = ent:GetPos()
+        local dist = eyePos:Distance(pos)
+        
+        -- Range check
+        if dist > maxRange then continue end
+        
+        -- Check if looking towards the light (unless always show is enabled)
+        if not alwaysShow then
+            local toLight = (pos - eyePos):GetNormalized()
+            local dot = eyeAng:Forward():Dot(toLight)
+            if dot < 0.3 then continue end -- ~70 degree FOV
+        end
+        
+        local screenPos = pos:ToScreen()
+        if not screenPos.visible then continue end
+        
+        local x, y = screenPos.x, screenPos.y
+        local lt = ent:GetNWString("rtx_light_type", "sphere")
+        local col = lightColors[lt] or Color(255, 255, 255)
+        local radius = ent:GetNWFloat("rtx_light_radius", 20)
+        local brightness = ent:GetNWFloat("rtx_light_brightness", 1)
+        
+        -- Alpha fade based on distance
+        local alpha = math.Clamp(255 * (1 - dist / maxRange), 50, 255)
+        col.a = alpha
+        
+        -- Draw icon/symbol
+        local icon = lightIcons[lt] or "●"
+        draw.SimpleText(icon, "DermaLarge", x, y, col, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        
+        -- Draw light type label
+        local label = string.upper(lt)
+        draw.SimpleText(label, "DermaDefault", x, y + 20, col, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        
+        -- Draw properties
+        local info = string.format("R:%.0f B:%.1f", radius, brightness)
+        draw.SimpleText(info, "DermaDefaultBold", x, y + 35, Color(255, 255, 255, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        
+        -- Draw direction indicator for directional lights
+        if lt == "distant" or lt == "rect" or lt == "disk" then
+            local ang = ent:GetAngles()
+            local dir = ang:Forward()
+            local endPos = pos + dir * (radius * 2 * vizScale)
+            local endScreen = endPos:ToScreen()
+            
+            if endScreen.visible then
+                DrawThickLine(x, y, endScreen.x, endScreen.y, lineThickness, col.r, col.g, col.b, alpha * 0.8)
+                
+                -- Draw arrow head
+                local arrowLen = 10 * vizScale
+                local lineVec = Vector(endScreen.x - x, endScreen.y - y, 0):GetNormalized()
+                local perpVec = Vector(-lineVec.y, lineVec.x, 0)
+                
+                local tip = { x = endScreen.x, y = endScreen.y }
+                local left = { x = endScreen.x - lineVec.x * arrowLen + perpVec.x * arrowLen * 0.5, y = endScreen.y - lineVec.y * arrowLen + perpVec.y * arrowLen * 0.5 }
+                local right = { x = endScreen.x - lineVec.x * arrowLen - perpVec.x * arrowLen * 0.5, y = endScreen.y - lineVec.y * arrowLen - perpVec.y * arrowLen * 0.5 }
+                
+                DrawThickLine(tip.x, tip.y, left.x, left.y, lineThickness, col.r, col.g, col.b, alpha * 0.8)
+                DrawThickLine(tip.x, tip.y, right.x, right.y, lineThickness, col.r, col.g, col.b, alpha * 0.8)
+            end
+        end
+        
+        -- Draw shaping cone indicator for sphere lights
+        if lt == "sphere" and ent:GetNWBool("rtx_light_shape_enabled", false) then
+            local coneAngle = ent:GetNWFloat("rtx_light_shape_cone", 90)
+            local ang = ent:GetAngles()
+            local dir = ang:Forward()
+            
+            -- Draw cone outline
+            local coneLen = radius * 1.5 * vizScale
+            local coneEnd = pos + dir * coneLen
+            local coneRadius = math.tan(math.rad(coneAngle / 2)) * coneLen
+            
+            -- Draw cone lines with thick lines
+            local up = ang:Up() * coneRadius
+            local right = ang:Right() * coneRadius
+            
+            for i = 0, 7 do
+                local angle = (i / 8) * math.pi * 2
+                local offset = up * math.cos(angle) + right * math.sin(angle)
+                local edgePos = coneEnd + offset
+                local edgeScreen = edgePos:ToScreen()
+                
+                if edgeScreen.visible then
+                    DrawThickLine(x, y, edgeScreen.x, edgeScreen.y, lineThickness, col.r, col.g, col.b, alpha * 0.5)
+                end
+            end
+            
+            -- Draw cone angle text
+            draw.SimpleText(string.format("∠%.0f°", coneAngle), "DermaDefault", x, y + 50, Color(255, 200, 100, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        end
+        
+        -- Draw 3D shape visualizations for physical dimensions
+        local ang = ent:GetAngles()
+        
+        if lt == "rect" then
+            local xsize = ent:GetNWFloat("rtx_light_xsize", 40) * vizScale
+            local ysize = ent:GetNWFloat("rtx_light_ysize", 40) * vizScale
+            
+            -- Calculate rectangle corners in world space
+            local right = ang:Right()
+            local up = ang:Up()
+            local halfX = xsize / 2
+            local halfY = ysize / 2
+            
+            local corners = {
+                pos + right * halfX + up * halfY,      -- Top-right
+                pos + right * halfX - up * halfY,      -- Bottom-right
+                pos - right * halfX - up * halfY,      -- Bottom-left
+                pos - right * halfX + up * halfY,      -- Top-left
+            }
+            
+            -- Draw filled rectangle
+            if fillOpacity > 0 then
+                DrawFilledWorldPoly(corners, col.r, col.g, col.b, fillOpacity * (alpha / 255))
+            end
+            
+            -- Draw rectangle outline with thick lines
+            for i = 1, 4 do
+                local next_i = (i % 4) + 1
+                local c1 = corners[i]:ToScreen()
+                local c2 = corners[next_i]:ToScreen()
+                if c1.visible and c2.visible then
+                    DrawThickLine(c1.x, c1.y, c2.x, c2.y, lineThickness, col.r, col.g, col.b, alpha * 0.9)
+                end
+            end
+            
+            draw.SimpleText(string.format("%.0f×%.0f", xsize / vizScale, ysize / vizScale), "DermaDefault", x, y + 50, Color(200, 200, 255, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            
+        elseif lt == "disk" then
+            local xrad = ent:GetNWFloat("rtx_light_xradius", 20) * vizScale
+            local yrad = ent:GetNWFloat("rtx_light_yradius", 20) * vizScale
+            
+            -- Draw ellipse outline (24 segments)
+            local right = ang:Right()
+            local up = ang:Up()
+            local segments = 24
+            
+            -- Build ellipse points for fill
+            if fillOpacity > 0 then
+                local ellipsePoints = {}
+                for i = 0, segments - 1 do
+                    local angle = (i / segments) * math.pi * 2
+                    local p = pos + right * (math.cos(angle) * xrad) + up * (math.sin(angle) * yrad)
+                    table.insert(ellipsePoints, p)
+                end
+                DrawFilledWorldPoly(ellipsePoints, col.r, col.g, col.b, fillOpacity * (alpha / 255))
+            end
+            
+            -- Draw outline with thick lines
+            for i = 0, segments - 1 do
+                local angle1 = (i / segments) * math.pi * 2
+                local angle2 = ((i + 1) / segments) * math.pi * 2
+                
+                local p1 = pos + right * (math.cos(angle1) * xrad) + up * (math.sin(angle1) * yrad)
+                local p2 = pos + right * (math.cos(angle2) * xrad) + up * (math.sin(angle2) * yrad)
+                
+                local s1 = p1:ToScreen()
+                local s2 = p2:ToScreen()
+                
+                if s1.visible and s2.visible then
+                    DrawThickLine(s1.x, s1.y, s2.x, s2.y, lineThickness, col.r, col.g, col.b, alpha * 0.9)
+                end
+            end
+            
+            draw.SimpleText(string.format("R:%.0f,%.0f", xrad / vizScale, yrad / vizScale), "DermaDefault", x, y + 50, Color(255, 200, 255, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            
+        elseif lt == "cylinder" then
+            local axisLen = ent:GetNWFloat("rtx_light_axis_len", 40) * vizScale
+            local cylRadius = radius * vizScale
+            
+            -- Draw cylinder outline
+            local up = ang:Up()
+            local right = ang:Right()
+            local forward = ang:Forward()
+            
+            local topCenter = pos + up * (axisLen / 2)
+            local bottomCenter = pos - up * (axisLen / 2)
+            
+            -- Draw top and bottom circles (12 segments each)
+            local segments = 12
+            
+            -- Build circle points for filling
+            if fillOpacity > 0 then
+                local topPoints = {}
+                local bottomPoints = {}
+                for i = 0, segments - 1 do
+                    local angle = (i / segments) * math.pi * 2
+                    local offset = right * (math.cos(angle) * cylRadius) + forward * (math.sin(angle) * cylRadius)
+                    table.insert(topPoints, topCenter + offset)
+                    table.insert(bottomPoints, bottomCenter + offset)
+                end
+                DrawFilledWorldPoly(topPoints, col.r, col.g, col.b, fillOpacity * (alpha / 255))
+                DrawFilledWorldPoly(bottomPoints, col.r, col.g, col.b, fillOpacity * (alpha / 255))
+            end
+            
+            -- Draw circles outline with thick lines
+            for i = 0, segments - 1 do
+                local angle1 = (i / segments) * math.pi * 2
+                local angle2 = ((i + 1) / segments) * math.pi * 2
+                
+                local offset1 = right * (math.cos(angle1) * cylRadius) + forward * (math.sin(angle1) * cylRadius)
+                local offset2 = right * (math.cos(angle2) * cylRadius) + forward * (math.sin(angle2) * cylRadius)
+                
+                -- Top circle
+                local top1 = (topCenter + offset1):ToScreen()
+                local top2 = (topCenter + offset2):ToScreen()
+                if top1.visible and top2.visible then
+                    DrawThickLine(top1.x, top1.y, top2.x, top2.y, lineThickness, col.r, col.g, col.b, alpha * 0.9)
+                end
+                
+                -- Bottom circle
+                local bot1 = (bottomCenter + offset1):ToScreen()
+                local bot2 = (bottomCenter + offset2):ToScreen()
+                if bot1.visible and bot2.visible then
+                    DrawThickLine(bot1.x, bot1.y, bot2.x, bot2.y, lineThickness, col.r, col.g, col.b, alpha * 0.9)
+                end
+                
+                -- Connecting lines (draw 4 vertical lines)
+                if i % 3 == 0 then
+                    if top1.visible and bot1.visible then
+                        DrawThickLine(top1.x, top1.y, bot1.x, bot1.y, lineThickness, col.r, col.g, col.b, alpha * 0.7)
+                    end
+                end
+            end
+            
+            draw.SimpleText(string.format("L:%.0f R:%.0f", axisLen / vizScale, cylRadius / vizScale), "DermaDefault", x, y + 50, Color(200, 150, 255, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            
+        elseif lt == "sphere" then
+            -- Draw a circle representing the sphere radius
+            -- Billboard effect: always face the camera
+            local sphereRadius = radius * vizScale
+            
+            -- Calculate billboard vectors (perpendicular to camera view direction)
+            local toCamera = (eyePos - pos):GetNormalized()
+            local worldUp = Vector(0, 0, 1)
+            
+            -- If looking straight up/down, use a different reference vector
+            if math.abs(toCamera.z) > 0.99 then
+                worldUp = Vector(1, 0, 0)
+            end
+            
+            -- Create perpendicular vectors for the circle plane
+            local right = toCamera:Cross(worldUp):GetNormalized()
+            local up = right:Cross(toCamera):GetNormalized()
+            
+            local segments = 20
+            
+            -- Build circle points for fill
+            if fillOpacity > 0 then
+                local circlePoints = {}
+                for i = 0, segments - 1 do
+                    local angle = (i / segments) * math.pi * 2
+                    local p = pos + right * (math.cos(angle) * sphereRadius) + up * (math.sin(angle) * sphereRadius)
+                    table.insert(circlePoints, p)
+                end
+                DrawFilledWorldPoly(circlePoints, col.r, col.g, col.b, fillOpacity * (alpha / 255) * 0.5)
+            end
+            
+            -- Draw circle outline with thick lines
+            for i = 0, segments - 1 do
+                local angle1 = (i / segments) * math.pi * 2
+                local angle2 = ((i + 1) / segments) * math.pi * 2
+                
+                local p1 = pos + right * (math.cos(angle1) * sphereRadius) + up * (math.sin(angle1) * sphereRadius)
+                local p2 = pos + right * (math.cos(angle2) * sphereRadius) + up * (math.sin(angle2) * sphereRadius)
+                
+                local s1 = p1:ToScreen()
+                local s2 = p2:ToScreen()
+                
+                if s1.visible and s2.visible then
+                    DrawThickLine(s1.x, s1.y, s2.x, s2.y, lineThickness, col.r, col.g, col.b, alpha * 0.7)
+                end
+            end
+            
+        elseif lt == "distant" then
+            local angDiam = ent:GetNWFloat("rtx_light_distant_angle", 0.5)
+            draw.SimpleText(string.format("∅%.2f°", angDiam), "DermaDefault", x, y + 50, Color(255, 255, 150, alpha * 0.8), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+        end
+    end
+end)
 
 local function ensure_light(ent)
     -- Add defensive checks to prevent multiple creation attempts
@@ -460,13 +818,9 @@ properties.Add("remix_rt_light_edit", {
             function mixer:ValueChanged(_col)
                 applyRealtime()
             end
-        else
-            timer.Simple(0, function()
-                if IsValid(frame) and IsValid(ent) then
-                    applyRealtime()
-                end
-            end)
         end
+        -- Note: If mixer.ValueChanged doesn't exist, we rely on the other control callbacks
+        -- The entity already has the correct initial values, so we don't force an update
 
         brightness.OnValueChanged = function(_, _val)
             applyRealtime()
@@ -526,9 +880,10 @@ properties.Add("remix_rt_light_edit", {
             end
         end
         refreshVisibility()
-        -- One-time initial apply to sync UI state without forcing defaults
-        applyRealtime()
-        typeCombo.OnSelect = function()
+        -- Don't call applyRealtime() here - entity already has correct values
+        -- Callbacks will handle updates when user changes controls
+        typeCombo.OnSelect = function(panel, index, value, data)
+            -- data contains the actual light type string (sphere, rect, disk, etc.)
             applyRealtime()
             refreshVisibility()
         end
@@ -548,5 +903,89 @@ function ENT:OnRemove()
         RemixLight.DestroyLightsForEntity(self:EntIndex())
     end
 end
+
+-- Console commands for visualization control
+concommand.Add("remix_rt_light_vis_toggle", function()
+    local newVal = not cv_visualize:GetBool()
+    cv_visualize:SetBool(newVal)
+    print("[Remix RT Light] Visualization " .. (newVal and "enabled" or "disabled"))
+end, nil, "Toggle RTX light visualization overlay")
+
+concommand.Add("remix_rt_light_vis_range", function(ply, cmd, args)
+    if #args < 1 then
+        print("[Remix RT Light] Current range: " .. cv_vis_range:GetFloat())
+        print("Usage: remix_rt_light_vis_range <distance>")
+        return
+    end
+    local range = tonumber(args[1])
+    if range then
+        cv_vis_range:SetFloat(range)
+        print("[Remix RT Light] Visualization range set to " .. range)
+    end
+end, nil, "Set visualization range for RTX lights")
+
+concommand.Add("remix_rt_light_vis_scale", function(ply, cmd, args)
+    if #args < 1 then
+        print("[Remix RT Light] Current scale: " .. cv_vis_scale:GetFloat())
+        print("Usage: remix_rt_light_vis_scale <scale> (0.1 to 10.0)")
+        return
+    end
+    local scale = tonumber(args[1])
+    if scale then
+        scale = math.Clamp(scale, 0.1, 10.0)
+        cv_vis_scale:SetFloat(scale)
+        print("[Remix RT Light] Visualization scale set to " .. scale)
+    end
+end, nil, "Set visualization scale for RTX lights (0.1 to 10.0)")
+
+concommand.Add("remix_rt_light_vis_fill", function(ply, cmd, args)
+    if #args < 1 then
+        print("[Remix RT Light] Current fill opacity: " .. cv_vis_fill_opacity:GetInt())
+        print("Usage: remix_rt_light_vis_fill <opacity> (0 to 255)")
+        print("Recommended: 30-50 for subtle fill, 0 to disable")
+        return
+    end
+    local opacity = tonumber(args[1])
+    if opacity then
+        opacity = math.Clamp(math.floor(opacity), 0, 255)
+        cv_vis_fill_opacity:SetInt(opacity)
+        print("[Remix RT Light] Fill opacity set to " .. opacity)
+    end
+end, nil, "Set fill opacity for RTX light visualization (0-255)")
+
+-- Add to tool menu if available
+hook.Add("PopulateToolMenu", "RemixRTLight_ToolMenu", function()
+    spawnmenu.AddToolMenuOption("Utilities", "RTX Remix", "RTX_Remix_Light_Viz", "Light Visualization", "", "", function(panel)
+        panel:ClearControls()
+        
+        panel:Help("HUD-based visualization for RTX Remix lights")
+        panel:Help("Works with fixed-function rendering")
+        
+        panel:CheckBox("Enable Visualization", "remix_rt_light_visualize")
+        panel:CheckBox("Always Show (360°)", "remix_rt_light_visualize_always")
+        panel:NumSlider("Visualization Range", "remix_rt_light_visualize_range", 512, 8192, 0)
+        panel:NumSlider("Visualization Scale", "remix_rt_light_visualize_scale", 0.1, 10.0, 2)
+        panel:NumSlider("Fill Opacity", "remix_rt_light_visualize_fill_opacity", 0, 255, 0)
+        
+        panel:Help("")
+        panel:Help("Adjust scale to match Remix's actual light rendering")
+        panel:Help("Fill opacity: 30-50 recommended, 0 to disable fill")
+        panel:Help("(Text size is not affected, only spatial elements)")
+        
+        panel:Help("")
+        panel:Help("Color Legend:")
+        panel:Help("🟡 Sphere | 🔵 Rect | 🟣 Disk")
+        panel:Help("🟣 Cylinder | 🟡 Distant | 🟢 Dome")
+        
+        local btnReset = panel:Button("Reset to Defaults")
+        btnReset.DoClick = function()
+            RunConsoleCommand("remix_rt_light_visualize", "1")
+            RunConsoleCommand("remix_rt_light_visualize_range", "2048")
+            RunConsoleCommand("remix_rt_light_visualize_always", "0")
+            RunConsoleCommand("remix_rt_light_visualize_scale", "1.0")
+            RunConsoleCommand("remix_rt_light_visualize_fill_opacity", "30")
+        end
+    end)
+end)
 
 
