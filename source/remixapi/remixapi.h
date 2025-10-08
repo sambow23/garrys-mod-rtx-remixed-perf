@@ -123,7 +123,7 @@ namespace RemixAPI {
 
         remix::Interface* m_remixInterface;
         GarrysMod::Lua::ILuaBase* m_lua;
-        std::mutex m_mutex;
+        mutable std::mutex m_mutex;
         std::unordered_map<uint64_t, ManagedLight> m_lights; // lightId -> data
         std::unordered_multimap<uint64_t, uint64_t> m_entityToLight; // entityId -> lightId
         std::unordered_set<remixapi_LightHandle> m_activeLightHandles;

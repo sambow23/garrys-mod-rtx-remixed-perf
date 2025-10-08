@@ -335,10 +335,22 @@ bool LightManager::DestroyLight(uint64_t lightId) {
     // Destroy the light handle outside of the mutex lock
     // The batched API will handle persistent light unregistration internally
     if (handleToDestroy) {
-        Msg("[LightManager] Destroying light ID %llu, handle %p. Active handles before: %zu\n", lightId, handleToDestroy, m_activeLightHandles.size());
+        size_t handlesBefore, handlesAfter;
+        {
+            std::lock_guard<std::mutex> guard(m_mutex);
+            handlesBefore = m_activeLightHandles.size();
+        }
+        
+        Msg("[LightManager] Destroying light ID %llu, handle %p. Active handles before: %zu\n", lightId, handleToDestroy, handlesBefore);
         m_remixInterface->DestroyLight(handleToDestroy);
-        m_activeLightHandles.erase(handleToDestroy); // Ensure it's removed from active list
-        Msg("[LightManager] Destroyed light ID %llu, handle %p. Active handles after: %zu\n", lightId, handleToDestroy, m_activeLightHandles.size());
+        
+        {
+            std::lock_guard<std::mutex> guard(m_mutex);
+            m_activeLightHandles.erase(handleToDestroy); // Ensure it's removed from active list
+            handlesAfter = m_activeLightHandles.size();
+        }
+        
+        Msg("[LightManager] Destroyed light ID %llu, handle %p. Active handles after: %zu\n", lightId, handleToDestroy, handlesAfter);
     }
     
     return true;
@@ -394,14 +406,17 @@ bool LightManager::UpdateDomeLight(uint64_t lightId, const remix::LightInfo& bas
     return m_remixInterface->UpdateLightDefinition(it->second.handle, info);
 }
 bool LightManager::HasLight(uint64_t lightId) const {
+    std::lock_guard<std::mutex> guard(m_mutex);
     return m_lights.find(lightId) != m_lights.end();
 }
 
 bool LightManager::HasLightForEntity(uint64_t entityId) const {
+    std::lock_guard<std::mutex> guard(m_mutex);
     return m_entityToLight.find(entityId) != m_entityToLight.end();
 }
 
 std::vector<uint64_t> LightManager::GetLightsForEntity(uint64_t entityId) const {
+    std::lock_guard<std::mutex> guard(m_mutex);
     std::vector<uint64_t> out;
     auto range = m_entityToLight.equal_range(entityId);
     for (auto it = range.first; it != range.second; ++it) out.push_back(it->second);
@@ -409,12 +424,14 @@ std::vector<uint64_t> LightManager::GetLightsForEntity(uint64_t entityId) const 
 }
 
 std::vector<uint64_t> LightManager::GetAllLightIds() const {
+    std::lock_guard<std::mutex> guard(m_mutex);
     std::vector<uint64_t> out; out.reserve(m_lights.size());
     for (const auto& kv : m_lights) out.push_back(kv.first);
     return out;
 }
 
 bool LightManager::GetSphereState(uint64_t lightId, remix::LightInfo& outBase, remix::LightInfoSphereEXT& outSphere) const {
+    std::lock_guard<std::mutex> guard(m_mutex);
     auto it = m_lights.find(lightId);
     if (it == m_lights.end() || !it->second.isSphere) return false;
     outBase = it->second.cachedBase; outBase.pNext = nullptr;
@@ -470,16 +487,24 @@ void LightManager::ClearAllLights() {
 }
 
 size_t LightManager::GetLightCount() const {
+    std::lock_guard<std::mutex> guard(m_mutex);
     return m_lights.size();
 }
 
 void LightManager::SubmitLightsForCurrentFrame() {
     if (!m_remixInterface) return;
     
+    // Copy the active handles under lock to avoid holding mutex during submission
+    std::unordered_set<remixapi_LightHandle> handlesToSubmit;
+    {
+        std::lock_guard<std::mutex> guard(m_mutex);
+        handlesToSubmit = m_activeLightHandles;
+    }
+    
     // Always clear and resubmit the active lights each frame
     // This ensures that destroyed lights are removed and new/updated lights are included
-    Msg("[LightManager] Submitting %zu active light handles this frame.\n", m_activeLightHandles.size());
-    for (const auto& handle : m_activeLightHandles) {
+    Msg("[LightManager] Submitting %zu active light handles this frame.\n", handlesToSubmit.size());
+    for (const auto& handle : handlesToSubmit) {
         if (handle) {
             // Msg("  - Submitting handle %p\n", handle); // uncomment for very verbose logging
             m_remixInterface->DrawLightInstance(handle);

@@ -48,26 +48,9 @@ end
 
 local function processOne(op)
     if not istable(RemixLight) then return end
-    if op.op == "create" then
-        local id = nil
-        if op.type == "sphere" and RemixLight.CreateSphere then
-            id = RemixLight.CreateSphere(op.base, op.info, op.entityId or 0)
-        elseif op.type == "rect" and RemixLight.CreateRect then
-            id = RemixLight.CreateRect(op.base, op.info, op.entityId or 0)
-        elseif op.type == "disk" and RemixLight.CreateDisk then
-            id = RemixLight.CreateDisk(op.base, op.info, op.entityId or 0)
-        elseif op.type == "distant" and RemixLight.CreateDistant then
-            id = RemixLight.CreateDistant(op.base, op.info, op.entityId or 0)
-        elseif op.type == "cylinder" and RemixLight.CreateCylinder then
-            id = RemixLight.CreateCylinder(op.base, op.info, op.entityId or 0)
-        elseif op.type == "dome" and RemixLight.CreateDome then
-            id = RemixLight.CreateDome(op.base, op.info, op.entityId or 0)
-        end
-        if op.cb then
-            pcall(op.cb, id)
-        end
-        return true
-    elseif op.op == "update" then
+    -- NOTE: Create operations are handled synchronously (see Create* functions below)
+    -- Only update and destroy operations are queued
+    if op.op == "update" then
         if op.type == "sphere" and RemixLight.UpdateSphere then
             RemixLight.UpdateSphere(op.base, op.info, op.lightId)
         elseif op.type == "rect" and RemixLight.UpdateRect then

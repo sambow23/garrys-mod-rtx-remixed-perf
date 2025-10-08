@@ -533,6 +533,10 @@ LUA_FUNCTION(RemixLight_CreateSphere) {
     auto& lightManager = RemixAPI::Instance().GetLightManager();
     uint64_t lightId = lightManager.CreateSphereLight(baseInfo, sphereInfo, entityID);
     
+    if (lightId == 0) {
+        Warning("[RemixLight] CreateSphere: Failed to create light (API may not be initialized or handle creation failed)\n");
+    }
+    
     LUA->PushNumber(static_cast<double>(lightId));
     return 1;
 }
@@ -555,6 +559,11 @@ LUA_FUNCTION(RemixLight_UpdateSphere) {
     remix::LightInfoSphereEXT sphereInfo = LuaToSphereInfo(LUA, 2);
     uint64_t lightId = static_cast<uint64_t>(LUA->GetNumber(3));
     bool ok = RemixAPI::Instance().GetLightManager().UpdateSphereLight(lightId, baseInfo, sphereInfo);
+    
+    if (!ok) {
+        Warning("[RemixLight] UpdateSphere: Failed to update light ID %llu (light may not exist or API call failed)\n", lightId);
+    }
+    
     LUA->PushBool(ok);
     return 1;
 }
