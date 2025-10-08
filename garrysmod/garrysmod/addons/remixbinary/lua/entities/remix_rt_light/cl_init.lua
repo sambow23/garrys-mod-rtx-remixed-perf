@@ -10,6 +10,7 @@ local cv_vis_range = CreateClientConVar("remix_rt_light_visualize_range", "2048"
 local cv_vis_always = CreateClientConVar("remix_rt_light_visualize_always", "0", true, false, "Always show visualization, even when not looking at lights")
 local cv_vis_scale = CreateClientConVar("remix_rt_light_visualize_scale", "1.0", true, false, "Scale factor for visualization size (0.1 to 10.0)")
 local cv_vis_fill_opacity = CreateClientConVar("remix_rt_light_visualize_fill_opacity", "30", true, false, "Fill opacity for shape visualization (0-255)")
+local cv_vis_opacity = CreateClientConVar("remix_rt_light_visualize_opacity", "100", true, false, "Global visualization opacity percentage (0-100)")
 
 local function vec_to_table(v) return { x = v.x, y = v.y, z = v.z } end
 
@@ -120,6 +121,7 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
     local alwaysShow = cv_vis_always:GetBool()
     local vizScale = math.Clamp(cv_vis_scale:GetFloat(), 0.1, 10.0)
     local fillOpacity = math.Clamp(cv_vis_fill_opacity:GetInt(), 0, 255)
+    local globalOpacity = math.Clamp(cv_vis_opacity:GetFloat(), 0, 100) / 100
     local lineThickness = 2
     
     for _, ent in ipairs(ents.FindByClass("remix_rt_light")) do
@@ -155,8 +157,8 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
         local b = math.Clamp(radiance.z * 12 / scale, 0, 255)
         local col = Color(r, g, b)
         
-        -- Alpha fade based on distance
-        local alpha = math.Clamp(255 * (1 - dist / maxRange), 50, 255)
+        -- Alpha fade based on distance with global opacity multiplier
+        local alpha = math.Clamp(255 * (1 - dist / maxRange), 50, 255) * globalOpacity
         col.a = alpha
         
         -- Get outline color (more subtle for text)
@@ -893,7 +895,7 @@ properties.Add("remix_rt_light_edit", {
             function mixer:ValueChanged(_col)
                 applyRealtime()
             end
-        end
+                end
         -- Note: If mixer.ValueChanged doesn't exist, we rely on the other control callbacks
         -- The entity already has the correct initial values, so we don't force an update
 
@@ -1024,6 +1026,20 @@ concommand.Add("remix_rt_light_vis_fill", function(ply, cmd, args)
     end
 end, nil, "Set fill opacity for RTX light visualization (0-255)")
 
+concommand.Add("remix_rt_light_vis_opacity", function(ply, cmd, args)
+    if #args < 1 then
+        print("[Remix RT Light] Current global opacity: " .. cv_vis_opacity:GetFloat() .. "%")
+        print("Usage: remix_rt_light_vis_opacity <percentage> (0 to 100)")
+        return
+    end
+    local opacity = tonumber(args[1])
+    if opacity then
+        opacity = math.Clamp(opacity, 0, 100)
+        cv_vis_opacity:SetFloat(opacity)
+        print("[Remix RT Light] Global visualization opacity set to " .. opacity .. "%")
+    end
+end, nil, "Set global opacity for all RTX light visualizations (0-100%)")
+
 -- Add to tool menu if available
 hook.Add("PopulateToolMenu", "RemixRTLight_ToolMenu", function()
     spawnmenu.AddToolMenuOption("Utilities", "RTX Remix", "RTX_Remix_Light_Viz", "Light Visualization", "", "", function(panel)
@@ -1037,11 +1053,12 @@ hook.Add("PopulateToolMenu", "RemixRTLight_ToolMenu", function()
         panel:NumSlider("Visualization Range", "remix_rt_light_visualize_range", 512, 8192, 0)
         panel:NumSlider("Visualization Scale", "remix_rt_light_visualize_scale", 0.1, 10.0, 2)
         panel:NumSlider("Fill Opacity", "remix_rt_light_visualize_fill_opacity", 0, 255, 0)
+        panel:NumSlider("Global Opacity %", "remix_rt_light_visualize_opacity", 0, 100, 0)
         
         panel:Help("")
         panel:Help("Adjust scale to match Remix's actual light rendering")
         panel:Help("Fill opacity: 30-50 recommended, 0 to disable fill")
-        panel:Help("(Text size is not affected, only spatial elements)")
+        panel:Help("Global opacity: Master opacity control for all visualizations")
         
         panel:Help("")
         panel:Help("Color Legend:")
@@ -1055,6 +1072,7 @@ hook.Add("PopulateToolMenu", "RemixRTLight_ToolMenu", function()
             RunConsoleCommand("remix_rt_light_visualize_always", "0")
             RunConsoleCommand("remix_rt_light_visualize_scale", "1.0")
             RunConsoleCommand("remix_rt_light_visualize_fill_opacity", "30")
+            RunConsoleCommand("remix_rt_light_visualize_opacity", "100")
         end
     end)
 end)
