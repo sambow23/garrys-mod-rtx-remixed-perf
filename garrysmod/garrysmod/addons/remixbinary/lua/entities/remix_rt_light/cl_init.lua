@@ -105,9 +105,17 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
         
         local x, y = screenPos.x, screenPos.y
         local lt = ent:GetNWString("rtx_light_type", "sphere")
-        local col = lightColors[lt] or Color(255, 255, 255)
         local radius = ent:GetNWFloat("rtx_light_radius", 20)
         local brightness = ent:GetNWFloat("rtx_light_brightness", 1)
+        
+        -- Get the light's actual color from radiance vector
+        local radiance = ent:GetNWVector("rtx_light_col", Vector(15,15,15))
+        -- Convert radiance back to RGB (radiance = (rgb/12)*brightness)
+        local scale = math.max(0.01, brightness) -- Avoid division by zero
+        local r = math.Clamp(radiance.x * 12 / scale, 0, 255)
+        local g = math.Clamp(radiance.y * 12 / scale, 0, 255)
+        local b = math.Clamp(radiance.z * 12 / scale, 0, 255)
+        local col = Color(r, g, b)
         
         -- Alpha fade based on distance
         local alpha = math.Clamp(255 * (1 - dist / maxRange), 50, 255)
@@ -281,6 +289,24 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
                 end
                 DrawFilledWorldPoly(topPoints, col.r, col.g, col.b, fillOpacity * (alpha / 255))
                 DrawFilledWorldPoly(bottomPoints, col.r, col.g, col.b, fillOpacity * (alpha / 255))
+                
+                -- Fill cylinder sides with quads between top and bottom
+                for i = 0, segments - 1 do
+                    local angle1 = (i / segments) * math.pi * 2
+                    local angle2 = ((i + 1) / segments) * math.pi * 2
+                    
+                    local offset1 = right * (math.cos(angle1) * cylRadius) + forward * (math.sin(angle1) * cylRadius)
+                    local offset2 = right * (math.cos(angle2) * cylRadius) + forward * (math.sin(angle2) * cylRadius)
+                    
+                    -- Create quad: top1 -> top2 -> bottom2 -> bottom1
+                    local sideQuad = {
+                        topCenter + offset1,
+                        topCenter + offset2,
+                        bottomCenter + offset2,
+                        bottomCenter + offset1,
+                    }
+                    DrawFilledWorldPoly(sideQuad, col.r, col.g, col.b, fillOpacity * (alpha / 255) * 0.7)
+                end
             end
             
             -- Draw circles outline with thick lines
