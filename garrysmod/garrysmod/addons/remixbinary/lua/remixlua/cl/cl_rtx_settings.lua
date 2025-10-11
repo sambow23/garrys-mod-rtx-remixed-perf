@@ -13,6 +13,13 @@ hook.Add( "PopulateToolMenu", "RTXOptionsClient", function()
         panel:ControlHelp( "Pseudoplayer allows you to see your own playermodel, this when marked as a 'Playermodel Texture' in remix allows you to see your own shadow and reflection." )
         panel:CheckBox( "Pseudoweapon Enabled", "rtx_pseudoweapon" )
         panel:ControlHelp( "Similar to above, but for the weapon you're holding." )
+
+        panel:AddControl("Header", {Description = "Render Options:"})
+        panel:CheckBox("Show Render Debug HUD", "rtx_render_debug")
+        panel:CheckBox("2D Skybox", "rtx_sky2d_enable")
+        panel:CheckBox("Entity Anti-Culling", "rtx_rearview_enabled")
+        panel:NumSlider("Distance (units)", "rtx_rearview_off_forward", 100, 5000, 0)
+        panel:Help("This can severely impact performance")
     end )
 end )
 

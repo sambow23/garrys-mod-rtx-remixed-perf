@@ -55,7 +55,9 @@ RemixAPI::~RemixAPI() {
 
 bool RemixAPI::Initialize(remix::Interface* remixInterface, GarrysMod::Lua::ILuaBase* LUA) {
     if (m_initialized) {
+#ifdef _DEBUG
         Msg("[RemixAPI] Already initialized\n");
+#endif
         return false;
     }
 
@@ -86,7 +88,9 @@ bool RemixAPI::Initialize(remix::Interface* remixInterface, GarrysMod::Lua::ILua
         m_lightManager->InitializeLuaBindings();
 
     m_initialized = true;
+#ifdef _DEBUG
     Msg("[RemixAPI] Initialization complete\n");
+#endif
     return true;
 }
 
@@ -105,7 +109,9 @@ void RemixAPI::Shutdown() {
     m_lua = nullptr;
     m_initialized = false;
     
+#ifdef _DEBUG
     Msg("[RemixAPI] Shutdown complete\n");
+#endif
 }
 
 void RemixAPI::Present() {
@@ -157,7 +163,9 @@ uint64_t LightManager::CreateSphereLight(const remix::LightInfo& base, const rem
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
     m_activeLightHandles.insert(handle);
+#ifdef _DEBUG
     Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
+#endif
     return id;
 }
 
@@ -182,7 +190,9 @@ uint64_t LightManager::CreateRectLight(const remix::LightInfo& base, const remix
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
     m_activeLightHandles.insert(handle);
+#ifdef _DEBUG
     Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
+#endif
     return id;
 }
 
@@ -207,7 +217,9 @@ uint64_t LightManager::CreateDiskLight(const remix::LightInfo& base, const remix
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
     m_activeLightHandles.insert(handle);
+#ifdef _DEBUG
     Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
+#endif
     return id;
 }
 
@@ -232,7 +244,9 @@ uint64_t LightManager::CreateDistantLight(const remix::LightInfo& base, const re
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
     m_activeLightHandles.insert(handle);
+#ifdef _DEBUG
     Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
+#endif
     return id;
 }
 
@@ -256,7 +270,9 @@ uint64_t LightManager::CreateCylinderLight(const remix::LightInfo& base, const r
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
     m_activeLightHandles.insert(handle);
+#ifdef _DEBUG
     Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
+#endif
     return id;
 }
 
@@ -280,7 +296,9 @@ uint64_t LightManager::CreateDomeLight(const remix::LightInfo& base, const remix
     m_lights.emplace(id, std::move(ml));
     if (entityId) m_entityToLight.emplace(entityId, id);
     m_activeLightHandles.insert(handle);
+#ifdef _DEBUG
     Msg("[LightManager] Created light ID %llu, handle %p. Active handles: %zu\n", id, handle, m_activeLightHandles.size());
+#endif
     return id;
 }
 
@@ -297,7 +315,9 @@ bool LightManager::DestroyLight(uint64_t lightId) {
         auto it = m_lights.find(lightId);
         if (it == m_lights.end()) {
             // Light not found - might have already been destroyed
+#ifdef _DEBUG
             Msg("[LightManager] Warning: Attempted to destroy non-existent light ID %llu\n", lightId);
+#endif
             return false;
         }
         
@@ -325,11 +345,13 @@ bool LightManager::DestroyLight(uint64_t lightId) {
         zeroInfo.radiance = { 0.0f, 0.0f, 0.0f };
         zeroInfo.pNext = const_cast<remix::LightInfoSphereEXT*>(&cachedSphereCopy);
         auto ok = m_remixInterface->UpdateLightDefinition(handleToDestroy, zeroInfo);
+#ifdef _DEBUG
         if (!ok) {
             Msg("[LightManager] Zero-radiance pre-destroy update failed for handle %p\n", handleToDestroy);
         } else {
             Msg("[LightManager] Zeroed radiance before destroy for handle %p\n", handleToDestroy);
         }
+#endif
     }
     
     // Destroy the light handle outside of the mutex lock
@@ -341,7 +363,9 @@ bool LightManager::DestroyLight(uint64_t lightId) {
             handlesBefore = m_activeLightHandles.size();
         }
         
+#ifdef _DEBUG
         Msg("[LightManager] Destroying light ID %llu, handle %p. Active handles before: %zu\n", lightId, handleToDestroy, handlesBefore);
+#endif
         m_remixInterface->DestroyLight(handleToDestroy);
         
         {
@@ -350,7 +374,9 @@ bool LightManager::DestroyLight(uint64_t lightId) {
             handlesAfter = m_activeLightHandles.size();
         }
         
+#ifdef _DEBUG
         Msg("[LightManager] Destroyed light ID %llu, handle %p. Active handles after: %zu\n", lightId, handleToDestroy, handlesAfter);
+#endif
     }
     
     return true;
@@ -503,7 +529,9 @@ void LightManager::SubmitLightsForCurrentFrame() {
     
     // Always clear and resubmit the active lights each frame
     // This ensures that destroyed lights are removed and new/updated lights are included
+#ifdef _DEBUG
     Msg("[LightManager] Submitting %zu active light handles this frame.\n", handlesToSubmit.size());
+#endif
     for (const auto& handle : handlesToSubmit) {
         if (handle) {
             // Msg("  - Submitting handle %p\n", handle); // uncomment for very verbose logging
@@ -548,7 +576,9 @@ uint64_t MaterialManager::CreateMaterial(const std::string& name, const remix::M
     };
     
     m_materials[materialId] = material;
+#ifdef _DEBUG
     Msg("[MaterialManager] Created material '%s' with ID %llu\n", name.c_str(), materialId);
+#endif
     return materialId;
 }
 
@@ -605,7 +635,9 @@ bool MaterialManager::DestroyMaterial(uint64_t materialId) {
     }
     
     m_materials.erase(it);
+#ifdef _DEBUG
     Msg("[MaterialManager] Destroyed material ID %llu\n", materialId);
+#endif
     return true;
 }
 
@@ -649,7 +681,9 @@ uint64_t MeshManager::CreateMesh(const std::string& name, const remix::MeshInfo&
     };
     
     m_meshes[meshId] = mesh;
+#ifdef _DEBUG
     Msg("[MeshManager] Created mesh '%s' with ID %llu\n", name.c_str(), meshId);
+#endif
     return meshId;
 }
 
@@ -688,7 +722,9 @@ bool MeshManager::DestroyMesh(uint64_t meshId) {
     }
     
     m_meshes.erase(it);
+#ifdef _DEBUG
     Msg("[MeshManager] Destroyed mesh ID %llu\n", meshId);
+#endif
     return true;
 }
 
@@ -893,7 +929,9 @@ std::unordered_map<std::string, std::string> ConfigManager::ParseConfigFile(cons
     
     std::ifstream file(filePath);
     if (!file.is_open()) {
+#ifdef _DEBUG
         Msg("[ConfigManager] Could not open config file: %s\n", filePath.c_str());
+#endif
         return config;
     }
     
@@ -927,7 +965,9 @@ std::unordered_map<std::string, std::string> ConfigManager::ParseConfigFile(cons
         config[key] = value;
     }
     
+#ifdef _DEBUG
     Msg("[ConfigManager] Parsed %zu config entries from %s\n", config.size(), filePath.c_str());
+#endif
     return config;
 }
 

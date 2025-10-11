@@ -1008,7 +1008,9 @@ void LightManager::InitializeLuaBindings() {
     // Pop the global table
     m_lua->Pop();
     
+#ifdef _DEBUG
     Msg("[LightManager] Lua bindings initialized\n");
+#endif
 }
 
 } // namespace RemixAPI

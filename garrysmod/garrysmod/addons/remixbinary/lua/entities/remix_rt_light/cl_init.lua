@@ -9,7 +9,7 @@ local cv_visualize = CreateClientConVar("remix_rt_light_visualize", "1", true, f
 local cv_vis_range = CreateClientConVar("remix_rt_light_visualize_range", "2048", true, false, "Max distance to show light visualization")
 local cv_vis_always = CreateClientConVar("remix_rt_light_visualize_always", "0", true, false, "Always show visualization, even when not looking at lights")
 local cv_vis_scale = CreateClientConVar("remix_rt_light_visualize_scale", "1.0", true, false, "Scale factor for visualization size (0.1 to 10.0)")
-local cv_vis_fill_opacity = CreateClientConVar("remix_rt_light_visualize_fill_opacity", "30", true, false, "Fill opacity for shape visualization (0-255)")
+local cv_vis_fill_opacity = CreateClientConVar("remix_rt_light_visualize_fill_opacity", "135", true, false, "Fill opacity for shape visualization (0-255)")
 local cv_debug_updates = CreateClientConVar("remix_rt_light_debug_updates", "0", true, false, "Print debug info when lights update")
 
 local function vec_to_table(v) return { x = v.x, y = v.y, z = v.z } end

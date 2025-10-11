@@ -773,8 +773,6 @@ local function batchCreateRTXLights()
             return
         end
         
-        print("[Light2RTX] Processing batch " .. batchIndex .. "/" .. #batches)
-        
         local batch = batches[batchIndex]
         local lightsCreated = 0
         
@@ -820,9 +818,6 @@ local function batchCreateRTXLights()
                     
                     -- Last light in batch
                     if i == #batch then
-                        print("[Light2RTX] Batch " .. batchIndex .. " complete. Created " .. 
-                            lightsCreated .. "/" .. #batch .. " lights.")
-                        
                         -- Process next batch after delay
                         timer.Simple(BATCH_DELAY, function()
                             processBatch(batchIndex + 1)
@@ -831,9 +826,6 @@ local function batchCreateRTXLights()
                 else
                     -- Last light in batch but creation failed
                     if i == #batch then
-                        print("[Light2RTX] Batch " .. batchIndex .. " complete with errors. Created " .. 
-                            lightsCreated .. "/" .. #batch .. " lights.")
-                        
                         -- Process next batch after delay
                         timer.Simple(BATCH_DELAY, function()
                             processBatch(batchIndex + 1)

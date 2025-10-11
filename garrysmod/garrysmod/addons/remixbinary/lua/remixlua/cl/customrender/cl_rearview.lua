@@ -258,7 +258,7 @@ local function SetEnabled(enable)
 end
 
 -- ConVars and commands
-CreateClientConVar("rtx_rearview_enabled", "0", true, false, "Enable the rear-view camera panel")
+CreateClientConVar("rtx_rearview_enabled", "0", true, false, "Enable the rear-view RT camera to prevent culling")
 CreateClientConVar("rtx_rearview_size", "1", true, false, "Rear-view panel size (square), requires toggle to re-create")
 CreateClientConVar("rtx_rearview_fov", "173", true, false, "Rear-view camera FOV in degrees. Set -1 to follow player FOV (fov_desired)")
 -- Movement/offset convars
@@ -281,7 +281,7 @@ concommand.Add("rtx_rearview_toggle", function()
     local cv = GetConVar("rtx_rearview_enabled")
     if not cv then return end
     cv:SetBool(not cv:GetBool())
-end, nil, "Toggle the rear-view camera panel")
+end, nil, "Toggle the rear-view RT camera to prevent culling")
 
 concommand.Add("rtx_rearview_setsize", function(ply, cmd, args)
     local s = tonumber(args and args[1])

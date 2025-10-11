@@ -478,19 +478,6 @@ do
         print("[RemixRenderCore] Cleared mesh/material caches.")
     end)
 
-    -- Configuration menu
-    hook.Add("PopulateToolMenu", "RemixUnifiedMenu", function()
-        spawnmenu.AddToolMenuOption("Utilities", "User", "Remix_Render", "Remix Render", "", "", function(panel)
-            panel:ClearControls()
-            panel:CheckBox("Show Render Debug", "rtx_render_debug")
-            panel:CheckBox("2D Skybox", "rtx_sky2d_enable")
-            panel:CheckBox("Entity Anti-Culling", "rtx_rearview_enabled")
-            panel:NumSlider("Distance (units)", "rtx_rearview_off_forward", 100, 5000, 0)
-            panel:Help("This can severely impact performance")
-
-        end)
-    end)
-
     -- Centralized flush hooks: begin frame on PreDrawOpaque, flush on PostDraw* passes
     RemixRenderCore.Register("PreDrawOpaqueRenderables", "RemixFrame-Begin", { fn = function(bDrawingDepth, bDrawingSkybox)
         RemixRenderCore.BeginFrame(bDrawingDepth, bDrawingSkybox)
