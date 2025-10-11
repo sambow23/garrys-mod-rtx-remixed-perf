@@ -54,7 +54,7 @@
 
 #define REMIXAPI_VERSION_MAJOR 0
 #define REMIXAPI_VERSION_MINOR 5
-#define REMIXAPI_VERSION_PATCH 1
+#define REMIXAPI_VERSION_PATCH 2
 
 
 // External
@@ -393,6 +393,11 @@ extern "C" {
     uint32_t            textureAlphaOperation;
     uint32_t            tFactor;
     remixapi_Bool       isTextureFactorBlend;
+    uint32_t            srcAlphaBlendFactor;
+    uint32_t            dstAlphaBlendFactor;
+    uint32_t            alphaBlendOp;
+    uint32_t            writeMask;
+    remixapi_Bool       isVertexColorBakedLighting;
   } remixapi_InstanceInfoBlendEXT;
 
   typedef struct remixapi_InstanceInfoObjectPickingEXT {
@@ -405,7 +410,6 @@ extern "C" {
   typedef enum remixapi_InstanceCategoryBit {
     REMIXAPI_INSTANCE_CATEGORY_BIT_WORLD_UI                  = 1 << 0,
     REMIXAPI_INSTANCE_CATEGORY_BIT_WORLD_MATTE               = 1 << 1,
-    REMIXAPI_INSTANCE_CATEGORY_BIT_LEGACY_EMISSIVE           = 1 << 23,
     REMIXAPI_INSTANCE_CATEGORY_BIT_SKY                       = 1 << 2,
     REMIXAPI_INSTANCE_CATEGORY_BIT_IGNORE                    = 1 << 3,
     REMIXAPI_INSTANCE_CATEGORY_BIT_IGNORE_LIGHTS             = 1 << 4,
@@ -427,6 +431,8 @@ extern "C" {
     REMIXAPI_INSTANCE_CATEGORY_BIT_IGNORE_BAKED_LIGHTING     = 1 << 20,
     REMIXAPI_INSTANCE_CATEGORY_BIT_IGNORE_ALPHA_CHANNEL      = 1 << 21,
     REMIXAPI_INSTANCE_CATEGORY_BIT_IGNORE_TRANSPARENCY_LAYER = 1 << 22,
+    REMIXAPI_INSTANCE_CATEGORY_BIT_PARTICLE_EMITTER          = 1 << 23,
+    REMIXAPI_INSTANCE_CATEGORY_BIT_LEGACY_EMISSIVE           = 1 << 24,
   } remixapi_InstanceCategoryBit;
 
   typedef uint32_t remixapi_InstanceCategoryFlags;
@@ -447,18 +453,26 @@ extern "C" {
     float            maxTimeToLive;
     float            initialVelocityFromNormal;
     float            initialVelocityConeAngleDegrees;
-    float            minParticleSize;
-    float            maxParticleSize;
+    float            minSpawnSize;
+    float            maxSpawnSize;
     float            gravityForce;
     float            maxSpeed;
     float            turbulenceFrequency;
-    float            turbulenceAmplitude;
-    float            minRotationSpeed;
-    float            maxRotationSpeed;
+    float            turbulenceForce;
+    float            minSpawnRotationSpeed;
+    float            maxSpawnRotationSpeed;
     float            spawnRatePerSecond;
     float            collisionThickness;
     float            collisionRestitution;
     float            motionTrailMultiplier;
+    float            initialVelocityFromMotion;
+    float            minTargetSize;
+    float            maxTargetSize;
+    float            minTargetRotationSpeed;
+    float            maxTargetRotationSpeed;
+    remixapi_Float4D minTargetColor;
+    remixapi_Float4D maxTargetColor;
+    uint32_t         billboardType;
   } remixapi_InstanceInfoParticleSystemEXT;
 
   typedef struct remixapi_InstanceInfo {
@@ -586,6 +600,7 @@ extern "C" {
     void*                           pNext;
     uint64_t                        hash;
     remixapi_Float3D                radiance;
+    remixapi_Bool                   isDynamic;
   } remixapi_LightInfo;
 
   typedef remixapi_ErrorCode(REMIXAPI_PTR* PFN_remixapi_CreateLight)(

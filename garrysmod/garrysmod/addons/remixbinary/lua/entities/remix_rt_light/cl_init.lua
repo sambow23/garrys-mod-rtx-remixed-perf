@@ -10,6 +10,7 @@ local cv_vis_range = CreateClientConVar("remix_rt_light_visualize_range", "2048"
 local cv_vis_always = CreateClientConVar("remix_rt_light_visualize_always", "0", true, false, "Always show visualization, even when not looking at lights")
 local cv_vis_scale = CreateClientConVar("remix_rt_light_visualize_scale", "1.0", true, false, "Scale factor for visualization size (0.1 to 10.0)")
 local cv_vis_fill_opacity = CreateClientConVar("remix_rt_light_visualize_fill_opacity", "30", true, false, "Fill opacity for shape visualization (0-255)")
+local cv_debug_updates = CreateClientConVar("remix_rt_light_debug_updates", "0", true, false, "Print debug info when lights update")
 
 local function vec_to_table(v) return { x = v.x, y = v.y, z = v.z } end
 
@@ -546,95 +547,184 @@ local function ensure_light(ent)
     ent.LightCreateQueued = nil
 end
 
-function ENT:Think()
-    -- Ensure we have a light, but be defensive about it
-    if not self.LightId and not self.LightCreateQueued then
-        ensure_light(self)
-    end
-    
-    -- Only update if we have a valid light ID and the API is available
+-- Helper function to perform light update (called from Think and per-frame update)
+local function updateLight(self)
     if not self.LightId or not RemixLight then return end
     
     -- Read position directly from entity (not networked) for smooth movement
     local pos = self:GetPos()
+    local ang = self:GetAngles()
+    
+    -- Read all properties
+    local lt = self:GetNWString("rtx_light_type", "sphere")
     local col = self:GetNWVector("rtx_light_col", Vector(15,15,15))
     local radius = self:GetNWFloat("rtx_light_radius", 20)
     local shapingEnabled = self:GetNWBool("rtx_light_shape_enabled", false)
     local cone = self:GetNWFloat("rtx_light_shape_cone", 90)
     local softness = self:GetNWFloat("rtx_light_shape_softness", 0.1)
     local focus = self:GetNWFloat("rtx_light_shape_focus", 1.0)
-    local ang = self:GetAngles()
-    local dir = ang:Forward()
     local volScale = self:GetNWFloat("rtx_light_volumetric", 1.0)
-
-    if true then  -- Simplified check since we already validated above
-        local base = {
-            hash = tonumber(util.CRC("ent_light_" .. self:EntIndex())) or 1,
-            radiance = { x = col.x, y = col.y, z = col.z },
-        }
-        local lt = self:GetNWString("rtx_light_type", "sphere")
-        if lt == "sphere" and (RemixLight.UpdateSphere or (RemixLightQueue and RemixLightQueue.UpdateSphere)) then
-            local sphere = {
-                position = vec_to_table(pos),
-                radius = radius,
-                volumetricRadianceScale = volScale,
-            }
-            if shapingEnabled then
-                sphere.shaping = { direction = { x = dir.x, y = dir.y, z = dir.z }, coneAngleDegrees = cone, coneSoftness = softness, focusExponent = focus }
+    local xsize = self:GetNWFloat("rtx_light_xsize", 40)
+    local ysize = self:GetNWFloat("rtx_light_ysize", 40)
+    local xradius = self:GetNWFloat("rtx_light_xradius", 20)
+    local yradius = self:GetNWFloat("rtx_light_yradius", 20)
+    local axislen = self:GetNWFloat("rtx_light_axis_len", 40)
+    local distantang = self:GetNWFloat("rtx_light_distant_angle", 0.5)
+    
+    -- Initialize cache on first run
+    if not self.LastUpdateCache then
+        self.LastUpdateCache = {}
+        self.NeedsUpdate = true
+    end
+    
+    -- Check if physics object is awake (being moved/interacted with)
+    local phys = self:GetPhysicsObject()
+    local isMoving = IsValid(phys) and not phys:IsAsleep()
+    
+    -- Check if anything has changed (with small threshold for position/angles to avoid floating point noise)
+    local cache = self.LastUpdateCache
+    local needsUpdate = self.NeedsUpdate or false
+    
+    -- If moving, use tighter thresholds for more responsive updates
+    local posThreshold = isMoving and 0.01 or 1  -- 0.01 units when moving, 1 unit when static
+    local angThreshold = isMoving and 0.01 or 0.1  -- 0.01 degrees when moving, 0.1 when static
+    
+    if not needsUpdate then
+        -- Position change check
+        if not cache.pos or cache.pos:DistToSqr(pos) > (posThreshold * posThreshold) then
+            needsUpdate = true
+        end
+        
+        -- Angle change check
+        if not needsUpdate and cache.ang then
+            local pitchDiff = math.abs(math.AngleDifference(ang.p, cache.ang.p))
+            local yawDiff = math.abs(math.AngleDifference(ang.y, cache.ang.y))
+            local rollDiff = math.abs(math.AngleDifference(ang.r, cache.ang.r))
+            if pitchDiff > angThreshold or yawDiff > angThreshold or rollDiff > angThreshold then
+                needsUpdate = true
             end
-            if RemixLightQueue and RemixLightQueue.UpdateSphere then
-                RemixLightQueue.UpdateSphere(base, sphere, self.LightId)
-            else
-                RemixLight.UpdateSphere(base, sphere, self.LightId)
-            end
-        elseif lt == "cylinder" and (RemixLight.UpdateCylinder or (RemixLightQueue and RemixLightQueue.UpdateCylinder)) then
-            local cyl = {
-                position = vec_to_table(pos),
-                radius = radius,
-                axis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z },
-                axisLength = self:GetNWFloat("rtx_light_axis_len", radius*2),
-                volumetricRadianceScale = volScale,
-            }
-            if RemixLightQueue and RemixLightQueue.UpdateCylinder then
-                RemixLightQueue.UpdateCylinder(base, cyl, self.LightId)
-            else
-                RemixLight.UpdateCylinder(base, cyl, self.LightId)
-            end
-        elseif lt == "disk" and (RemixLight.UpdateDisk or (RemixLightQueue and RemixLightQueue.UpdateDisk)) then
-            local disk = {
-                position = vec_to_table(pos),
-                xAxis = { x = ang:Right().x, y = ang:Right().y, z = ang:Right().z }, xRadius = self:GetNWFloat("rtx_light_xradius", radius),
-                yAxis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z }, yRadius = self:GetNWFloat("rtx_light_yradius", radius),
-                direction = { x = dir.x, y = dir.y, z = dir.z },
-                volumetricRadianceScale = volScale,
-            }
-            if RemixLightQueue and RemixLightQueue.UpdateDisk then
-                RemixLightQueue.UpdateDisk(base, disk, self.LightId)
-            else
-                RemixLight.UpdateDisk(base, disk, self.LightId)
-            end
-        elseif lt == "rect" and (RemixLight.UpdateRect or (RemixLightQueue and RemixLightQueue.UpdateRect)) then
-            local rect = {
-                position = vec_to_table(pos),
-                xAxis = { x = ang:Right().x, y = ang:Right().y, z = ang:Right().z }, xSize = self:GetNWFloat("rtx_light_xsize", radius*2),
-                yAxis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z }, ySize = self:GetNWFloat("rtx_light_ysize", radius*2),
-                direction = { x = dir.x, y = dir.y, z = dir.z },
-                volumetricRadianceScale = volScale,
-            }
-            if RemixLightQueue and RemixLightQueue.UpdateRect then
-                RemixLightQueue.UpdateRect(base, rect, self.LightId)
-            else
-                RemixLight.UpdateRect(base, rect, self.LightId)
-            end
-        elseif lt == "distant" and (RemixLight.UpdateDistant or (RemixLightQueue and RemixLightQueue.UpdateDistant)) then
-            local distant = { direction = { x = dir.x, y = dir.y, z = dir.z }, angularDiameterDegrees = self:GetNWFloat("rtx_light_distant_angle", 0.5), volumetricRadianceScale = volScale }
-            if RemixLightQueue and RemixLightQueue.UpdateDistant then
-                RemixLightQueue.UpdateDistant(base, distant, self.LightId)
-            else
-                RemixLight.UpdateDistant(base, distant, self.LightId)
+        end
+        
+        -- Property change checks
+        if not needsUpdate then
+            if cache.lt ~= lt or cache.col ~= col or cache.radius ~= radius or
+               cache.shapingEnabled ~= shapingEnabled or cache.cone ~= cone or
+               cache.softness ~= softness or cache.focus ~= focus or
+               cache.volScale ~= volScale or cache.xsize ~= xsize or
+               cache.ysize ~= ysize or cache.xradius ~= xradius or
+               cache.yradius ~= yradius or cache.axislen ~= axislen or
+               cache.distantang ~= distantang then
+                needsUpdate = true
             end
         end
     end
+    
+    -- Skip update if nothing changed
+    if not needsUpdate then return end
+    
+    -- Debug output
+    if cv_debug_updates:GetBool() then
+        local movingStr = isMoving and " [MOVING]" or ""
+        print(string.format("[RTX Light #%d] Updating (type=%s)%s", self:EntIndex(), lt, movingStr))
+    end
+    
+    -- Update cache
+    cache.pos = Vector(pos.x, pos.y, pos.z)
+    cache.ang = Angle(ang.p, ang.y, ang.r)
+    cache.lt = lt
+    cache.col = col
+    cache.radius = radius
+    cache.shapingEnabled = shapingEnabled
+    cache.cone = cone
+    cache.softness = softness
+    cache.focus = focus
+    cache.volScale = volScale
+    cache.xsize = xsize
+    cache.ysize = ysize
+    cache.xradius = xradius
+    cache.yradius = yradius
+    cache.axislen = axislen
+    cache.distantang = distantang
+    self.NeedsUpdate = false
+    
+    -- Perform the actual light update
+    local dir = ang:Forward()
+
+    -- Check if physics object is awake (being moved/interacted with)
+    local phys = self:GetPhysicsObject()
+    local isMoving = IsValid(phys) and not phys:IsAsleep()
+
+    -- Update the light directly (bypass queue for responsiveness)
+    local base = {
+        hash = tonumber(util.CRC("ent_light_" .. self:EntIndex())) or 1,
+        radiance = { x = col.x, y = col.y, z = col.z },
+        isDynamic = isMoving,  -- Dynamic when moving, static when at rest for temporal accumulation
+    }
+    
+    if lt == "sphere" and RemixLight.UpdateSphere then
+        local sphere = {
+            position = vec_to_table(pos),
+            radius = radius,
+            volumetricRadianceScale = volScale,
+        }
+        if shapingEnabled then
+            sphere.shaping = { direction = { x = dir.x, y = dir.y, z = dir.z }, coneAngleDegrees = cone, coneSoftness = softness, focusExponent = focus }
+        end
+        RemixLight.UpdateSphere(base, sphere, self.LightId)
+    elseif lt == "cylinder" and RemixLight.UpdateCylinder then
+        local cyl = {
+            position = vec_to_table(pos),
+            radius = radius,
+            axis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z },
+            axisLength = axislen,
+            volumetricRadianceScale = volScale,
+        }
+        RemixLight.UpdateCylinder(base, cyl, self.LightId)
+    elseif lt == "disk" and RemixLight.UpdateDisk then
+        local disk = {
+            position = vec_to_table(pos),
+            xAxis = { x = ang:Right().x, y = ang:Right().y, z = ang:Right().z }, xRadius = xradius,
+            yAxis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z }, yRadius = yradius,
+            direction = { x = dir.x, y = dir.y, z = dir.z },
+            volumetricRadianceScale = volScale,
+        }
+        RemixLight.UpdateDisk(base, disk, self.LightId)
+    elseif lt == "rect" and RemixLight.UpdateRect then
+        local rect = {
+            position = vec_to_table(pos),
+            xAxis = { x = ang:Right().x, y = ang:Right().y, z = ang:Right().z }, xSize = xsize,
+            yAxis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z }, ySize = ysize,
+            direction = { x = dir.x, y = dir.y, z = dir.z },
+            volumetricRadianceScale = volScale,
+        }
+        RemixLight.UpdateRect(base, rect, self.LightId)
+    elseif lt == "distant" and RemixLight.UpdateDistant then
+        local distant = { 
+            direction = { x = dir.x, y = dir.y, z = dir.z }, 
+            angularDiameterDegrees = distantang, 
+            volumetricRadianceScale = volScale 
+        }
+        RemixLight.UpdateDistant(base, distant, self.LightId)
+    end
+end
+
+function ENT:Think()
+    -- Ensure we have a light, but be defensive about it
+    if not self.LightId and not self.LightCreateQueued then
+        ensure_light(self)
+    end
+    
+    -- Call the update function
+    updateLight(self)
+    
+    -- Think more frequently if physics object is awake (being moved)
+    local phys = self:GetPhysicsObject()
+    if IsValid(phys) and not phys:IsAsleep() then
+        self:NextThink(CurTime()) -- Think every frame when moving
+    else
+        self:NextThink(CurTime() + 0.05) -- Think every 50ms when static
+    end
+    return true
 end
 
 -- Context menu for tweaking light parameters
@@ -867,6 +957,8 @@ properties.Add("remix_rt_light_edit", {
             local sid = typeCombo:GetSelectedID()
             local sel = (sid and typeCombo:GetOptionData(sid)) or ent:GetNWString("rtx_light_type", "sphere")
             ent:SetNWString("rtx_light_type", sel)
+            -- Flag that this entity needs an update on next Think
+            ent.NeedsUpdate = true
             -- send authoritative apply to server
             sendApplyThrottled()
         end

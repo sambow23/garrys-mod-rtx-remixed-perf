@@ -79,6 +79,13 @@ static remix::LightInfo LuaToLightInfo(ILuaBase* LUA, int index) {
     }
     LUA->Pop();
     
+    // Get isDynamic flag (optional, defaults to false for static behavior)
+    LUA->GetField(index, "isDynamic");
+    if (LUA->IsType(-1, Type::Bool)) {
+        info.isDynamic = LUA->GetBool(-1);
+    }
+    LUA->Pop();
+    
     return info;
 }
 
