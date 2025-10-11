@@ -1,5 +1,5 @@
 TOOL.Category		= "RTX Remix"
-TOOL.Name			= "Remix Light - Cylinder"
+TOOL.Name			= "API Light - Cylinder"
 TOOL.Command		= nil
 TOOL.ConfigName		= ""
 
@@ -14,7 +14,7 @@ TOOL.ClientConVar["freeze"]			= "1"
 TOOL.ClientConVar["axislen"]		= "40"
 
 if CLIENT then
-    language.Add("tool.remix_rt_light_cylinder.name", "Remix Light - Cylinder")
+    language.Add("tool.remix_rt_light_cylinder.name", "API Light - Cylinder")
     language.Add("tool.remix_rt_light_cylinder.desc", "Spawn and edit Cylindrical Lights")
     language.Add("tool.remix_rt_light_cylinder.0", "Left-click: Spawn | Right-click: Update")
 end

@@ -5,7 +5,7 @@ if SERVER then return end
 -- hitting native race conditions when too many ops happen in a single frame.
 
 local CV_ENABLED = CreateClientConVar("rtx_light_queue_enabled", "1", true, false, "Enable RemixLight operation queuing")
-local CV_OPS_PER_TICK = CreateClientConVar("rtx_light_ops_per_tick", "32", true, false, "Max RemixLight ops processed per tick")
+local CV_OPS_PER_TICK = CreateClientConVar("rtx_light_ops_per_tick", "128", true, false, "Max RemixLight ops processed per tick")
 local CV_COALESCE_UPDATES = CreateClientConVar("rtx_light_coalesce_updates", "1", true, false, "Coalesce multiple updates to same light in queue")
 
 local queue = {}

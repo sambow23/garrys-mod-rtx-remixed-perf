@@ -1,5 +1,5 @@
 TOOL.Category		= "RTX Remix"
-TOOL.Name			= "Remix Light - Distant"
+TOOL.Name			= "API Light - Distant"
 TOOL.Command		= nil
 TOOL.ConfigName		= ""
 
@@ -16,7 +16,7 @@ TOOL.ClientConVar["yaw"]			= "0"
 TOOL.ClientConVar["pitch"]			= "-90"
 
 if CLIENT then
-    language.Add("tool.remix_rt_light_distant.name", "Remix Light - Distant")
+    language.Add("tool.remix_rt_light_distant.name", "API Light - Distant")
     language.Add("tool.remix_rt_light_distant.desc", "Spawn and edit Distant/Directional Lights")
     language.Add("tool.remix_rt_light_distant.0", "Left-click: Spawn | Right-click: Update")
 end
@@ -95,8 +95,6 @@ end
 
 function TOOL.BuildCPanel(panel)
     panel:Help("Spawn and edit Distant/Directional Lights")
-    panel:Help("Simulates sun or other distant light sources")
-    panel:Help("")
 
     panel:NumSlider("Brightness", "remix_rt_light_distant_brightness", 0, 10, 2)
     panel:NumSlider("Volumetrics", "remix_rt_light_distant_volumetric", 0, 5, 2)

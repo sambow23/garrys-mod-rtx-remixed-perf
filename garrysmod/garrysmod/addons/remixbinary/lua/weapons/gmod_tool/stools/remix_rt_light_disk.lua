@@ -1,5 +1,5 @@
 TOOL.Category		= "RTX Remix"
-TOOL.Name			= "Remix Light - Disk"
+TOOL.Name			= "API Light - Disk"
 TOOL.Command		= nil
 TOOL.ConfigName		= ""
 
@@ -17,7 +17,7 @@ TOOL.ClientConVar["yaw"]			= "0"
 TOOL.ClientConVar["pitch"]			= "-90"
 
 if CLIENT then
-    language.Add("tool.remix_rt_light_disk.name", "Remix Light - Disk")
+    language.Add("tool.remix_rt_light_disk.name", "API Light - Disk")
     language.Add("tool.remix_rt_light_disk.desc", "Spawn and edit Disk/Ellipse Area Lights")
     language.Add("tool.remix_rt_light_disk.0", "Left-click: Spawn | Right-click: Update")
 end

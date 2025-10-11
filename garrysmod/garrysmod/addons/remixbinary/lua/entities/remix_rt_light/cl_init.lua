@@ -1104,27 +1104,12 @@ end, nil, "Set fill opacity for RTX light visualization (0-255)")
 
 -- Add to tool menu if available
 hook.Add("PopulateToolMenu", "RemixRTLight_ToolMenu", function()
-    spawnmenu.AddToolMenuOption("Utilities", "RTX Remix", "RTX_Remix_Light_Viz", "Light Visualization", "", "", function(panel)
+    spawnmenu.AddToolMenuOption("Utilities", "RTX Remix", "RTX_Remix_Light_Viz", "API Light HUD", "", "", function(panel)
         panel:ClearControls()
-        
-        panel:Help("HUD-based visualization for RTX Remix lights")
-        panel:Help("Works with fixed-function rendering")
-        
-        panel:CheckBox("Enable Visualization", "remix_rt_light_visualize")
-        panel:CheckBox("Always Show (360°)", "remix_rt_light_visualize_always")
-        panel:NumSlider("Visualization Range", "remix_rt_light_visualize_range", 512, 8192, 0)
-        panel:NumSlider("Visualization Scale", "remix_rt_light_visualize_scale", 0.1, 10.0, 2)
+
+        panel:CheckBox("Enable HUD", "remix_rt_light_visualize")
+        panel:NumSlider("HUD Range", "remix_rt_light_visualize_range", 512, 8192, 0)
         panel:NumSlider("Fill Opacity", "remix_rt_light_visualize_fill_opacity", 0, 255, 0)
-        
-        panel:Help("")
-        panel:Help("Adjust scale to match Remix's actual light rendering")
-        panel:Help("Fill opacity: 30-50 recommended, 0 to disable fill")
-        panel:Help("(Text size is not affected, only spatial elements)")
-        
-        panel:Help("")
-        panel:Help("Color Legend:")
-        panel:Help("🟡 Sphere | 🔵 Rect | 🟣 Disk")
-        panel:Help("🟣 Cylinder | 🟡 Distant | 🟢 Dome")
         
         local btnReset = panel:Button("Reset to Defaults")
         btnReset.DoClick = function()
@@ -1132,7 +1117,7 @@ hook.Add("PopulateToolMenu", "RemixRTLight_ToolMenu", function()
             RunConsoleCommand("remix_rt_light_visualize_range", "2048")
             RunConsoleCommand("remix_rt_light_visualize_always", "0")
             RunConsoleCommand("remix_rt_light_visualize_scale", "1.0")
-            RunConsoleCommand("remix_rt_light_visualize_fill_opacity", "30")
+            RunConsoleCommand("remix_rt_light_visualize_fill_opacity", "135")
         end
     end)
 end)

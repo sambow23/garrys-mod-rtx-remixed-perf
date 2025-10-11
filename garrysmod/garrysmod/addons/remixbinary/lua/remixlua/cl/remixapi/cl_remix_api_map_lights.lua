@@ -17,6 +17,10 @@ local point_brightness_mult = CreateClientConVar("rtx_api_map_lights_point_brigh
 local spot_brightness_mult = CreateClientConVar("rtx_api_map_lights_spot_brightness_mult", "1.0", true, false, "Brightness multiplier for spot lights")
 local env_brightness_mult = CreateClientConVar("rtx_api_map_lights_env_brightness_mult", "1.0", true, false, "Brightness multiplier for directional lights")
 
+local point_volumetric_mult = CreateClientConVar("rtx_api_map_lights_point_volumetric_mult", "1.0", true, false, "Volumetric scale multiplier for point lights")
+local spot_volumetric_mult = CreateClientConVar("rtx_api_map_lights_spot_volumetric_mult", "1.0", true, false, "Volumetric scale multiplier for spot lights")
+local env_volumetric_mult = CreateClientConVar("rtx_api_map_lights_env_volumetric_mult", "1.0", true, false, "Volumetric scale multiplier for directional lights")
+
 local creation_batch_size = CreateClientConVar("rtx_api_map_lights_batch_size", "1", true, false, "Number of lights to create in each batch")
 local creation_batch_delay = CreateClientConVar("rtx_api_map_lights_batch_delay", "0.0", true, false, "Delay between batches in seconds")
 local pos_jitter = CreateClientConVar("rtx_api_map_lights_position_jitter", "1", true, false, "Add a small random offset to light positions to prevent conflicts")
@@ -627,7 +631,7 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         local distant = {
             direction = { x = dir.x, y = dir.y, z = dir.z },
             angularDiameterDegrees = baseAngular * (env_angular_mult:GetFloat() or 1.0),
-            volumetricRadianceScale = 1.0,
+            volumetricRadianceScale = env_volumetric_mult:GetFloat() or 1.0,
         }
         if istable(RemixLightQueue) and RemixLightQueue.CreateDistant then
             lightId = RemixLightQueue.CreateDistant(base, distant, entityId)
@@ -638,10 +642,11 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         -- Sphere info as a reasonable default representation
         local baseRadius = tonumber(size) or 200
         local rmult = (kind == "spot") and (spot_radius_mult:GetFloat() or 1.0) or (point_radius_mult:GetFloat() or 1.0)
+        local vmult = (kind == "spot") and (spot_volumetric_mult:GetFloat() or 1.0) or (point_volumetric_mult:GetFloat() or 1.0)
         local sphere = {
             position = { x = pos.x, y = pos.y, z = pos.z },
             radius = baseRadius * rmult,
-            volumetricRadianceScale = 1.0,
+            volumetricRadianceScale = vmult,
         }
         if lightProps and lightProps.shapingEnabled then
             sphere.shaping = {
@@ -903,7 +908,7 @@ local function updateEntryRuntime(entry)
         local distant = {
             direction = (function() local d = computeDir(); return { x = d.x, y = d.y, z = d.z } end)(),
             angularDiameterDegrees = baseAngular * (env_angular_mult:GetFloat() or 1.0),
-            volumetricRadianceScale = 1.0,
+            volumetricRadianceScale = env_volumetric_mult:GetFloat() or 1.0,
         }
         if istable(RemixLightQueue) and RemixLightQueue.UpdateDistant then
             RemixLightQueue.UpdateDistant(base, distant, entry.id)
@@ -912,10 +917,11 @@ local function updateEntryRuntime(entry)
         end
     else
         local rmult = (kind == "spot") and (spot_radius_mult:GetFloat() or 1.0) or (point_radius_mult:GetFloat() or 1.0)
+        local vmult = (kind == "spot") and (spot_volumetric_mult:GetFloat() or 1.0) or (point_volumetric_mult:GetFloat() or 1.0)
         local sphere = {
             position = { x = entry.pos.x, y = entry.pos.y, z = entry.pos.z },
             radius = (tonumber(entry.baseRadius) or tonumber(entry.size) or 200) * rmult,
-            volumetricRadianceScale = 1.0,
+            volumetricRadianceScale = vmult,
         }
         if entry.shapingEnabled then
             local d = computeDir()
@@ -960,6 +966,9 @@ if cvars and cvars.AddChangeCallback then
     cvars.AddChangeCallback("rtx_api_map_lights_point_radius_mult", function() updateAllOfKind("point") end, "rtx_maplights_point_rmult")
     cvars.AddChangeCallback("rtx_api_map_lights_spot_radius_mult", function() updateAllOfKind("spot") end, "rtx_maplights_spot_rmult")
     cvars.AddChangeCallback("rtx_api_map_lights_env_angular_mult", function() updateAllOfKind("env") end, "rtx_maplights_env_amult")
+    cvars.AddChangeCallback("rtx_api_map_lights_point_volumetric_mult", function() updateAllOfKind("point") end, "rtx_maplights_point_vmult")
+    cvars.AddChangeCallback("rtx_api_map_lights_spot_volumetric_mult", function() updateAllOfKind("spot") end, "rtx_maplights_spot_vmult")
+    cvars.AddChangeCallback("rtx_api_map_lights_env_volumetric_mult", function() updateAllOfKind("env") end, "rtx_maplights_env_vmult")
     -- Flip callback: re-evaluate env directions from stored angles when toggled
     cvars.AddChangeCallback("rtx_api_map_lights_env_dir_flip", function() updateAllOfKind("env") end, "rtx_maplights_env_flip")
 end
