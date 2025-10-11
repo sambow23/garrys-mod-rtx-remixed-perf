@@ -24,6 +24,8 @@ local mapMeshes = {
 local isEnabled = false
 local renderStats = {draws = 0}
 local buildState = { active = false, processed = 0, total = 0 }
+-- Expose build state for progress tracking
+if RemixRenderCore then RemixRenderCore._worldBuildState = buildState end
 local Vector = Vector
 local math_min = math.min
 local math_max = math.max

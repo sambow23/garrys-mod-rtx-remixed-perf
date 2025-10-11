@@ -21,7 +21,9 @@ local bDrawingSkybox = false
 local skyboxProps = {}
 local worldProps = {}
 local sprStats = { rendered = 0, total = 0 }
-local sprBuildStats = { startTime = 0, endTime = 0, built = 0 }
+local sprBuildStats = { startTime = 0, endTime = 0, built = 0, active = false }
+-- Expose build state for progress tracking
+if RemixRenderCore then RemixRenderCore._sprBuildState = sprBuildStats end
 -- PVS cache
 local lastLeaf = nil
 local pvsCache = nil
@@ -258,6 +260,7 @@ local function CacheMapStaticProps()
     sprBuildStats.startTime = SysTime()
     sprBuildStats.endTime = 0
     sprBuildStats.built = 0
+    sprBuildStats.active = true
     
     -- Clear previous caches
     table.Empty(cachedStaticProps)
@@ -267,12 +270,14 @@ local function CacheMapStaticProps()
     if not okProps then
         print("[Static Render] GetStaticProps() errored")
         isCachingInProgress = false
+        sprBuildStats.active = false
         isDataReady = true
         return
     end
     if not staticPropsRaw or type(staticPropsRaw) ~= "table" then
         print("[Static Render] GetStaticProps() returned invalid data:", staticPropsRaw)
         isCachingInProgress = false
+        sprBuildStats.active = false
         isDataReady = true -- Mark as ready to prevent retries
         return
     end
@@ -315,6 +320,7 @@ local function CacheMapStaticProps()
                            processedSoFar, skippedSoFar))
         sprStats.total = processedSoFar
         sprBuildStats.endTime = SysTime()
+        sprBuildStats.active = false
     end)
     -- Schedule coroutine advancement via RenderCore job system to reduce timer overhead
     local jobId = "StaticPropsCacheJob"
@@ -324,6 +330,7 @@ local function CacheMapStaticProps()
         if not ok then
             ErrorNoHalt("[Static Render] Cache coroutine error: " .. tostring(err) .. "\n")
             isCachingInProgress = false
+            sprBuildStats.active = false
             return false
         end
         return coroutine.status(co) ~= "dead"

@@ -262,7 +262,7 @@ CreateClientConVar("rtx_rearview_enabled", "0", true, false, "Enable the rear-vi
 CreateClientConVar("rtx_rearview_size", "1", true, false, "Rear-view panel size (square), requires toggle to re-create")
 CreateClientConVar("rtx_rearview_fov", "173", true, false, "Rear-view camera FOV in degrees. Set -1 to follow player FOV (fov_desired)")
 -- Movement/offset convars
-CreateClientConVar("rtx_rearview_off_forward", "1000", true, false, "Rear-view local forward offset in units")
+CreateClientConVar("rtx_rearview_off_forward", "2000", true, false, "Rear-view local forward offset in units")
 CreateClientConVar("rtx_rearview_off_right", "0", true, false, "Rear-view local right offset in units")
 CreateClientConVar("rtx_rearview_off_up", "0", true, false, "Rear-view local up offset in units")
 CreateClientConVar("rtx_rearview_yaw_add", "180", true, false, "Additional yaw in degrees (default 180 = look behind)")
@@ -329,7 +329,7 @@ concommand.Add("rtx_rearview_nudge", function(ply, cmd, args)
 end, nil, "Nudge an offset: rearview_nudge <f|r|u|yaw> <delta>")
 
 concommand.Add("rtx_rearview_resetoffset", function()
-    RunConsoleCommand("rtx_rearview_off_forward", "0")
+    RunConsoleCommand("rtx_rearview_off_forward", "2000")
     RunConsoleCommand("rtx_rearview_off_right", "0")
     RunConsoleCommand("rtx_rearview_off_up", "0")
     RunConsoleCommand("rtx_rearview_yaw_add", "180")

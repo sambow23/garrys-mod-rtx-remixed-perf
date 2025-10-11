@@ -27,6 +27,8 @@ local dispMeshes = {}
 -- }
 
 local buildState = { active = false, processed = 0, total = 0 }
+-- Expose build state for progress tracking
+if RemixRenderCore then RemixRenderCore._dispBuildState = buildState end
 local stats = { draws = 0, chunksVisited = 0 }
 
 -- PVS cache for displacement renderer
