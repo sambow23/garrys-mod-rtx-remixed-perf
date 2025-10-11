@@ -10,7 +10,6 @@ local cv_vis_range = CreateClientConVar("remix_rt_light_visualize_range", "2048"
 local cv_vis_always = CreateClientConVar("remix_rt_light_visualize_always", "0", true, false, "Always show visualization, even when not looking at lights")
 local cv_vis_scale = CreateClientConVar("remix_rt_light_visualize_scale", "1.0", true, false, "Scale factor for visualization size (0.1 to 10.0)")
 local cv_vis_fill_opacity = CreateClientConVar("remix_rt_light_visualize_fill_opacity", "30", true, false, "Fill opacity for shape visualization (0-255)")
-local cv_vis_opacity = CreateClientConVar("remix_rt_light_visualize_opacity", "100", true, false, "Global visualization opacity percentage (0-100)")
 
 local function vec_to_table(v) return { x = v.x, y = v.y, z = v.z } end
 
@@ -92,7 +91,6 @@ local lightColors = {
     disk = Color(255, 100, 200),
     cylinder = Color(200, 100, 255),
     distant = Color(255, 255, 100),
-    dome = Color(100, 255, 200),
 }
 
 local lightIcons = {
@@ -101,7 +99,6 @@ local lightIcons = {
     disk = "◯",
     cylinder = "▯",
     distant = "☀",
-    dome = "⬒",
 }
 
 function ENT:Draw()
@@ -115,13 +112,16 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
     local ply = LocalPlayer()
     if not IsValid(ply) then return end
     
+    -- Hide visualizations when using the camera tool
+    local wep = ply:GetActiveWeapon()
+    if IsValid(wep) and wep:GetClass() == "gmod_camera" then return end
+    
     local eyePos = ply:EyePos()
     local eyeAng = ply:EyeAngles()
     local maxRange = cv_vis_range:GetFloat()
     local alwaysShow = cv_vis_always:GetBool()
     local vizScale = math.Clamp(cv_vis_scale:GetFloat(), 0.1, 10.0)
     local fillOpacity = math.Clamp(cv_vis_fill_opacity:GetInt(), 0, 255)
-    local globalOpacity = math.Clamp(cv_vis_opacity:GetFloat(), 0, 100) / 100
     local lineThickness = 2
     
     for _, ent in ipairs(ents.FindByClass("remix_rt_light")) do
@@ -157,8 +157,8 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
         local b = math.Clamp(radiance.z * 12 / scale, 0, 255)
         local col = Color(r, g, b)
         
-        -- Alpha fade based on distance with global opacity multiplier
-        local alpha = math.Clamp(255 * (1 - dist / maxRange), 50, 255) * globalOpacity
+        -- Alpha fade based on distance
+        local alpha = math.Clamp(255 * (1 - dist / maxRange), 50, 255)
         col.a = alpha
         
         -- Get outline color (more subtle for text)
@@ -540,14 +540,6 @@ local function ensure_light(ent)
         elseif RemixLight.CreateDistant then
             createdId = RemixLight.CreateDistant(base, distant, ent:EntIndex())
         end
-    elseif lt == "dome" then
-        local tex = ent:GetNWString("rtx_light_dome_tex", "")
-        local dome = { colorTexture = (tex ~= "" and tex or nil) }
-        if RemixLightQueue and RemixLightQueue.CreateDome then
-            createdId = RemixLightQueue.CreateDome(base, dome, ent:EntIndex())
-        elseif RemixLight.CreateDome then
-            createdId = RemixLight.CreateDome(base, dome, ent:EntIndex())
-        end
     end
 
     ent.LightId = createdId
@@ -563,7 +555,8 @@ function ENT:Think()
     -- Only update if we have a valid light ID and the API is available
     if not self.LightId or not RemixLight then return end
     
-    local pos = self:GetNWVector("rtx_light_pos", self:GetPos())
+    -- Read position directly from entity (not networked) for smooth movement
+    local pos = self:GetPos()
     local col = self:GetNWVector("rtx_light_col", Vector(15,15,15))
     local radius = self:GetNWFloat("rtx_light_radius", 20)
     local shapingEnabled = self:GetNWBool("rtx_light_shape_enabled", false)
@@ -640,14 +633,6 @@ function ENT:Think()
             else
                 RemixLight.UpdateDistant(base, distant, self.LightId)
             end
-        elseif lt == "dome" and (RemixLight.UpdateDome or (RemixLightQueue and RemixLightQueue.UpdateDome)) then
-            local tex = self:GetNWString("rtx_light_dome_tex", "")
-            local dome = { colorTexture = (tex ~= "" and tex or nil) }
-            if RemixLightQueue and RemixLightQueue.UpdateDome then
-                RemixLightQueue.UpdateDome(base, dome, self.LightId)
-            else
-                RemixLight.UpdateDome(base, dome, self.LightId)
-            end
         end
     end
 end
@@ -682,12 +667,11 @@ properties.Add("remix_rt_light_edit", {
         typeCombo:Dock(TOP)
         typeCombo:DockMargin(10, 10, 10, 5)
         local lt_init = ent:GetNWString("rtx_light_type", "sphere")
-        typeCombo:AddChoice("SPHERE", "sphere")
-        typeCombo:AddChoice("RECT", "rect")
-        typeCombo:AddChoice("DISK", "disk")
-        typeCombo:AddChoice("CYLINDER", "cylinder")
-        typeCombo:AddChoice("DISTANT", "distant")
-        typeCombo:AddChoice("DOME", "dome")
+        typeCombo:AddChoice("Sphere", "sphere")
+        typeCombo:AddChoice("Rect", "rect")
+        typeCombo:AddChoice("Disk", "disk")
+        typeCombo:AddChoice("Cylinder", "cylinder")
+        typeCombo:AddChoice("Distant", "distant")
         -- Ensure internal selected ID/data is set so refreshVisibility reads the correct type
         if typeCombo.ChooseOption then
             typeCombo:ChooseOption(string.upper(lt_init))
@@ -1026,20 +1010,6 @@ concommand.Add("remix_rt_light_vis_fill", function(ply, cmd, args)
     end
 end, nil, "Set fill opacity for RTX light visualization (0-255)")
 
-concommand.Add("remix_rt_light_vis_opacity", function(ply, cmd, args)
-    if #args < 1 then
-        print("[Remix RT Light] Current global opacity: " .. cv_vis_opacity:GetFloat() .. "%")
-        print("Usage: remix_rt_light_vis_opacity <percentage> (0 to 100)")
-        return
-    end
-    local opacity = tonumber(args[1])
-    if opacity then
-        opacity = math.Clamp(opacity, 0, 100)
-        cv_vis_opacity:SetFloat(opacity)
-        print("[Remix RT Light] Global visualization opacity set to " .. opacity .. "%")
-    end
-end, nil, "Set global opacity for all RTX light visualizations (0-100%)")
-
 -- Add to tool menu if available
 hook.Add("PopulateToolMenu", "RemixRTLight_ToolMenu", function()
     spawnmenu.AddToolMenuOption("Utilities", "RTX Remix", "RTX_Remix_Light_Viz", "Light Visualization", "", "", function(panel)
@@ -1053,12 +1023,11 @@ hook.Add("PopulateToolMenu", "RemixRTLight_ToolMenu", function()
         panel:NumSlider("Visualization Range", "remix_rt_light_visualize_range", 512, 8192, 0)
         panel:NumSlider("Visualization Scale", "remix_rt_light_visualize_scale", 0.1, 10.0, 2)
         panel:NumSlider("Fill Opacity", "remix_rt_light_visualize_fill_opacity", 0, 255, 0)
-        panel:NumSlider("Global Opacity %", "remix_rt_light_visualize_opacity", 0, 100, 0)
         
         panel:Help("")
         panel:Help("Adjust scale to match Remix's actual light rendering")
         panel:Help("Fill opacity: 30-50 recommended, 0 to disable fill")
-        panel:Help("Global opacity: Master opacity control for all visualizations")
+        panel:Help("(Text size is not affected, only spatial elements)")
         
         panel:Help("")
         panel:Help("Color Legend:")
@@ -1072,7 +1041,6 @@ hook.Add("PopulateToolMenu", "RemixRTLight_ToolMenu", function()
             RunConsoleCommand("remix_rt_light_visualize_always", "0")
             RunConsoleCommand("remix_rt_light_visualize_scale", "1.0")
             RunConsoleCommand("remix_rt_light_visualize_fill_opacity", "30")
-            RunConsoleCommand("remix_rt_light_visualize_opacity", "100")
         end
     end)
 end)

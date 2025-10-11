@@ -153,10 +153,5 @@ if SERVER then
         v = clampf(t.rtx_light_distant_angle, 0, 10);  if v then ent:SetNWFloat("rtx_light_distant_angle", v) end
         local s = clampstr(t.rtx_light_dome_tex);       if s and s ~= "" then ent:SetNWString("rtx_light_dome_tex", s) end
         local col = clampvec(t.rtx_light_col);          if col then ent:SetNWVector("rtx_light_col", col) end
-        
-        -- Rebuild collision mesh to match new dimensions
-        if ent.UpdatePhysicsShape then
-            ent:UpdatePhysicsShape()
-        end
     end)
 end

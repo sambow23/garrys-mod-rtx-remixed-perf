@@ -11,7 +11,6 @@ TOOL.ClientConVar["color_r"]		= "255"
 TOOL.ClientConVar["color_g"]		= "220"
 TOOL.ClientConVar["color_b"]		= "180"
 TOOL.ClientConVar["freeze"]			= "1"
-TOOL.ClientConVar["gravity"]		= "0"
 TOOL.ClientConVar["axislen"]		= "40"
 
 if CLIENT then
@@ -52,18 +51,9 @@ function TOOL:LeftClick(trace)
     local b = self:GetClientNumber("color_b") or 180
     ent:SetNWVector("rtx_light_col", computeRadianceVector(r, g, b, self:GetClientNumber("brightness") or 1))
 
-    -- Update physics shape to match light dimensions
-    ent:UpdatePhysicsShape()
-
-    local phys = ent:GetPhysicsObject()
-    if IsValid(phys) then
-        -- Apply gravity setting
-        phys:EnableGravity(self:GetClientNumber("gravity") ~= 0)
-        
-        -- Apply freeze setting
-        if self:GetClientNumber("freeze") ~= 0 then
-            phys:EnableMotion(false)
-        end
+    if self:GetClientNumber("freeze") ~= 0 then
+        local phys = ent:GetPhysicsObject()
+        if IsValid(phys) then phys:EnableMotion(false) end
     end
 
     undo.Create("Remix Cylinder Light")
@@ -90,9 +80,6 @@ function TOOL:RightClick(trace)
     local g = self:GetClientNumber("color_g") or 220
     local b = self:GetClientNumber("color_b") or 180
     ent:SetNWVector("rtx_light_col", computeRadianceVector(r, g, b, self:GetClientNumber("brightness") or 1))
-
-    -- Update physics shape to match light dimensions
-    ent:UpdatePhysicsShape()
 
     return true
 end
@@ -124,6 +111,5 @@ function TOOL.BuildCPanel(panel)
     })
     
     panel:CheckBox("Freeze on Spawn", "remix_rt_light_cylinder_freeze")
-    panel:CheckBox("Enable Gravity", "remix_rt_light_cylinder_gravity")
 end
 

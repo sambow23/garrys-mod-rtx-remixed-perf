@@ -4,17 +4,14 @@ include("shared.lua")
 
 function ENT:Initialize()
     print("[remix_rt_light] Initialize (server)")
-    -- Set model but don't use its physics - we'll create custom physics
     self:SetModel("models/hunter/blocks/cube025x025x025.mdl")
-    
-    -- Hide the visual model
-    self:SetNoDraw(true)
-    self:DrawShadow(false)
-    
-    -- Initialize with a basic sphere physics object (will be updated by UpdatePhysicsShape)
-    self:PhysicsInitSphere(10, "default")
+    self:PhysicsInit(SOLID_VPHYSICS)
     self:SetMoveType(MOVETYPE_VPHYSICS)
     self:SetSolid(SOLID_VPHYSICS)
+    
+    -- Hide the physics prop
+    self:SetNoDraw(true)
+    self:DrawShadow(false)
     
     -- Configure physics: no gravity by default, but not frozen
     local phys = self:GetPhysicsObject()
@@ -24,7 +21,6 @@ function ENT:Initialize()
     end
 
     self.LightId = nil
-    self.NextUpdate = 0
     -- Default parameters; can be overridden via net message
     self:SetNWVector("rtx_light_col", Vector(15, 15, 15))
     self:SetNWFloat("rtx_light_radius", 20)
@@ -49,8 +45,6 @@ function ENT:Initialize()
     self:SetNWFloat("rtx_light_axis_len", 40)
     -- Distant angular diameter
     self:SetNWFloat("rtx_light_distant_angle", 0.5)
-    -- Dome texture
-    self:SetNWString("rtx_light_dome_tex", "")
 end
 
 function ENT:SpawnFunction(ply, tr, ClassName)
@@ -72,70 +66,9 @@ function ENT:CreateRemixLight()
     -- This function is kept as a no-op for backward compatibility.
 end
 
--- Update physics shape to match light type and dimensions
-function ENT:UpdatePhysicsShape()
-    local lightType = self:GetNWString("rtx_light_type", "sphere")
-    
-    -- Remove old physics object
-    self:PhysicsDestroy()
-    
-    if lightType == "sphere" then
-        local radius = self:GetNWFloat("rtx_light_radius", 20)
-        self:PhysicsInitSphere(radius, "default")
-        
-    elseif lightType == "rect" then
-        local xsize = self:GetNWFloat("rtx_light_xsize", 40)
-        local ysize = self:GetNWFloat("rtx_light_ysize", 40)
-        local thickness = 2 -- Thin box for rect
-        local mins = Vector(-xsize/2, -ysize/2, -thickness/2)
-        local maxs = Vector(xsize/2, ysize/2, thickness/2)
-        self:PhysicsInitBox(mins, maxs, "default")
-        
-    elseif lightType == "disk" then
-        local xradius = self:GetNWFloat("rtx_light_xradius", 20)
-        local yradius = self:GetNWFloat("rtx_light_yradius", 20)
-        -- Use average radius for cylinder approximation
-        local avgRadius = (xradius + yradius) / 2
-        local thickness = 2 -- Thin cylinder for disk
-        local mins = Vector(-avgRadius, -avgRadius, -thickness/2)
-        local maxs = Vector(avgRadius, avgRadius, thickness/2)
-        self:PhysicsInitBox(mins, maxs, "default")
-        
-    elseif lightType == "cylinder" then
-        local radius = self:GetNWFloat("rtx_light_radius", 20)
-        local axisLen = self:GetNWFloat("rtx_light_axis_len", 40)
-        -- Use box approximation for cylinder (GMod doesn't have PhysicsInitCylinder)
-        local mins = Vector(-radius, -radius, -axisLen/2)
-        local maxs = Vector(radius, radius, axisLen/2)
-        self:PhysicsInitBox(mins, maxs, "default")
-        
-    elseif lightType == "distant" then
-        -- Distant lights are directional, use small sphere
-        self:PhysicsInitSphere(10, "default")
-        
-    else
-        -- Default to small sphere
-        self:PhysicsInitSphere(10, "default")
-    end
-    
-    self:SetMoveType(MOVETYPE_VPHYSICS)
-    self:SetSolid(SOLID_VPHYSICS)
-    
-    -- Reapply physics settings
-    local phys = self:GetPhysicsObject()
-    if IsValid(phys) then
-        phys:EnableGravity(false)
-        phys:Wake()
-    end
-end
-
 function ENT:Think()
-    -- Server only updates pose. Client will issue the Update using NW values
-    if CurTime() >= self.NextUpdate then
-        self:SetNWVector("rtx_light_pos", self:GetPos())
-        self.NextUpdate = CurTime() + 0.1
-    end
-
+    -- Client reads position directly from entity for smooth movement
+    -- Only light properties need to be networked, not position/angles
     self:NextThink(CurTime())
     return true
 end
@@ -159,7 +92,6 @@ local function getNWTable(ent)
         rtx_light_yradius = ent:GetNWFloat("rtx_light_yradius", 20),
         rtx_light_axis_len = ent:GetNWFloat("rtx_light_axis_len", 40),
         rtx_light_distant_angle = ent:GetNWFloat("rtx_light_distant_angle", 0.5),
-        rtx_light_dome_tex = ent:GetNWString("rtx_light_dome_tex", ""),
         rtx_light_col = ent:GetNWVector("rtx_light_col", Vector(15, 15, 15)),
     }
 end
@@ -182,7 +114,6 @@ local function applyNWTable(ent, t)
     if t.rtx_light_yradius then ent:SetNWFloat("rtx_light_yradius", t.rtx_light_yradius) end
     if t.rtx_light_axis_len then ent:SetNWFloat("rtx_light_axis_len", t.rtx_light_axis_len) end
     if t.rtx_light_distant_angle then ent:SetNWFloat("rtx_light_distant_angle", t.rtx_light_distant_angle) end
-    if t.rtx_light_dome_tex ~= nil then ent:SetNWString("rtx_light_dome_tex", t.rtx_light_dome_tex) end
     if t.rtx_light_col then ent:SetNWVector("rtx_light_col", t.rtx_light_col) end
 end
 
