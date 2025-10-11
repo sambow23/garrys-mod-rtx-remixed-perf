@@ -1,17 +1,19 @@
-<img src="https://github.com/user-attachments/assets/fad469d4-b7b2-428c-a093-5b497f02d820" alt="drawing" width="500"/>
+<img src="https://github.com/user-attachments/assets/33d637dc-ba46-4e42-8e41-f213d6f9d3a4" alt="drawing" width="500"/>
 
 ## Features
-- Light Updaters
-    - Forces Source to render all map lights
-- Material fixes
+- Custom Rendering
+  - Disables certain source engine rendering pipelines and replaces them with reimplemented versions to prevent culling and improve performance.
+     - Map Faces
+     - Displacement Faces
+     - Static Props
+     - 2D Skybox
+  - Uses PVS to prevent parts of the map that are not nearby the player from rendering to maximize performance.
+- Material Fixes
     - Fixes some broken UI/game materials and removes detail textures
     - Change all water textures to a single one to simplify replacements in Remix
-- Model fixes
-    - Fixes some props having unstable hashes in RTX Remix so they can be replaced in the Remix Toolkit
-    - Allows most HL2 RTX mesh replacements to load correctly
-- Remix API support (x64 only)
+- Remix API Support (x64 only)
+    - Lights
     - Lua bindings for addon creation
-       - Materials, config vars
     - Map-specific Remix settings
       
 
@@ -28,34 +30,12 @@ Multiplayer works best when the server/host has this addon and the cvar `sv_allo
 
 You can join servers without the addon but you ***will*** experience visual issues.
 
-## Incompatible Addons
-| Type | Name | Reason |
-| -------- | ------- | ------- |
-| Map | [Bro Said He Knew A Spot 💀](https://steamcommunity.com/sharedfiles/filedetails/?id=3252367349) | Breaks other shader-skybox maps |
-| Map | [gm_northbury](https://steamcommunity.com/sharedfiles/filedetails/?id=3251774364) | Rasterized |
-| Map | [gm_bigcity_improved](https://steamcommunity.com/workshop/filedetails/?id=815782148) | Rasterized |
-| Addon | [MW/WZ Skydive/Parachute + Infil](https://steamcommunity.com/sharedfiles/filedetails/?id=2635378860) | Consumes a lot of vram, most likely precaching |
-| Addon | [CS:GO Weapons](https://steamcommunity.com/sharedfiles/filedetails/?id=2193997180) | Game freezes up on `Starting lua...` when loading into a map. <br>(can be worked around by typing `mat_dxlevel 95` in the console ingame, may cause other issues though) |
-| Addon | [[ARC9] Gunsmith Reloaded](https://steamcommunity.com/sharedfiles/filedetails/?id=2910537020) | Game freezes up on `Starting lua...` when loading into a map. <br>(can be worked around by typing `mat_dxlevel 95` in the console ingame, may cause other issues though) |
-| Addon | [[TFA] Left 4 Dead 2 - HQ Weapons Pack](https://steamcommunity.com/sharedfiles/filedetails/?id=3349875996) | Game freezes up on `Starting lua...` when loading into a map. <br>(can be worked around by typing `mat_dxlevel 95` in the console ingame, may cause other issues though) | 
-
-
-## Known issues
-### Vanilla
-- Shader skyboxes (gm_flatgrass, gm_construct, etc) cannot be interacted with and may have rendering issues
-- Some render targets (screenshots, whatever addons that rely on them) do not appear or behave strangely (investigating)
-- NPC Eyes do not render as the fixed function rendering fallback no longer exists (investigating)
-- Some maps are rasterized and also have vertex explosions.
-- Some map lights will cull
-- Enabling `r_3dsky` causes flickering in some maps
-- Skinned meshes have unstable hashes
-
-### Addons
-- High vram usage from addons like ARC9 or TFA as they precache textures on map load
-- Tactical RP scopes become invisible when using ADS
+## Support
+### [Known Issues](https://github.com/sambow23/garrys-mod-rtx-remixed-perf/wiki/Known-issues)
+### [Incompatible Addons](https://github.com/sambow23/garrys-mod-rtx-remixed-perf/wiki/Incompatible-Addons)
 
 ## Recommended Resources
-[HDRI Editor](https://github.com/sambow23/hdri_cube/blob/main/README.md)
+### [HDRI Editor](https://github.com/sambow23/hdri_cube/blob/main/README.md)
 
 ## Credits
 * [vlazed](https://github.com/vlazed/) for [toggle-cursor](https://github.com/vlazed/toggle-cursor)
