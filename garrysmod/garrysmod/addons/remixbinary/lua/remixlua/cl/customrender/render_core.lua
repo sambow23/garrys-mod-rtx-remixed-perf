@@ -6,7 +6,7 @@ do
     local handlers = RemixRenderCore._handlers or {}
     local attached = RemixRenderCore._attached or {}
     local matCache = RemixRenderCore._materials or {}
-    local meshRefs = RemixRenderCore._meshRefs or setmetatable({}, { __mode = "kv" })
+    local meshRefs = RemixRenderCore._meshRefs or {}
     local statsFns = RemixRenderCore._stats or {}
     local tokens = RemixRenderCore._tokens or {}
     local rebuildSinks = RemixRenderCore._rebuildSinks or {}
@@ -15,6 +15,8 @@ do
     local frameState = RemixRenderCore._frame or { began = false, skybox = false }
     local jobs = RemixRenderCore._jobs or {}
     local offscreenCount = RemixRenderCore._offscreenCount or 0
+    local frameBudgetHistory = RemixRenderCore._frameBudgetHistory or {}
+    local FRAME_BUDGET_SAMPLES = 10
 
     local function safeCall(id, fn, ...)
         local ok, a, b, c, d = pcall(fn, ...)
@@ -65,28 +67,75 @@ do
         bucket[#bucket + 1] = item
     end
 
-    local function flushQueue(queue)
+    -- Depth sort helper for translucent meshes
+    local function getItemDepth(item, camPos)
+        if not item.matrix then return 0 end
+        local pos = item.matrix:GetTranslation()
+        return pos:DistToSqr(camPos)
+    end
+
+    local function flushQueue(queue, translucent)
         if not queue or not queue.order then return end
         local lastMat = nil
         local order = queue.order
         local buckets = queue.buckets
-        for i = 1, #order do
-            local mat = order[i]
-            local bucket = buckets[mat]
-            if bucket and #bucket > 0 then
-                if mat ~= lastMat then
-                    render.SetMaterial(mat)
-                    lastMat = mat
-                end
-                for j = 1, #bucket do
-                    local it = bucket[j]
-                    if it._ncolor then
-                        render.SetColorModulation(it._ncolor.r, it._ncolor.g, it._ncolor.b)
+        
+        -- For translucent, we need depth sorting
+        if translucent then
+            local camPos = EyePos()
+            local allItems = {}
+            
+            -- Collect all items from all buckets
+            for i = 1, #order do
+                local mat = order[i]
+                local bucket = buckets[mat]
+                if bucket and #bucket > 0 then
+                    for j = 1, #bucket do
+                        allItems[#allItems + 1] = bucket[j]
                     end
-                    if it.matrix then cam.PushModelMatrix(it.matrix) end
-                    it.mesh:Draw()
-                    if it.matrix then cam.PopModelMatrix() end
-                    if it._ncolor then render.SetColorModulation(1, 1, 1) end
+                end
+            end
+            
+            -- Sort back-to-front by distance
+            table.sort(allItems, function(a, b)
+                return getItemDepth(a, camPos) > getItemDepth(b, camPos)
+            end)
+            
+            -- Render sorted items
+            for i = 1, #allItems do
+                local it = allItems[i]
+                if it.material ~= lastMat then
+                    render.SetMaterial(it.material)
+                    lastMat = it.material
+                end
+                if it._ncolor then
+                    render.SetColorModulation(it._ncolor.r, it._ncolor.g, it._ncolor.b)
+                end
+                if it.matrix then cam.PushModelMatrix(it.matrix) end
+                it.mesh:Draw()
+                if it.matrix then cam.PopModelMatrix() end
+                if it._ncolor then render.SetColorModulation(1, 1, 1) end
+            end
+        else
+            -- Opaque: bucket by material (no sorting needed)
+            for i = 1, #order do
+                local mat = order[i]
+                local bucket = buckets[mat]
+                if bucket and #bucket > 0 then
+                    if mat ~= lastMat then
+                        render.SetMaterial(mat)
+                        lastMat = mat
+                    end
+                    for j = 1, #bucket do
+                        local it = bucket[j]
+                        if it._ncolor then
+                            render.SetColorModulation(it._ncolor.r, it._ncolor.g, it._ncolor.b)
+                        end
+                        if it.matrix then cam.PushModelMatrix(it.matrix) end
+                        it.mesh:Draw()
+                        if it.matrix then cam.PopModelMatrix() end
+                        if it._ncolor then render.SetColorModulation(1, 1, 1) end
+                    end
                 end
             end
         end
@@ -95,9 +144,9 @@ do
     function RemixRenderCore.FlushPass(translucent)
         if not frameState.began then return end
         if translucent then
-            flushQueue(queues.translucent)
+            flushQueue(queues.translucent, true)
         else
-            flushQueue(queues.opaque)
+            flushQueue(queues.opaque, false)
         end
         -- Do not reset began flag; multiple flushes per frame are okay
     end
@@ -176,6 +225,7 @@ do
     RemixRenderCore._frame = frameState
     RemixRenderCore._jobs = jobs
     RemixRenderCore._offscreenCount = offscreenCount
+    RemixRenderCore._frameBudgetHistory = frameBudgetHistory
 
     -- ============================
     -- Offscreen RT Tracking
@@ -314,29 +364,56 @@ do
     -- ============================
     -- Distance Culling Helper
     -- ============================
+    -- Distance culling with epsilon to prevent popping at boundaries
     function RemixRenderCore.ShouldCullByDistance(pos, playerPos, maxDist)
         if maxDist <= 0 then return false end
-        return pos:DistToSqr(playerPos) > (maxDist * maxDist)
+        local epsilon = maxDist * 0.05 -- 5% hysteresis
+        return pos:DistToSqr(playerPos) > ((maxDist + epsilon) * (maxDist + epsilon))
     end
 
     local matCacheOrder = RemixRenderCore._matCacheOrder or {}
+    local matCacheAccess = RemixRenderCore._matCacheAccess or {}
     local MAX_MATERIAL_CACHE = 500
     RemixRenderCore._matCacheOrder = matCacheOrder
+    RemixRenderCore._matCacheAccess = matCacheAccess
     
     function RemixRenderCore.GetMaterial(name)
         if not name or name == "" then name = "debug/debugwhite" end
         local mat = matCache[name]
-        if mat ~= nil then return mat end
+        if mat ~= nil then
+            -- Update access time for LRU
+            matCacheAccess[name] = SysTime()
+            return mat
+        end
         
-        -- LRU eviction if cache is full
+        -- LRU eviction if cache is full - evict least recently used
         if #matCacheOrder >= MAX_MATERIAL_CACHE then
-            local oldest = table.remove(matCacheOrder, 1)
-            matCache[oldest] = nil
+            local oldestName = nil
+            local oldestTime = math.huge
+            for i = 1, #matCacheOrder do
+                local n = matCacheOrder[i]
+                local t = matCacheAccess[n] or 0
+                if t < oldestTime then
+                    oldestTime = t
+                    oldestName = n
+                end
+            end
+            if oldestName then
+                matCache[oldestName] = nil
+                matCacheAccess[oldestName] = nil
+                for i = 1, #matCacheOrder do
+                    if matCacheOrder[i] == oldestName then
+                        table.remove(matCacheOrder, i)
+                        break
+                    end
+                end
+            end
         end
         
         mat = Material(name)
         matCache[name] = mat
         matCacheOrder[#matCacheOrder + 1] = name
+        matCacheAccess[name] = SysTime()
         return mat
     end
 
@@ -352,6 +429,38 @@ do
         jobs[id] = nil
     end
 
+    -- Smoothed frame budget calculation
+    function RemixRenderCore.UpdateFrameBudget(spent, currentBudget)
+        currentBudget = currentBudget or 0.003
+        
+        -- Add to history
+        frameBudgetHistory[#frameBudgetHistory + 1] = spent
+        if #frameBudgetHistory > FRAME_BUDGET_SAMPLES then
+            table.remove(frameBudgetHistory, 1)
+        end
+        
+        -- Calculate exponential moving average
+        local avg = 0
+        local weight = 1.0
+        local totalWeight = 0
+        for i = #frameBudgetHistory, 1, -1 do
+            avg = avg + frameBudgetHistory[i] * weight
+            totalWeight = totalWeight + weight
+            weight = weight * 0.8
+        end
+        avg = avg / totalWeight
+        
+        -- Adjust budget based on average, not single frame
+        local newBudget = currentBudget
+        if avg > currentBudget * 1.3 then
+            newBudget = math.max(0.001, currentBudget * 0.95)
+        elseif avg < currentBudget * 0.7 then
+            newBudget = math.min(0.008, currentBudget * 1.05)
+        end
+        
+        return newBudget
+    end
+
     function RemixRenderCore.StepJobs(budgetMs)
         budgetMs = budgetMs or 1.5 / 1000
         local start = SysTime()
@@ -359,7 +468,10 @@ do
             local ok = true
             local res
             ok, res = pcall(fn)
-            if not ok or res == false then
+            if not ok then
+                ErrorNoHalt("[RemixRenderCore] Job '" .. tostring(id) .. "' error: " .. tostring(res) .. "\n")
+                jobs[id] = nil
+            elseif res == false then
                 jobs[id] = nil
             end
             if SysTime() - start > budgetMs then break end
@@ -371,6 +483,24 @@ do
         meshRefs[meshObj] = true
     end
 
+    function RemixRenderCore.DestroyMesh(meshObj)
+        if not meshObj then return false end
+        if not meshRefs[meshObj] then return false end
+        
+        local ok, err = pcall(function()
+            if meshObj.Destroy then
+                meshObj:Destroy()
+            end
+        end)
+        
+        if not ok then
+            ErrorNoHalt("[RemixRenderCore] Failed to destroy mesh: " .. tostring(err) .. "\n")
+        end
+        
+        meshRefs[meshObj] = nil
+        return ok
+    end
+
     function RemixRenderCore.DestroyTrackedMeshes()
         -- Collect meshes to destroy first (don't modify table during iteration)
         local toDestroy = {}
@@ -378,14 +508,24 @@ do
             toDestroy[#toDestroy + 1] = m
         end
         
+        local destroyed = 0
+        local failed = 0
+        
         -- Now safely destroy them
         for i = 1, #toDestroy do
             local m = toDestroy[i]
-            if m and m.Destroy then
-                pcall(function() m:Destroy() end)
+            if RemixRenderCore.DestroyMesh(m) then
+                destroyed = destroyed + 1
+            else
+                failed = failed + 1
             end
-            meshRefs[m] = nil
         end
+        
+        if failed > 0 then
+            ErrorNoHalt("[RemixRenderCore] Failed to destroy " .. failed .. " meshes (" .. destroyed .. " succeeded)\n")
+        end
+        
+        return destroyed, failed
     end
 
     -- Debounce utility and rebuild dispatch

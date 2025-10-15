@@ -17,7 +17,7 @@ end
 local PANEL = {}
 
 function PANEL:Init()
-    self:SetSize(600, 400)
+    self:SetSize(600, 450)
     self:Center()
     self:SetTitle("Building Map Geometry")
     self:SetDraggable(false)
@@ -25,6 +25,11 @@ function PANEL:Init()
     self:SetDeleteOnClose(false)
     self:MakePopup()
     self:SetKeyboardInputEnabled(false)
+    
+    -- Stuck state detection
+    self.lastProgressUpdate = SysTime()
+    self.stuckThreshold = 30 -- seconds without progress = stuck
+    self.isStuck = false
     
     -- Progress bars for each renderer
     self.progressBars = {}
@@ -70,6 +75,35 @@ function PANEL:Init()
     self.statusLabel:SetText("Please wait...")
     self.statusLabel:SetTextColor(Color(255, 255, 255))
     self.statusLabel:SetFont("DermaDefault")
+    
+    -- Force close button (hidden initially)
+    yPos = yPos + 30
+    self.forceCloseButton = vgui.Create("DButton", self)
+    self.forceCloseButton:SetPos(20, yPos)
+    self.forceCloseButton:SetSize(560, 30)
+    self.forceCloseButton:SetText("Force Close (Build appears stuck)")
+    self.forceCloseButton:SetVisible(false)
+    self.forceCloseButton.DoClick = function()
+        self:Close()
+        -- Reset stuck build states
+        if RemixRenderCore then
+            if RemixRenderCore._worldBuildState then
+                RemixRenderCore._worldBuildState.active = false
+                RemixRenderCore._worldBuildState.processed = 0
+                RemixRenderCore._worldBuildState.total = 0
+            end
+            if RemixRenderCore._dispBuildState then
+                RemixRenderCore._dispBuildState.active = false
+                RemixRenderCore._dispBuildState.processed = 0
+                RemixRenderCore._dispBuildState.total = 0
+            end
+            if RemixRenderCore._sprBuildState then
+                RemixRenderCore._sprBuildState.active = false
+                RemixRenderCore._sprBuildState.built = 0
+            end
+        end
+        print("[Remix Build Progress] Forcibly closed and reset build states")
+    end
     
     -- Start time for elapsed time display
     self.startTime = SysTime()
@@ -163,6 +197,7 @@ end
 
 function PANEL:UpdateProgress()
     local anyActive = false
+    local currentProgress = 0
     
     -- Update World Renderer
     if RemixRenderCore and RemixRenderCore._worldBuildState then
@@ -170,7 +205,10 @@ function PANEL:UpdateProgress()
         self.progressBars.world.active = state.active or false
         self.progressBars.world.progress = state.processed or 0
         self.progressBars.world.total = state.total or 0
-        if state.active then anyActive = true end
+        if state.active then
+            anyActive = true
+            currentProgress = currentProgress + (state.processed or 0)
+        end
     end
     
     -- Update Displacement Renderer
@@ -179,7 +217,10 @@ function PANEL:UpdateProgress()
         self.progressBars.displacement.active = state.active or false
         self.progressBars.displacement.progress = state.processed or 0
         self.progressBars.displacement.total = state.total or 0
-        if state.active then anyActive = true end
+        if state.active then
+            anyActive = true
+            currentProgress = currentProgress + (state.processed or 0)
+        end
     end
     
     -- Update Static Props Renderer (it just shows count, no progress bar)
@@ -188,7 +229,23 @@ function PANEL:UpdateProgress()
         self.progressBars.staticprops.active = state.active or false
         self.progressBars.staticprops.progress = state.built or 0
         self.progressBars.staticprops.total = -1 -- Indicates we should show count instead of percentage
-        if state.active then anyActive = true end
+        if state.active then
+            anyActive = true
+            currentProgress = currentProgress + (state.built or 0)
+        end
+    end
+    
+    -- Track progress for stuck detection
+    if self.lastProgress and currentProgress > self.lastProgress then
+        self.lastProgressUpdate = SysTime()
+        self.isStuck = false
+    end
+    self.lastProgress = currentProgress
+    
+    -- Check for stuck state
+    local timeSinceProgress = SysTime() - self.lastProgressUpdate
+    if anyActive and timeSinceProgress > self.stuckThreshold then
+        self.isStuck = true
     end
     
     -- Update status text with elapsed time
@@ -196,8 +253,20 @@ function PANEL:UpdateProgress()
     local statusText = string.format("Elapsed time: %.1f seconds", elapsed)
     if not anyActive then
         statusText = statusText .. " - Complete!"
+    elseif self.isStuck then
+        statusText = statusText .. " - Build appears stuck! (no progress for " .. math.floor(timeSinceProgress) .. "s)"
+        self.statusLabel:SetTextColor(Color(255, 100, 100))
+    else
+        self.statusLabel:SetTextColor(Color(255, 255, 255))
     end
     self.statusLabel:SetText(statusText)
+    
+    -- Show force close button if stuck
+    if self.isStuck then
+        self.forceCloseButton:SetVisible(true)
+    else
+        self.forceCloseButton:SetVisible(false)
+    end
     
     -- Close panel if nothing is building
     if not anyActive and elapsed > 1 then

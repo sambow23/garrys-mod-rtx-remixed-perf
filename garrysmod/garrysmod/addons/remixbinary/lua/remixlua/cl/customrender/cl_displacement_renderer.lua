@@ -35,6 +35,7 @@ local stats = { draws = 0, chunksVisited = 0 }
 local lastLeaf = nil
 local pvsCache = nil
 local pvsLastValid = 0
+local pvsUnavailable = false -- Track if PVS is broken for this map
 
 local function IsPVSValid(pvs)
     if not pvs then return false end
@@ -112,7 +113,7 @@ local function GetDispBlendMaterial(faceMat)
 end
 
 -- Build a batch of IMesh objects from a streamed triangle vertex list, preserving per-vertex alpha via mesh.Color
-local MAX_VERTICES = 30000
+local MAX_VERTICES = 60000
 local function CreateMeshBatchWithAlpha(vertices, material, maxVertsPerMesh)
     local meshes = {}
     local currentVerts = {}
@@ -234,8 +235,13 @@ local function BuildDisplacementMeshes(cancelToken)
         local faceRecords = {}
         local alphaSumByKey = {}
         local alphaCountByKey = {}
+        -- Use epsilon-based position snapping for better seam matching
+        local POSITION_EPSILON = 0.01 -- 0.01 units
         local function posKey(p)
-            return string.format("%.3f,%.3f,%.3f", p.x, p.y, p.z)
+            local x = math.floor((p.x / POSITION_EPSILON) + 0.5) * POSITION_EPSILON
+            local y = math.floor((p.y / POSITION_EPSILON) + 0.5) * POSITION_EPSILON
+            local z = math.floor((p.z / POSITION_EPSILON) + 0.5) * POSITION_EPSILON
+            return string.format("%.2f,%.2f,%.2f", x, y, z)
         end
 
         -- Iterate leafs and include displacements (may insert duplicates across leaves)
@@ -329,10 +335,14 @@ local function BuildDisplacementMeshes(cancelToken)
                         if SysTime() - startTime > frameBudget then
                             coroutine.yield()
                             local spent = SysTime() - startTime
-                            if spent > frameBudget * 1.2 then
-                                frameBudget = math.max(0.001, frameBudget * 0.9)
-                            elseif spent < frameBudget * 0.8 then
-                                frameBudget = math.min(0.006, frameBudget * 1.1)
+                            if RenderCore and RenderCore.UpdateFrameBudget then
+                                frameBudget = RenderCore.UpdateFrameBudget(spent, frameBudget)
+                            else
+                                if spent > frameBudget * 1.2 then
+                                    frameBudget = math.max(0.001, frameBudget * 0.95)
+                                elseif spent < frameBudget * 0.8 then
+                                    frameBudget = math.min(0.006, frameBudget * 1.05)
+                                end
                             end
                             startTime = SysTime()
                         end
@@ -343,10 +353,14 @@ local function BuildDisplacementMeshes(cancelToken)
             if SysTime() - startTime > frameBudget then
                 coroutine.yield()
                 local spent = SysTime() - startTime
-                if spent > frameBudget * 1.2 then
-                    frameBudget = math.max(0.001, frameBudget * 0.9)
-                elseif spent < frameBudget * 0.8 then
-                    frameBudget = math.min(0.006, frameBudget * 1.1)
+                if RenderCore and RenderCore.UpdateFrameBudget then
+                    frameBudget = RenderCore.UpdateFrameBudget(spent, frameBudget)
+                else
+                    if spent > frameBudget * 1.2 then
+                        frameBudget = math.max(0.001, frameBudget * 0.95)
+                    elseif spent < frameBudget * 0.8 then
+                        frameBudget = math.min(0.006, frameBudget * 1.05)
+                    end
                 end
                 startTime = SysTime()
             end
@@ -395,10 +409,14 @@ local function BuildDisplacementMeshes(cancelToken)
             if SysTime() - startTime > frameBudget then
                 coroutine.yield()
                 local spent = SysTime() - startTime
-                if spent > frameBudget * 1.2 then
-                    frameBudget = math.max(0.001, frameBudget * 0.9)
-                elseif spent < frameBudget * 0.8 then
-                    frameBudget = math.min(0.006, frameBudget * 1.1)
+                if RenderCore and RenderCore.UpdateFrameBudget then
+                    frameBudget = RenderCore.UpdateFrameBudget(spent, frameBudget)
+                else
+                    if spent > frameBudget * 1.2 then
+                        frameBudget = math.max(0.001, frameBudget * 0.9)
+                    elseif spent < frameBudget * 0.8 then
+                        frameBudget = math.min(0.006, frameBudget * 1.1)
+                    end
                 end
                 startTime = SysTime()
             end
@@ -440,10 +458,14 @@ local function BuildDisplacementMeshes(cancelToken)
                 if SysTime() - startTime > frameBudget then
                     coroutine.yield()
                     local spent = SysTime() - startTime
-                    if spent > frameBudget * 1.2 then
-                        frameBudget = math.max(0.001, frameBudget * 0.9)
-                    elseif spent < frameBudget * 0.8 then
-                        frameBudget = math.min(0.006, frameBudget * 1.1)
+                    if RenderCore and RenderCore.UpdateFrameBudget then
+                        frameBudget = RenderCore.UpdateFrameBudget(spent, frameBudget)
+                    else
+                        if spent > frameBudget * 1.2 then
+                            frameBudget = math.max(0.001, frameBudget * 0.95)
+                        elseif spent < frameBudget * 0.8 then
+                            frameBudget = math.min(0.006, frameBudget * 1.05)
+                        end
                     end
                     startTime = SysTime()
                 end
@@ -457,13 +479,49 @@ local function BuildDisplacementMeshes(cancelToken)
     -- Drive coroutine
     local jobId = "RTXDispMeshBuildJob"
     RenderCore.ScheduleJob(jobId, function()
-        if not co or coroutine.status(co) == "dead" then return false end
+        if not co or coroutine.status(co) == "dead" then
+            buildState.active = false
+            return false
+        end
+        
         local ok, err = coroutine.resume(co)
         if not ok then
             ErrorNoHalt("[DispRenderer] Build coroutine error: " .. tostring(err) .. "\n")
+            buildState.active = false
+            buildState.processed = 0
+            buildState.total = 0
+            -- Clean up partial meshes
+            for chunkKey, materials in pairs(dispMeshes) do
+                for matKey, group in pairs(materials) do
+                    if type(group) == "table" and group.meshes then
+                        for _, m in ipairs(group.meshes) do
+                            if m then
+                                if RenderCore and RenderCore.DestroyMesh then
+                                    RenderCore.DestroyMesh(m)
+                                else
+                                    pcall(function() if m.Destroy then m:Destroy() end end)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            dispMeshes = {}
             return false
         end
-        return coroutine.status(co) ~= "dead"
+        
+        -- Check if cancelled
+        if cancelToken and cancelToken.cancelled then
+            buildState.active = false
+            DebugPrint("Build cancelled")
+            return false
+        end
+        
+        local isDead = coroutine.status(co) == "dead"
+        if isDead then
+            buildState.active = false
+        end
+        return not isDead
     end)
 end
 
@@ -477,15 +535,20 @@ local function RenderDisplacements()
 
     -- Build PVS
     local pvs
-    if CONVARS.USE_PVS:GetBool() and NikNaks and NikNaks.CurrentMap and eyePos then
+    if CONVARS.USE_PVS:GetBool() and not pvsUnavailable and NikNaks and NikNaks.CurrentMap and eyePos then
         if NikNaks.CurrentMap.PointInLeafCache then
             local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, eyePos, lastLeaf)
             if changed or not IsPVSValid(pvsCache) then
-                local newPVS = NikNaks.CurrentMap:PVSForOrigin(eyePos)
-                if IsPVSValid(newPVS) then
+                local ok, newPVS = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
+                if ok and IsPVSValid(newPVS) then
                     pvsCache = newPVS
                     lastLeaf = leaf
                     pvsLastValid = SysTime()
+                elseif not ok then
+                    -- PVS is broken for this map, disable it permanently
+                    pvsUnavailable = true
+                    pvsCache = nil
+                    print("[DispRenderer] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
                 end
             end
             -- Only use cache if it's valid
@@ -495,11 +558,16 @@ local function RenderDisplacements()
                 pvs = nil
             end
         elseif NikNaks.CurrentMap.PVSForOrigin then
-            local tmp = NikNaks.CurrentMap:PVSForOrigin(eyePos)
-            if IsPVSValid(tmp) then
+            local ok, tmp = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
+            if ok and IsPVSValid(tmp) then
                 pvs = tmp
                 pvsCache = tmp
                 pvsLastValid = SysTime()
+            elseif not ok then
+                -- PVS is broken for this map, disable it permanently
+                pvsUnavailable = true
+                pvsCache = nil
+                print("[DispRenderer] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
             else
                 pvs = nil
             end
@@ -605,6 +673,9 @@ end
 RenderCore.Register("InitPostEntity", "RTXDisp_Init", Initialize)
 
 RenderCore.Register("PostCleanupMap", "RTXDisp_Rebuild", function()
+    pvsUnavailable = false -- Reset PVS flag for new map
+    pvsCache = nil
+    lastLeaf = nil
     RenderCore.RequestRebuild("PostCleanupMap")
 end)
 
@@ -620,6 +691,9 @@ RenderCore.Register("ShutDown", "RTXDisp_Shutdown", function()
         end
     end
     dispMeshes = {}
+    pvsUnavailable = false -- Reset PVS flag
+    pvsCache = nil
+    lastLeaf = nil
 end)
 
 -- Stats

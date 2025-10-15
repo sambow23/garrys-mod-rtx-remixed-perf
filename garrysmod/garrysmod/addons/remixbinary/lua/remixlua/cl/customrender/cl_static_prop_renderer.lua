@@ -1,5 +1,6 @@
 if not CLIENT then return end
 local RenderCore = include("remixlua/cl/customrender/render_core.lua") or RemixRenderCore
+local PropInstancing = include("remixlua/cl/customrender/cl_prop_instancing.lua")
 -- Custom Static Prop Renderer -- disabled due to engine culling patches.
 -- Re-Renders all static props to bypass engine culling 
 -- Author: CR
@@ -10,6 +11,9 @@ local convar_RenderDistance = CreateClientConVar("rtx_spr_distance", "10000", tr
 local convar_Whitelist = CreateClientConVar("rtx_spr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include")
 local convar_Blacklist = CreateClientConVar("rtx_spr_mat_blacklist", "", true, false, "Comma-separated material name substrings to exclude")
 local convar_UsePVS = CreateClientConVar("rtx_spr_use_pvs", "1", true, false, "Enable PVS culling for static props")
+local convar_UseLOD = CreateClientConVar("rtx_spr_use_lod", "1", true, false, "Enable LOD culling for complex props at distance")
+local convar_LODDistance = CreateClientConVar("rtx_spr_lod_distance", "5000", true, false, "Distance at which LOD culling starts")
+local convar_LODComplexity = CreateClientConVar("rtx_spr_lod_complexity", "5000", true, false, "Vertex count threshold for LOD culling")
 
 -- Global state
 local isDataReady = false
@@ -20,7 +24,7 @@ local lastDebugFrame = 0
 local bDrawingSkybox = false
 local skyboxProps = {}
 local worldProps = {}
-local sprStats = { rendered = 0, total = 0 }
+local sprStats = { rendered = 0, total = 0, distance = 0, lod = 0 }
 local sprBuildStats = { startTime = 0, endTime = 0, built = 0, active = false }
 -- Expose build state for progress tracking
 if RemixRenderCore then RemixRenderCore._sprBuildState = sprBuildStats end
@@ -28,6 +32,7 @@ if RemixRenderCore then RemixRenderCore._sprBuildState = sprBuildStats end
 local lastLeaf = nil
 local pvsCache = nil
 local pvsLastValid = 0
+local pvsUnavailable = false -- Track if PVS is broken for this map
 
 local function IsPVSValid(pvs)
     if not pvs then return false end
@@ -85,7 +90,8 @@ local function ProcessStaticProp(propData)
         origin = propData.Origin,
         angles = propData.Angles,
         skin = propData.Skin or 0,
-        color = propData.DiffuseModulation or Color(255, 255, 255)
+        color = propData.DiffuseModulation or Color(255, 255, 255),
+        vertexCount = 0 -- Will be set during mesh processing
     }
 
     -- Precompute transform matrix (static props don't move)
@@ -135,6 +141,7 @@ local function ProcessStaticProp(propData)
         local processedMeshes = {}
         local mins = Vector(math.huge, math.huge, math.huge)
         local maxs = Vector(-math.huge, -math.huge, -math.huge)
+        local totalVertexCount = 0
         
         -- Process each mesh group
         for _, group in ipairs(meshData) do
@@ -175,7 +182,8 @@ local function ProcessStaticProp(propData)
                     RenderCore.TrackMesh(mesh)
                 end
                 
-                -- Update bounds
+                -- Update bounds and vertex count
+                totalVertexCount = totalVertexCount + #group.triangles
                 for _, vert in ipairs(group.triangles) do
                     if vert.pos.x < mins.x then mins.x = vert.pos.x end
                     if vert.pos.y < mins.y then mins.y = vert.pos.y end
@@ -192,10 +200,11 @@ local function ProcessStaticProp(propData)
             meshCache[cacheKey] = {
                 meshes = processedMeshes,
                 mins = mins,
-                maxs = maxs
+                maxs = maxs,
+                vertexCount = totalVertexCount
             }
             
-            DebugPrint("Cached mesh for model:", modelPath, "#mesh groups:", #processedMeshes)
+            DebugPrint("Cached mesh for model:", modelPath, "#mesh groups:", #processedMeshes, "vertices:", totalVertexCount)
         else
             DebugPrint("No valid mesh groups found for model:", modelPath)
             meshCache[cacheKey] = {
@@ -210,6 +219,7 @@ local function ProcessStaticProp(propData)
     
     -- Link to the cached mesh data
     prop.cachedMesh = meshCache[cacheKey]
+    prop.vertexCount = meshCache[cacheKey].vertexCount or 0
     return prop
 end
 
@@ -305,10 +315,14 @@ local function CacheMapStaticProps()
             if SysTime() - startTime > frameBudget then
                 coroutine.yield()
                 local spent = SysTime() - startTime
-                if spent > frameBudget * 1.2 then
-                    frameBudget = math.max(0.001, frameBudget * 0.9)
-                elseif spent < frameBudget * 0.8 then
-                    frameBudget = math.min(0.006, frameBudget * 1.1)
+                if RenderCore and RenderCore.UpdateFrameBudget then
+                    frameBudget = RenderCore.UpdateFrameBudget(spent, frameBudget)
+                else
+                    if spent > frameBudget * 1.2 then
+                        frameBudget = math.max(0.001, frameBudget * 0.95)
+                    elseif spent < frameBudget * 0.8 then
+                        frameBudget = math.min(0.006, frameBudget * 1.05)
+                    end
                 end
                 startTime = SysTime()
             end
@@ -325,15 +339,28 @@ local function CacheMapStaticProps()
     -- Schedule coroutine advancement via RenderCore job system to reduce timer overhead
     local jobId = "StaticPropsCacheJob"
     RenderCore.ScheduleJob(jobId, function()
-        if not co or coroutine.status(co) == "dead" then return false end
+        if not co or coroutine.status(co) == "dead" then
+            isCachingInProgress = false
+            sprBuildStats.active = false
+            return false
+        end
+        
         local ok, err = coroutine.resume(co)
         if not ok then
             ErrorNoHalt("[Static Render] Cache coroutine error: " .. tostring(err) .. "\n")
             isCachingInProgress = false
             sprBuildStats.active = false
+            sprBuildStats.built = 0
+            isDataReady = true -- Mark as ready to prevent infinite retries
             return false
         end
-        return coroutine.status(co) ~= "dead"
+        
+        local isDead = coroutine.status(co) == "dead"
+        if isDead then
+            isCachingInProgress = false
+            sprBuildStats.active = false
+        end
+        return not isDead
     end)
 end
 
@@ -366,12 +393,20 @@ RenderCore.Register("ShutDown", "CustomStaticRender_Cleanup", function()
     
     isDataReady = false
     isCachingInProgress = false
+    pvsUnavailable = false -- Reset PVS flag
+    pvsCache = nil
+    lastLeaf = nil
 end)
 
 -- Render the static props
 RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", function(bDrawingDepth, bDrawingSkybox_param)
     if not convar_Enable:GetBool() or not isDataReady or isCachingInProgress then
         return
+    end
+    
+    -- Clear instancing batches at start of frame
+    if PropInstancing and PropInstancing.ClearBatches then
+        PropInstancing.ClearBatches()
     end
     
     -- Choose which prop list to render based on skybox state
@@ -390,21 +425,27 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     local renderedProps = 0
     local skippedProps = 0
     local distanceSkipped = 0
+    local lodSkipped = 0
     
     -- Get player eye position for PVS and distance checks (more stable while jumping)
     local ply = LocalPlayer and LocalPlayer() or nil
     local playerPos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
     -- Build PVS with caching and validation
     local pvs = nil
-    if convar_UsePVS:GetBool() and NikNaks and NikNaks.CurrentMap and playerPos then
+    if convar_UsePVS:GetBool() and not pvsUnavailable and NikNaks and NikNaks.CurrentMap and playerPos then
         if NikNaks.CurrentMap.PointInLeafCache then
             local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, playerPos, lastLeaf)
             if changed or not IsPVSValid(pvsCache) then
-                local newPVS = NikNaks.CurrentMap:PVSForOrigin(playerPos)
-                if IsPVSValid(newPVS) then
+                local ok, newPVS = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(playerPos) end)
+                if ok and IsPVSValid(newPVS) then
                     pvsCache = newPVS
                     lastLeaf = leaf
                     pvsLastValid = SysTime()
+                elseif not ok then
+                    -- PVS is broken for this map, disable it permanently
+                    pvsUnavailable = true
+                    pvsCache = nil
+                    print("[Static Render] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
                 end
             end
             -- Only use cache if it's valid
@@ -414,11 +455,16 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
                 pvs = nil
             end
         elseif NikNaks.CurrentMap.PVSForOrigin then
-            local tmp = NikNaks.CurrentMap:PVSForOrigin(playerPos)
-            if IsPVSValid(tmp) then
+            local ok, tmp = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(playerPos) end)
+            if ok and IsPVSValid(tmp) then
                 pvs = tmp
                 pvsCache = tmp
                 pvsLastValid = SysTime()
+            elseif not ok then
+                -- PVS is broken for this map, disable it permanently
+                pvsUnavailable = true
+                pvsCache = nil
+                print("[Static Render] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
             else
                 pvs = nil
             end
@@ -426,6 +472,9 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     end
     local maxDistance = convar_RenderDistance:GetFloat()
     local useDistanceLimit = (maxDistance > 0)
+    local useLOD = convar_UseLOD:GetBool()
+    local lodDistance = convar_LODDistance:GetFloat()
+    local lodComplexity = convar_LODComplexity:GetFloat()
     
     -- Debug stats only calculated once per frame
     local shouldDebug = convar_Debug:GetBool()
@@ -453,30 +502,55 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
             distanceSkipped = distanceSkipped + 1
             continue
         end
-        for _, meshInfo in ipairs(meshData.meshes) do
-            if meshInfo.mesh and meshInfo.material then
-                RenderCore.Submit({
-                    material = meshInfo.material,
-                    mesh = meshInfo.mesh,
-                    matrix = prop.matrix,
-                    translucent = false,
-                    color = prop.color
-                })
+        -- LOD culling: skip complex props at medium distance
+        if useLOD and not bDrawingSkybox and playerPos and prop.vertexCount > lodComplexity then
+            local distSqr = prop.origin:DistToSqr(playerPos)
+            if distSqr > (lodDistance * lodDistance) then
+                lodSkipped = lodSkipped + 1
+                continue
+            end
+        end
+        
+        -- Try to batch with instancing system first
+        local batched = false
+        if PropInstancing and PropInstancing.AddPropInstance then
+            batched = PropInstancing.AddPropInstance(prop.model, prop.matrix, meshData, prop.color)
+        end
+        
+        -- Fallback: render directly if batch is full or instancing disabled
+        if not batched then
+            for _, meshInfo in ipairs(meshData.meshes) do
+                if meshInfo.mesh and meshInfo.material then
+                    RenderCore.Submit({
+                        material = meshInfo.material,
+                        mesh = meshInfo.mesh,
+                        matrix = prop.matrix,
+                        translucent = false,
+                        color = prop.color
+                    })
+                end
             end
         end
         renderedProps = renderedProps + 1
     end
     
+    -- Render all batched instances at the end
+    if PropInstancing and PropInstancing.RenderInstancedProps then
+        PropInstancing.RenderInstancedProps()
+    end
+    
     sprStats.rendered = renderedProps
     sprStats.distance = distanceSkipped
     sprStats.skipped = skippedProps
+    sprStats.lod = lodSkipped
     
     -- Debug output
     if shouldDebug and isNewFrame then
-        if useDistanceLimit then
+        if useDistanceLimit or useLOD then
             DebugPrint("Rendered", renderedProps, "props in " .. (bDrawingSkybox and "skybox" or "world"),
                       skippedProps, "skipped due to errors,", 
-                      distanceSkipped, "skipped due to distance")
+                      distanceSkipped, "skipped due to distance,",
+                      lodSkipped, "skipped due to LOD")
         else
             DebugPrint("Rendered", renderedProps, "props in " .. (bDrawingSkybox and "skybox" or "world"),
                       skippedProps, "skipped")
@@ -511,7 +585,7 @@ RenderCore.RegisterStats("StaticProps", function()
     local built = sprBuildStats.built or 0
     local t = (sprBuildStats.endTime > 0 and sprBuildStats.endTime or SysTime()) - (sprBuildStats.startTime or 0)
     local rate = (t > 0) and (built / t) or 0
-    return string.format("Static props: %d/%d (-E:%d, -D:%d) | build: %.2fs, %.1f/s", sprStats.rendered or 0, sprStats.total or 0, sprStats.skipped or 0, sprStats.distance or 0, t, rate)
+    return string.format("Static props: %d/%d (-E:%d, -D:%d, -L:%d) | build: %.2fs, %.1f/s", sprStats.rendered or 0, sprStats.total or 0, sprStats.skipped or 0, sprStats.distance or 0, sprStats.lod or 0, t, rate)
 end)
 
 -- Rebuild sink and debounced cvar watchers
@@ -526,6 +600,9 @@ RenderCore.RegisterRebuildSink("StaticPropsRebuild", function(token, reason)
     table.Empty(skyboxProps)
     table.Empty(worldProps)
     table.Empty(meshCache)
+    pvsUnavailable = false -- Reset PVS flag for new map
+    pvsCache = nil
+    lastLeaf = nil
     timer.Simple(0.1, CacheMapStaticProps)
 end)
 

@@ -32,7 +32,7 @@ local math_max = math.max
 local math_huge = math.huge
 local math_floor = math.floor
 local table_insert = table.insert
-local MAX_VERTICES = 30000
+local MAX_VERTICES = 60000
 local MAX_TOTAL_VERTICES = 10000000 -- 10 million vertex budget (roughly 400MB)
 local totalVertexCount = 0
 -- PVS culling removed
@@ -41,6 +41,7 @@ local totalVertexCount = 0
 local lastLeafWorld = nil
 local pvsCacheWorld = nil
 local pvsLastValidWorld = 0
+local pvsUnavailable = false -- Track if PVS is broken for this map
 
 local function IsPVSValid(pvs)
     if not pvs then return false end
@@ -137,8 +138,11 @@ end
 
 local function DetermineOptimalChunkSize(totalFaces)
     -- Base chunk size on face density, but keep within reasonable bounds
+    if not totalFaces or totalFaces <= 0 then return 65536 end
     local density = totalFaces / (16384 * 16384 * 16384) -- Approximate map volume
-    return math_max(4096, math_min(65536, math_floor(1 / density * 32768)))
+    local size = math_max(8192, math_min(131072, math_floor(1 / density * 32768)))
+    print("[RTX Fixes] Auto-determined chunk size: " .. size .. " for " .. totalFaces .. " faces")
+    return size
 end
 
 local function CreateMeshBatch(vertices, material, maxVertsPerMesh)
@@ -201,22 +205,45 @@ GetChunkKey = function(x, y, z)
     return x .. "," .. y .. "," .. z
 end
 
--- Main Mesh Building Function
-local function BuildMapMeshes(cancelToken)
-    -- Clean up existing meshes first (best-effort)
+-- Cleanup helper with proper error tracking
+local function CleanupMeshes()
+    local destroyed = 0
+    local failed = 0
+    
     for renderType, chunks in pairs(mapMeshes) do
         for chunkKey, materials in pairs(chunks) do
             for matName, group in pairs(materials) do
                 if group.meshes then
                     for _, m in ipairs(group.meshes) do
-                        if m and m.Destroy then
-                            pcall(function() m:Destroy() end)
+                        if m then
+                            if RenderCore and RenderCore.DestroyMesh then
+                                if RenderCore.DestroyMesh(m) then
+                                    destroyed = destroyed + 1
+                                else
+                                    failed = failed + 1
+                                end
+                            else
+                                local ok = pcall(function() if m.Destroy then m:Destroy() end end)
+                                if ok then destroyed = destroyed + 1 else failed = failed + 1 end
+                            end
                         end
                     end
                 end
             end
         end
     end
+    
+    if failed > 0 then
+        ErrorNoHalt("[RTX Fixes] Failed to destroy " .. failed .. " meshes during cleanup\n")
+    end
+    
+    return destroyed, failed
+end
+
+-- Main Mesh Building Function
+local function BuildMapMeshes(cancelToken)
+    -- Clean up existing meshes first
+    CleanupMeshes()
 
     mapMeshes = {
         opaque = {},
@@ -274,10 +301,11 @@ local function BuildMapMeshes(cancelToken)
                                 end
                             end
                             totalVertexCount = totalVertexCount + batchCount
-                            -- Check budget limit
+                            -- Check budget limit - mark token as cancelled for clean rollback
                             if totalVertexCount >= MAX_TOTAL_VERTICES then
-                                ErrorNoHalt("[RTX Fixes] Vertex budget exceeded! Stopping mesh build at " .. totalVertexCount .. " vertices\\n")
-                                return meshes, minBounds, maxBounds
+                                ErrorNoHalt("[RTX Fixes] Vertex budget exceeded! Stopping mesh build at " .. totalVertexCount .. " vertices\n")
+                                if cancelToken then cancelToken.cancelled = true end
+                                return nil, nil, nil -- Signal failure
                             end
                             batchVerts = {}
                             batchCount = 0
@@ -310,14 +338,30 @@ local function BuildMapMeshes(cancelToken)
     -- Create combined meshes with frame-budgeted coroutine
     local co
     co = coroutine.create(function()
-        local startTime = SysTime()
+        local frameStartTime = SysTime()
         local frameBudget = 0.003 -- start ~3ms per frame
-        local targetBudget = 0.003
 
         -- Prepare chunk table and inputs inside coroutine
         local chunks = { opaque = {}, translucent = {} }
         local chunkSize = CONVARS.CHUNK_SIZE:GetInt()
-        if not chunkSize or chunkSize <= 0 then chunkSize = 65536 end
+        if not chunkSize or chunkSize <= 0 then
+            -- Auto-determine chunk size if not set or invalid
+            local faceCount = 0
+            if NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.GetLeafs then
+                local ok, leafs = pcall(function() return NikNaks.CurrentMap:GetLeafs() end)
+                if ok and leafs then
+                    for _, leaf in pairs(leafs) do
+                        if leaf and leaf.GetFaces then
+                            local ok2, faces = pcall(function() return leaf:GetFaces(false) end)
+                            if ok2 and faces then
+                                faceCount = faceCount + #faces
+                            end
+                        end
+                    end
+                end
+            end
+            chunkSize = DetermineOptimalChunkSize(faceCount)
+        end
 
         -- Determine 3D skybox bounds (to exclude miniature skybox geometry from world pass)
         local hasSkyAABB = false
@@ -402,29 +446,40 @@ local function BuildMapMeshes(cancelToken)
                                 end
                             end
                         end
-                        if SysTime() - startTime > frameBudget then
+                        if SysTime() - frameStartTime > frameBudget then
                             coroutine.yield()
-                            local spent = SysTime() - startTime
-                            if spent > frameBudget * 1.2 then
-                                frameBudget = math.max(0.001, frameBudget * 0.9)
-                            elseif spent < frameBudget * 0.8 then
-                                frameBudget = math.min(0.006, frameBudget * 1.1)
+                            local spent = SysTime() - frameStartTime
+                            if RenderCore and RenderCore.UpdateFrameBudget then
+                                frameBudget = RenderCore.UpdateFrameBudget(spent, frameBudget)
+                            else
+                                -- Fallback: simple adaptation
+                                if spent > frameBudget * 1.2 then
+                                    frameBudget = math.max(0.001, frameBudget * 0.95)
+                                elseif spent < frameBudget * 0.8 then
+                                    frameBudget = math.min(0.006, frameBudget * 1.05)
+                                end
                             end
-                            startTime = SysTime()
+                            frameStartTime = SysTime()
+                            -- More frequent cancellation checks after yield
+                            if cancelToken and cancelToken.cancelled then return end
                         end
                     end
                 end
             end
             buildState.processed = buildState.processed + 1
-            if SysTime() - startTime > frameBudget then
+            if SysTime() - frameStartTime > frameBudget then
                 coroutine.yield()
-                local spent = SysTime() - startTime
-                if spent > frameBudget * 1.2 then
-                    frameBudget = math.max(0.001, frameBudget * 0.9)
-                elseif spent < frameBudget * 0.8 then
-                    frameBudget = math.min(0.006, frameBudget * 1.1)
+                local spent = SysTime() - frameStartTime
+                if RenderCore and RenderCore.UpdateFrameBudget then
+                    frameBudget = RenderCore.UpdateFrameBudget(spent, frameBudget)
+                else
+                    if spent > frameBudget * 1.2 then
+                        frameBudget = math.max(0.001, frameBudget * 0.95)
+                    elseif spent < frameBudget * 0.8 then
+                        frameBudget = math.min(0.006, frameBudget * 1.05)
+                    end
                 end
-                startTime = SysTime()
+                frameStartTime = SysTime()
             end
         end
 
@@ -464,35 +519,62 @@ local function BuildMapMeshes(cancelToken)
                         end
                     end
                     if cancelToken and cancelToken.cancelled then return end
-                    if SysTime() - startTime > frameBudget then
+                    if SysTime() - frameStartTime > frameBudget then
                         coroutine.yield()
-                        local spent = SysTime() - startTime
-                        -- simple adaptation: nudge budget toward target if we exceed a bit
-                        if spent > frameBudget * 1.2 then
-                            frameBudget = math.max(0.001, frameBudget * 0.9)
-                        elseif spent < frameBudget * 0.8 then
-                            frameBudget = math.min(0.006, frameBudget * 1.1)
+                        local spent = SysTime() - frameStartTime
+                        if RenderCore and RenderCore.UpdateFrameBudget then
+                            frameBudget = RenderCore.UpdateFrameBudget(spent, frameBudget)
+                        else
+                            if spent > frameBudget * 1.2 then
+                                frameBudget = math.max(0.001, frameBudget * 0.95)
+                            elseif spent < frameBudget * 0.8 then
+                                frameBudget = math.min(0.006, frameBudget * 1.05)
+                            end
                         end
-                        startTime = SysTime()
+                        frameStartTime = SysTime()
                     end
                 end
             end
         end
         buildState.active = false
         print(string.format("[RTX Fixes] Built chunked meshes in %.2f seconds (total vertices: %d, memory: ~%.1fMB)", 
-            SysTime() - startTime, totalVertexCount, (totalVertexCount * 40) / (1024 * 1024)))
+            SysTime() - frameStartTime, totalVertexCount, (totalVertexCount * 40) / (1024 * 1024)))
     end)
 
     -- Drive the coroutine over frames via RenderCore job scheduler (less timer overhead)
     local jobId = "RTXWorldMeshBuildJob"
     RenderCore.ScheduleJob(jobId, function()
-        if not co or coroutine.status(co) == "dead" then return false end
+        if not co or coroutine.status(co) == "dead" then
+            buildState.active = false
+            return false
+        end
+        
         local ok, err = coroutine.resume(co)
         if not ok then
             ErrorNoHalt("[RTX Fixes] Build coroutine error: " .. tostring(err) .. "\n")
+            buildState.active = false
+            buildState.processed = 0
+            buildState.total = 0
+            -- Clean up partial meshes
+            CleanupMeshes()
+            mapMeshes = { opaque = {}, translucent = {} }
             return false
         end
-        return coroutine.status(co) ~= "dead"
+        
+        -- Check if cancelled
+        if cancelToken and cancelToken.cancelled then
+            buildState.active = false
+            print("[RTX Fixes] Build cancelled, cleaning up...")
+            CleanupMeshes()
+            mapMeshes = { opaque = {}, translucent = {} }
+            return false
+        end
+        
+        local isDead = coroutine.status(co) == "dead"
+        if isDead then
+            buildState.active = false
+        end
+        return not isDead
     end)
 
 end
@@ -513,15 +595,20 @@ local function RenderCustomWorld(translucent)
     local eyePos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
     -- Build PVS once per pass with caching (optional)
     local pvs
-    if CONVARS.USE_PVS:GetBool() and NikNaks and NikNaks.CurrentMap and eyePos then
+    if CONVARS.USE_PVS:GetBool() and not pvsUnavailable and NikNaks and NikNaks.CurrentMap and eyePos then
         if NikNaks.CurrentMap.PointInLeafCache then
             local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, eyePos, lastLeafWorld)
             if changed or not IsPVSValid(pvsCacheWorld) then
-                local newPVS = NikNaks.CurrentMap:PVSForOrigin(eyePos)
-                if IsPVSValid(newPVS) then
+                local ok, newPVS = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
+                if ok and IsPVSValid(newPVS) then
                     pvsCacheWorld = newPVS
                     lastLeafWorld = leaf
                     pvsLastValidWorld = SysTime()
+                elseif not ok then
+                    -- PVS is broken for this map, disable it permanently
+                    pvsUnavailable = true
+                    pvsCacheWorld = nil
+                    print("[RTX Fixes] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
                 end
             end
             -- Only use cache if it's valid
@@ -531,11 +618,16 @@ local function RenderCustomWorld(translucent)
                 pvs = nil -- disable PVS culling this frame if we don't have a valid set
             end
         elseif NikNaks.CurrentMap.PVSForOrigin then
-            local tmp = NikNaks.CurrentMap:PVSForOrigin(eyePos)
-            if IsPVSValid(tmp) then
+            local ok, tmp = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
+            if ok and IsPVSValid(tmp) then
                 pvs = tmp
                 pvsCacheWorld = tmp
                 pvsLastValidWorld = SysTime()
+            elseif not ok then
+                -- PVS is broken for this map, disable it permanently
+                pvsUnavailable = true
+                pvsCacheWorld = nil
+                print("[RTX Fixes] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
             else
                 pvs = nil
             end
@@ -671,6 +763,9 @@ end
 RenderCore.Register("InitPostEntity", "RTXMeshInit", Initialize)
 
 RenderCore.Register("PostCleanupMap", "RTXMeshRebuild", function()
+    pvsUnavailable = false -- Reset PVS flag for new map
+    pvsCacheWorld = nil
+    lastLeafWorld = nil
     RenderCore.RequestRebuild("PostCleanupMap")
 end)
 
@@ -682,6 +777,9 @@ RenderCore.Register("ShutDown", "RTXCustomWorldShutdown", function()
     DisableCustomRendering()
     -- Rely on RenderCore global cleanup for tracked meshes; just clear tables locally
     mapMeshes = { opaque = {}, translucent = {} }
+    pvsUnavailable = false -- Reset PVS flag
+    pvsCacheWorld = nil
+    lastLeafWorld = nil
 end)
 
 -- ConVar Changes
