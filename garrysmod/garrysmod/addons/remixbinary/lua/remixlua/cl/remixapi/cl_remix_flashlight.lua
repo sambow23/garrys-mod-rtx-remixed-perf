@@ -1,0 +1,500 @@
+if not (BRANCH == "x86-64" or BRANCH == "chromium") then return end
+if not CLIENT then return end
+
+-- RTX Remix Flashlight Replacement
+-- Replaces the Source engine flashlight with an RTX spotlight that follows the player's view
+
+-- Configuration ConVars
+local cv_enabled = CreateClientConVar("rtx_flashlight_enabled", "1", true, false, "Enable RTX flashlight replacement")
+local cv_brightness = CreateClientConVar("rtx_flashlight_brightness", "15", true, false, "Flashlight brightness (0-100)")
+local cv_radius = CreateClientConVar("rtx_flashlight_radius", "80", true, false, "Flashlight sphere radius")
+local cv_cone_angle = CreateClientConVar("rtx_flashlight_cone_angle", "35", true, false, "Flashlight cone angle in degrees")
+local cv_cone_softness = CreateClientConVar("rtx_flashlight_cone_softness", "0.3", true, false, "Flashlight cone edge softness (0-1)")
+local cv_color_r = CreateClientConVar("rtx_flashlight_color_r", "255", true, false, "Flashlight red color (0-255)")
+local cv_color_g = CreateClientConVar("rtx_flashlight_color_g", "240", true, false, "Flashlight green color (0-255)")
+local cv_color_b = CreateClientConVar("rtx_flashlight_color_b", "200", true, false, "Flashlight blue color (0-255)")
+local cv_offset_forward = CreateClientConVar("rtx_flashlight_offset_forward", "10", true, false, "Forward offset from player eyes")
+local cv_offset_right = CreateClientConVar("rtx_flashlight_offset_right", "5", true, false, "Right offset from player eyes")
+local cv_offset_up = CreateClientConVar("rtx_flashlight_offset_up", "-3", true, false, "Up offset from player eyes")
+local cv_volumetric = CreateClientConVar("rtx_flashlight_volumetric", "2.0", true, false, "Volumetric intensity multiplier")
+local cv_debug = CreateClientConVar("rtx_flashlight_debug", "0", true, false, "Show debug info")
+
+-- Optional queue include
+if file.Exists("remixlua/cl/remixapi/cl_remix_light_queue.lua", "LUA") then
+    include("remixlua/cl/remixapi/cl_remix_light_queue.lua")
+end
+
+-- State tracking
+local flashlightActive = false
+local flashlightLightId = nil
+
+-- Multiplayer: Track all player flashlights
+local playerFlashlights = {} -- [player] = { active = bool, lightId = number, color = Color() }
+
+local function DebugPrint(...)
+    if cv_debug:GetBool() then
+        print("[RTX Flashlight]", ...)
+    end
+end
+
+local function vec3(x, y, z)
+    return { x = x, y = y, z = z }
+end
+
+-- Create the RTX flashlight light for any player
+local function CreateFlashlight(ply, colorOverride)
+    if not cv_enabled:GetBool() then return false end
+    if not istable(RemixLight) then
+        DebugPrint("RemixLight API not available")
+        return false
+    end
+    
+    ply = ply or LocalPlayer()
+    if not IsValid(ply) then return false end
+    
+    -- Get position and direction
+    local eyePos = ply:EyePos()
+    local eyeAngles = ply:EyeAngles()
+    local forward = eyeAngles:Forward()
+    local right = eyeAngles:Right()
+    local up = eyeAngles:Up()
+    
+    -- Apply offset
+    local offsetPos = eyePos
+        + forward * cv_offset_forward:GetFloat()
+        + right * cv_offset_right:GetFloat()
+        + up * cv_offset_up:GetFloat()
+    
+    -- Get color and brightness
+    -- Use color override if provided (from network), otherwise use ConVars for local player
+    local brightness = math.Clamp(cv_brightness:GetFloat(), 0, 100)
+    local scale = brightness / 100.0
+    local r, g, b
+    if colorOverride then
+        r = colorOverride.r * scale
+        g = colorOverride.g * scale
+        b = colorOverride.b * scale
+    else
+        r = math.Clamp(cv_color_r:GetInt(), 0, 255) * scale
+        g = math.Clamp(cv_color_g:GetInt(), 0, 255) * scale
+        b = math.Clamp(cv_color_b:GetInt(), 0, 255) * scale
+    end
+    
+    -- Create light definition
+    local base = {
+        hash = tonumber(util.CRC("rtx_flashlight_" .. ply:EntIndex())) or 99999,
+        radiance = vec3(r, g, b),
+    }
+    
+    local sphere = {
+        position = vec3(offsetPos.x, offsetPos.y, offsetPos.z),
+        radius = cv_radius:GetFloat(),
+        shaping = {
+            direction = vec3(forward.x, forward.y, forward.z),
+            coneAngleDegrees = cv_cone_angle:GetFloat(),
+            coneSoftness = cv_cone_softness:GetFloat(),
+            focusExponent = 1.0,
+        },
+        volumetricRadianceScale = cv_volumetric:GetFloat(),
+    }
+    
+    -- Create via queue or direct
+    local lightId = nil
+    if RemixLightQueue and RemixLightQueue.CreateSphere then
+        lightId = RemixLightQueue.CreateSphere(base, sphere, ply:EntIndex())
+    elseif RemixLight.CreateSphere then
+        lightId = RemixLight.CreateSphere(base, sphere, ply:EntIndex())
+    end
+    
+    if lightId and lightId ~= 0 then
+        -- Track for local player separately
+        if ply == LocalPlayer() then
+            flashlightLightId = lightId
+            flashlightActive = true
+        end
+        
+        -- Store the color used
+        local storedColor = colorOverride or Color(
+            cv_color_r:GetInt(),
+            cv_color_g:GetInt(),
+            cv_color_b:GetInt()
+        )
+        
+        -- Track in multiplayer table
+        playerFlashlights[ply] = {
+            active = true,
+            lightId = lightId,
+            color = storedColor
+        }
+        
+        DebugPrint("Flashlight created for player", ply:Nick(), "with ID:", lightId)
+        return true
+    else
+        DebugPrint("Failed to create flashlight")
+        return false
+    end
+end
+
+-- Cached settings (only read ConVars when they change)
+local cachedSettings = {
+    brightness = 15,
+    radius = 80,
+    coneAngle = 35,
+    coneSoftness = 0.3,
+    volumetric = 2.0,
+    offsetForward = 10,
+    offsetRight = 5,
+    offsetUp = -3,
+    lastUpdate = 0,
+}
+
+local SETTINGS_CACHE_TIME = 0.1 -- Update cache every 0.1 seconds
+
+local function UpdateCachedSettings()
+    local currentTime = CurTime()
+    if currentTime - cachedSettings.lastUpdate < SETTINGS_CACHE_TIME then return end
+    
+    cachedSettings.brightness = math.Clamp(cv_brightness:GetFloat(), 0, 100)
+    cachedSettings.radius = cv_radius:GetFloat()
+    cachedSettings.coneAngle = cv_cone_angle:GetFloat()
+    cachedSettings.coneSoftness = cv_cone_softness:GetFloat()
+    cachedSettings.volumetric = cv_volumetric:GetFloat()
+    cachedSettings.offsetForward = cv_offset_forward:GetFloat()
+    cachedSettings.offsetRight = cv_offset_right:GetFloat()
+    cachedSettings.offsetUp = cv_offset_up:GetFloat()
+    cachedSettings.lastUpdate = currentTime
+end
+
+-- Update the RTX flashlight position and direction for a specific player
+local function UpdateFlashlight(ply)
+    ply = ply or LocalPlayer()
+    
+    local flashData = playerFlashlights[ply]
+    if not flashData or not flashData.active or not flashData.lightId then return end
+    if not istable(RemixLight) then return end
+    if not IsValid(ply) then 
+        -- Player is invalid, destroy the light
+        DestroyFlashlight(ply)
+        return 
+    end
+    
+    -- Get current position and direction
+    local eyePos = ply:EyePos()
+    local eyeAngles = ply:EyeAngles()
+    local forward = eyeAngles:Forward()
+    local right = eyeAngles:Right()
+    local up = eyeAngles:Up()
+    
+    -- Apply offset using cached settings
+    local offsetPos = eyePos
+        + forward * cachedSettings.offsetForward
+        + right * cachedSettings.offsetRight
+        + up * cachedSettings.offsetUp
+    
+    -- Get color and brightness
+    -- Use stored color for this player, with current brightness settings
+    local scale = cachedSettings.brightness / 100.0
+    local playerColor = flashData.color or Color(255, 240, 200)
+    local r = playerColor.r * scale
+    local g = playerColor.g * scale
+    local b = playerColor.b * scale
+    
+    local base = {
+        hash = tonumber(util.CRC("rtx_flashlight_" .. ply:EntIndex())) or 99999,
+        radiance = vec3(r, g, b),
+    }
+    
+    local sphere = {
+        position = vec3(offsetPos.x, offsetPos.y, offsetPos.z),
+        radius = cachedSettings.radius,
+        shaping = {
+            direction = vec3(forward.x, forward.y, forward.z),
+            coneAngleDegrees = cachedSettings.coneAngle,
+            coneSoftness = cachedSettings.coneSoftness,
+            focusExponent = 1.0,
+        },
+        volumetricRadianceScale = cachedSettings.volumetric,
+    }
+    
+    -- Update via queue or direct
+    if RemixLightQueue and RemixLightQueue.UpdateSphere then
+        RemixLightQueue.UpdateSphere(base, sphere, flashData.lightId)
+    elseif RemixLight.UpdateSphere then
+        RemixLight.UpdateSphere(base, sphere, flashData.lightId)
+    end
+end
+
+-- Destroy the RTX flashlight for a specific player
+local function DestroyFlashlight(ply)
+    ply = ply or LocalPlayer()
+    
+    local flashData = playerFlashlights[ply]
+    if not flashData or not flashData.lightId then return end
+    
+    local lightIdToDestroy = flashData.lightId
+    
+    -- Set inactive FIRST to stop any pending updates
+    flashData.active = false
+    
+    -- Update local player tracking
+    if ply == LocalPlayer() then
+        flashlightActive = false
+        flashlightLightId = nil
+    end
+    
+    -- Small delay to allow any queued updates to check the flag
+    timer.Simple(0, function()
+        if RemixLightQueue and RemixLightQueue.DestroyLight then
+            RemixLightQueue.DestroyLight(lightIdToDestroy)
+        elseif istable(RemixLight) and RemixLight.DestroyLight then
+            RemixLight.DestroyLight(lightIdToDestroy)
+        end
+        
+        -- Remove from tracking table
+        playerFlashlights[ply] = nil
+        
+        DebugPrint("Flashlight destroyed for player", IsValid(ply) and ply:Nick() or "invalid", "ID:", lightIdToDestroy)
+    end)
+end
+
+-- Toggle flashlight on/off for local player
+local function ToggleFlashlight()
+    if not cv_enabled:GetBool() then
+        print("[RTX Flashlight] Disabled - enable with rtx_flashlight_enabled 1")
+        return
+    end
+    
+    -- Send toggle request to server for multiplayer sync with color data
+    net.Start("rtx_flashlight_toggle")
+    net.WriteUInt(cv_color_r:GetInt(), 8)
+    net.WriteUInt(cv_color_g:GetInt(), 8)
+    net.WriteUInt(cv_color_b:GetInt(), 8)
+    net.SendToServer()
+    
+    -- Play sound locally (will be synced with server response)
+    LocalPlayer():EmitSound("items/flashlight1.wav", 50, 100, 1, CHAN_ITEM)
+end
+
+-- RenderScene hook for low-latency updates (runs every frame during rendering)
+hook.Add("RenderScene", "RTXFlashlight_Update", function()
+    -- Update cached settings periodically
+    UpdateCachedSettings()
+    
+    -- Update all active player flashlights
+    for ply, flashData in pairs(playerFlashlights) do
+        if IsValid(ply) and flashData.active then
+            UpdateFlashlight(ply)
+        else
+            -- Clean up invalid players
+            if not IsValid(ply) then
+                playerFlashlights[ply] = nil
+            end
+        end
+    end
+end)
+
+-- Network: Receive flashlight state updates from server
+net.Receive("rtx_flashlight_state", function()
+    local ply = net.ReadEntity()
+    local state = net.ReadBool()
+    local r = net.ReadUInt(8)
+    local g = net.ReadUInt(8)
+    local b = net.ReadUInt(8)
+    
+    if not IsValid(ply) then return end
+    
+    if state then
+        -- Turn on flashlight for this player with their color
+        CreateFlashlight(ply, Color(r, g, b))
+    else
+        -- Turn off flashlight for this player
+        DestroyFlashlight(ply)
+    end
+end)
+
+-- Network: Receive color update from server (real-time adjustment)
+net.Receive("rtx_flashlight_update_color", function()
+    local ply = net.ReadEntity()
+    local r = net.ReadUInt(8)
+    local g = net.ReadUInt(8)
+    local b = net.ReadUInt(8)
+    
+    if not IsValid(ply) then return end
+    
+    local flashData = playerFlashlights[ply]
+    if flashData and flashData.active then
+        -- Update stored color
+        flashData.color = Color(r, g, b)
+        -- Light will update on next frame via RenderScene hook
+    end
+end)
+
+-- Cleanup on map change
+hook.Add("OnReloaded", "RTXFlashlight_Cleanup", function()
+    -- Clean up all player flashlights
+    for ply, _ in pairs(playerFlashlights) do
+        DestroyFlashlight(ply)
+    end
+    playerFlashlights = {}
+end)
+
+hook.Add("ShutDown", "RTXFlashlight_Cleanup", function()
+    -- Clean up all player flashlights
+    for ply, _ in pairs(playerFlashlights) do
+        DestroyFlashlight(ply)
+    end
+    playerFlashlights = {}
+end)
+
+-- Console commands
+concommand.Add("rtx_flashlight_toggle", function()
+    ToggleFlashlight()
+end, nil, "Toggle RTX flashlight on/off (bind this to a key)")
+
+concommand.Add("rtx_flashlight_on", function()
+    if not cv_enabled:GetBool() then
+        print("[RTX Flashlight] Disabled - enable with rtx_flashlight_enabled 1")
+        return
+    end
+    
+    if not flashlightActive then
+        net.Start("rtx_flashlight_toggle")
+        net.WriteUInt(cv_color_r:GetInt(), 8)
+        net.WriteUInt(cv_color_g:GetInt(), 8)
+        net.WriteUInt(cv_color_b:GetInt(), 8)
+        net.SendToServer()
+        LocalPlayer():EmitSound("items/flashlight1.wav", 50, 100, 1, CHAN_ITEM)
+    end
+end, nil, "Turn RTX flashlight on")
+
+concommand.Add("rtx_flashlight_off", function()
+    if flashlightActive then
+        net.Start("rtx_flashlight_toggle")
+        net.WriteUInt(cv_color_r:GetInt(), 8)
+        net.WriteUInt(cv_color_g:GetInt(), 8)
+        net.WriteUInt(cv_color_b:GetInt(), 8)
+        net.SendToServer()
+        LocalPlayer():EmitSound("items/flashlight1.wav", 50, 100, 1, CHAN_ITEM)
+    end
+end, nil, "Turn RTX flashlight off")
+
+concommand.Add("rtx_flashlight_reload", function()
+    if flashlightActive then
+        DestroyFlashlight()
+        timer.Simple(0.1, function()
+            CreateFlashlight()
+        end)
+        print("[RTX Flashlight] Reloaded")
+    else
+        print("[RTX Flashlight] Not active")
+    end
+end, nil, "Reload the flashlight")
+
+-- Debug visualization
+hook.Add("PostDrawTranslucentRenderables", "RTXFlashlight_Debug", function(depth, sky)
+    if not cv_debug:GetBool() then return end
+    if not flashlightActive then return end
+    
+    local ply = LocalPlayer()
+    if not IsValid(ply) then return end
+    
+    local eyePos = ply:EyePos()
+    local eyeAngles = ply:EyeAngles()
+    local forward = eyeAngles:Forward()
+    local right = eyeAngles:Right()
+    local up = eyeAngles:Up()
+    
+    local offsetPos = eyePos
+        + forward * cv_offset_forward:GetFloat()
+        + right * cv_offset_right:GetFloat()
+        + up * cv_offset_up:GetFloat()
+    
+    -- Draw debug beam
+    render.SetMaterial(Material("cable/physbeam"))
+    render.DrawBeam(offsetPos, offsetPos + forward * 512, 2, 0, 1, Color(255, 255, 0, 200))
+    
+    -- Draw position marker
+    render.DrawWireframeSphere(offsetPos, cv_radius:GetFloat() * 0.1, 8, 8, Color(255, 255, 0, 150))
+end)
+
+-- Tool menu integration
+hook.Add("PopulateToolMenu", "RTXFlashlight_Menu", function()
+    spawnmenu.AddToolMenuOption("Utilities", "RTX Remix", "Flashlight", "Flashlight", "", "", function(panel)
+        panel:ClearControls()
+        
+        panel:Help("Light Properties")
+        panel:NumSlider("Brightness", "rtx_flashlight_brightness", 0, 100, 1)
+        panel:NumSlider("Radius", "rtx_flashlight_radius", 10, 200, 0)
+        panel:NumSlider("Cone Angle", "rtx_flashlight_cone_angle", 5, 90, 0)
+        panel:NumSlider("Cone Softness", "rtx_flashlight_cone_softness", 0, 1, 2)
+        panel:NumSlider("Volumetric Scale", "rtx_flashlight_volumetric", 0, 5, 1)
+        
+        panel:Help("")
+        panel:Help("Color")
+        
+        -- Color picker
+        local colorPicker = vgui.Create("DColorMixer", panel)
+        colorPicker:SetPalette(true)
+        colorPicker:SetAlphaBar(false)
+        colorPicker:SetWangs(true)
+        colorPicker:SetColor(Color(
+            cv_color_r:GetInt(),
+            cv_color_g:GetInt(),
+            cv_color_b:GetInt()
+        ))
+        
+        -- Update ConVars when color changes
+        colorPicker.ValueChanged = function(self, col)
+            RunConsoleCommand("rtx_flashlight_color_r", tostring(col.r))
+            RunConsoleCommand("rtx_flashlight_color_g", tostring(col.g))
+            RunConsoleCommand("rtx_flashlight_color_b", tostring(col.b))
+        end
+        
+        panel:AddItem(colorPicker)
+        
+        panel:Help("")
+        panel:Help("Position Offset")
+        panel:NumSlider("Forward Offset", "rtx_flashlight_offset_forward", -20, 30, 0)
+        panel:NumSlider("Right Offset", "rtx_flashlight_offset_right", -20, 20, 0)
+        panel:NumSlider("Up Offset", "rtx_flashlight_offset_up", -20, 20, 0)
+        
+        panel:Help("")
+        panel:Help("Debug")
+        panel:CheckBox("Show Debug Visualization", "rtx_flashlight_debug")
+        panel:Button("Reload Flashlight", "rtx_flashlight_reload")
+    end)
+end)
+
+-- Real-time color update when ConVars change
+local lastColorUpdate = 0
+local COLOR_UPDATE_DELAY = 0.05 -- Throttle to 20 updates per second max
+
+local function SendColorUpdate()
+    local currentTime = CurTime()
+    if currentTime - lastColorUpdate < COLOR_UPDATE_DELAY then return end
+    
+    -- Only send if our flashlight is active
+    if not flashlightActive then return end
+    
+    lastColorUpdate = currentTime
+    
+    -- Send color update to server
+    net.Start("rtx_flashlight_update_color")
+    net.WriteUInt(cv_color_r:GetInt(), 8)
+    net.WriteUInt(cv_color_g:GetInt(), 8)
+    net.WriteUInt(cv_color_b:GetInt(), 8)
+    net.SendToServer()
+    
+    -- Update local flashlight color immediately
+    local flashData = playerFlashlights[LocalPlayer()]
+    if flashData then
+        flashData.color = Color(cv_color_r:GetInt(), cv_color_g:GetInt(), cv_color_b:GetInt())
+    end
+end
+
+-- Add ConVar change callbacks for real-time updates
+cvars.AddChangeCallback("rtx_flashlight_color_r", SendColorUpdate, "rtx_flashlight_color_update")
+cvars.AddChangeCallback("rtx_flashlight_color_g", SendColorUpdate, "rtx_flashlight_color_update")
+cvars.AddChangeCallback("rtx_flashlight_color_b", SendColorUpdate, "rtx_flashlight_color_update")
+
+print("[RTX Flashlight] Loaded! Bind 'rtx_flashlight_toggle' to a key (e.g., bind f rtx_flashlight_toggle)")
