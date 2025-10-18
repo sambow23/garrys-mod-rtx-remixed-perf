@@ -106,77 +106,72 @@ local function Draw2DSky()
 
     -- Rendering parameters
     local origin = EyePos()
-    local size = math.max(1024, math.floor(cv_size:GetFloat() or 16384)) -- configurable cube size
+    local size = math.max(1024, math.floor(cv_size:GetFloat() or 16384))
     local br = math.max(0.0, cv_brightness:GetFloat())
+    
+    render.SuppressEngineLighting(true)
+    if cv_disableCull:GetBool() then
+        render.CullMode(MATERIAL_CULLMODE_NONE)
+    end
+    -- Control depth test/write and optional clear
+    if cv_clearDepth:GetBool() then
+        render.ClearDepth()
+    end
+    render.OverrideDepthEnable(cv_zTest:GetBool(), cv_zWrite:GetBool())
+    if cv_useDepthRange:GetBool() then
+        local dn = math.Clamp(cv_depthNear:GetFloat() or 0.999, 0, 1)
+        local df = math.Clamp((cv_depthFar and cv_depthFar:GetFloat()) or 1, 0, 1)
+        if df < dn then df = dn end
+        render.DepthRange(dn, df)
+    end
+    render.SetColorModulation(br, br, br)
 
-    -- Render background cube with depth test/write disabled so it behaves like engine sky
-    local fov = (IsValid(LocalPlayer()) and LocalPlayer().GetFOV and LocalPlayer():GetFOV()) or 90
-    local znear = math.max(0.01, cv_camNear:GetFloat() or 1)
-    local zfar  = math.max(znear + 1, cv_camFar:GetFloat() or (size * 2))
-    cam.Start3D(EyePos(), EyeAngles(), fov, 0, 0, ScrW(), ScrH(), znear, zfar)
-        render.SuppressEngineLighting(true)
-        if cv_disableCull:GetBool() then
-            render.CullMode(MATERIAL_CULLMODE_NONE)
-        end
-        -- Control depth test/write and optional clear
-        if cv_clearDepth:GetBool() then
-            render.ClearDepth()
-        end
-        render.OverrideDepthEnable(cv_zTest:GetBool(), cv_zWrite:GetBool())
-        if cv_useDepthRange:GetBool() then
-            local dn = math.Clamp(cv_depthNear:GetFloat() or 0.999, 0, 1)
-            local df = math.Clamp((cv_depthFar and cv_depthFar:GetFloat()) or 1, 0, 1)
-            if df < dn then df = dn end
-            render.DepthRange(dn, df)
-        end
-        render.SetColorModulation(br, br, br)
+    -- Global rotation basis
+    local ang = Angle(cv_rot_pitch:GetFloat() or 0, cv_rot_yaw:GetFloat() or 0, cv_rot_roll:GetFloat() or 0)
+    local axisX = Vector(1, 0, 0)
+    local axisY = Vector(0, 1, 0)
+    local axisZ = Vector(0, 0, 1)
+    axisX:Rotate(ang)
+    axisY:Rotate(ang)
+    axisZ:Rotate(ang)
 
-        -- Global rotation basis
-        local ang = Angle(cv_rot_pitch:GetFloat() or 0, cv_rot_yaw:GetFloat() or 0, cv_rot_roll:GetFloat() or 0)
-        local axisX = Vector(1, 0, 0)
-        local axisY = Vector(0, 1, 0)
-        local axisZ = Vector(0, 0, 1)
-        axisX:Rotate(ang)
-        axisY:Rotate(ang)
-        axisZ:Rotate(ang)
+    -- Sides
+    -- Right/Left with optional swap
+    local rtMat = mats["rt"]
+    local lfMat = mats["lf"]
+    if cv_swapLR:GetBool() then
+        rtMat, lfMat = lfMat, rtMat
+    end
+    -- Right (rt): plane at +X, facing inward (-X)
+    drawFace(rtMat, origin + axisX * size, -axisX, size, cv_rot_rt:GetFloat())
+    -- Left (lf): plane at -X, facing inward (+X)
+    drawFace(lfMat, origin - axisX * size,  axisX, size, cv_rot_lf:GetFloat())
+    -- Back (bk): plane at -Y, facing inward (+Y)
+    drawFace(mats["bk"], origin - axisY * size,  axisY, size, cv_rot_bk:GetFloat())
+    -- Front (ft): plane at +Y, facing inward (-Y)
+    drawFace(mats["ft"], origin + axisY * size, -axisY, size, cv_rot_ft:GetFloat())
+    -- Up/Down with optional swap
+    local upMat = mats["up"]
+    local dnMat = mats["dn"]
+    if cv_swapUD:GetBool() then
+        upMat, dnMat = dnMat, upMat
+    end
+    -- Up (up): plane at +Z, facing inward (-Z)
+    local gyaw = (cv_rot_yaw:GetFloat() or 0)
+    drawFace(upMat, origin + axisZ * size, -axisZ, size, cv_rot_up:GetFloat() - gyaw)
+    -- Down (dn): plane at -Z, facing inward (+Z)
+    drawFace(dnMat, origin - axisZ * size,  axisZ, size, cv_rot_dn:GetFloat() - gyaw)
 
-        -- Sides
-        -- Right/Left with optional swap
-        local rtMat = mats["rt"]
-        local lfMat = mats["lf"]
-        if cv_swapLR:GetBool() then
-            rtMat, lfMat = lfMat, rtMat
-        end
-        -- Right (rt): plane at +X, facing inward (-X)
-        drawFace(rtMat, origin + axisX * size, -axisX, size, cv_rot_rt:GetFloat())
-        -- Left (lf): plane at -X, facing inward (+X)
-        drawFace(lfMat, origin - axisX * size,  axisX, size, cv_rot_lf:GetFloat())
-        -- Back (bk): plane at -Y, facing inward (+Y)
-        drawFace(mats["bk"], origin - axisY * size,  axisY, size, cv_rot_bk:GetFloat())
-        -- Front (ft): plane at +Y, facing inward (-Y)
-        drawFace(mats["ft"], origin + axisY * size, -axisY, size, cv_rot_ft:GetFloat())
-        -- Up/Down with optional swap
-        local upMat = mats["up"]
-        local dnMat = mats["dn"]
-        if cv_swapUD:GetBool() then
-            upMat, dnMat = dnMat, upMat
-        end
-        -- Up (up): plane at +Z, facing inward (-Z)
-        local gyaw = (cv_rot_yaw:GetFloat() or 0)
-        drawFace(upMat, origin + axisZ * size, -axisZ, size, cv_rot_up:GetFloat() - gyaw)
-        -- Down (dn): plane at -Z, facing inward (+Z)
-        drawFace(dnMat, origin - axisZ * size,  axisZ, size, cv_rot_dn:GetFloat() - gyaw)
-
-        render.SetColorModulation(1, 1, 1)
-        if cv_useDepthRange:GetBool() then
-            render.DepthRange(0, 1)
-        end
-        render.OverrideDepthEnable(false, false)
-        if cv_disableCull:GetBool() then
-            render.CullMode(MATERIAL_CULLMODE_CCW)
-        end
-        render.SuppressEngineLighting(false)
-    cam.End3D()
+    -- Restore render state
+    render.SetColorModulation(1, 1, 1)
+    if cv_useDepthRange:GetBool() then
+        render.DepthRange(0, 1)
+    end
+    render.OverrideDepthEnable(false, false)
+    if cv_disableCull:GetBool() then
+        render.CullMode(MATERIAL_CULLMODE_CCW)
+    end
+    render.SuppressEngineLighting(false)
 end
 
 -- Draw very early in the frame so it acts as background
