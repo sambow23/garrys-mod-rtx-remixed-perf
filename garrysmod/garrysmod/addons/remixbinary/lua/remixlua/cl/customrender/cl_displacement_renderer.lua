@@ -113,7 +113,7 @@ local function GetDispBlendMaterial(faceMat)
 end
 
 -- Build a batch of IMesh objects from a streamed triangle vertex list, preserving per-vertex alpha via mesh.Color
-local MAX_VERTICES = 60000
+local MAX_VERTICES = 30000
 local function CreateMeshBatchWithAlpha(vertices, material, maxVertsPerMesh)
     local meshes = {}
     local currentVerts = {}

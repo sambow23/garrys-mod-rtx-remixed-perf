@@ -32,7 +32,7 @@ local math_max = math.max
 local math_huge = math.huge
 local math_floor = math.floor
 local table_insert = table.insert
-local MAX_VERTICES = 60000
+local MAX_VERTICES = 30000
 local MAX_TOTAL_VERTICES = 10000000 -- 10 million vertex budget (roughly 400MB)
 local totalVertexCount = 0
 -- PVS culling removed
