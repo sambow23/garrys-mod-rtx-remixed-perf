@@ -4,7 +4,7 @@
 if not CLIENT then return end
 
 hook.Add("PopulateToolMenu", "RemixAPILights", function()
-    spawnmenu.AddToolMenuOption("Utilities", "RTX Remix", "RTX_Remix_API_Lights", "API Map Lights", "", "", function(panel)
+    spawnmenu.AddToolMenuOption("Utilities", "RTX Remix - API Lights", "RTX_Remix_API_Lights", "Map", "", "", function(panel)
         panel:ClearControls()
 
         -- Section: Actions

@@ -52,6 +52,7 @@ local function LoadSubAddons()
     if CLIENT then
         table.insert(foldersToLoad, "remixlua/cl/")
         table.insert(foldersToLoad, "remixlua/cl/remixapi/")
+        table.insert(foldersToLoad, "remixlua/cl/remixapi/wrappers/")
         table.insert(foldersToLoad, "remixlua/cl/customrender/")
     end
     

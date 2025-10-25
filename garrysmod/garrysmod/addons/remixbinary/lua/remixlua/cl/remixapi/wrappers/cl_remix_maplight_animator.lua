@@ -1,9 +1,5 @@
 if not CLIENT then return end
 
--- Client-side animator for map lights recreated as RTX lights.
--- Listens to server-bridged I/O (AcceptInput) and applies enable/toggle/brightness changes
--- to Light2RTX entries grouped by Source targetname.
-
 local cv_enable = CreateClientConVar("rtx_maplight_anim", "1", true, false, "Enable client map light animator")
 local cv_debug = CreateClientConVar("rtx_maplight_anim_debug", "0", true, false, "Debug logging for map light animator")
 

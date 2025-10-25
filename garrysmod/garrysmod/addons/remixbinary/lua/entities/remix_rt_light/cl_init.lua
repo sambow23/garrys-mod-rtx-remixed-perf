@@ -1104,7 +1104,7 @@ end, nil, "Set fill opacity for RTX light visualization (0-255)")
 
 -- Add to tool menu if available
 hook.Add("PopulateToolMenu", "RemixRTLight_ToolMenu", function()
-    spawnmenu.AddToolMenuOption("Utilities", "RTX Remix", "RTX_Remix_Light_Viz", "API Light HUD", "", "", function(panel)
+    spawnmenu.AddToolMenuOption("Utilities", "RTX Remix - API Lights", "RTX_Remix_Light_Viz", "Entity Light HUD", "", "", function(panel)
         panel:ClearControls()
 
         panel:CheckBox("Enable HUD", "remix_rt_light_visualize")

@@ -68,7 +68,7 @@ local function CreateFlashlight(ply, colorOverride)
     -- Get color and brightness
     -- Use color override if provided (from network), otherwise use ConVars for local player
     local brightness = math.Clamp(cv_brightness:GetFloat(), 0, 100)
-    local scale = brightness / 100.0
+    local scale = brightness / 1000.0
     local r, g, b
     if colorOverride then
         r = colorOverride.r * scale
@@ -154,7 +154,7 @@ local function UpdateCachedSettings()
     local currentTime = CurTime()
     if currentTime - cachedSettings.lastUpdate < SETTINGS_CACHE_TIME then return end
     
-    cachedSettings.brightness = math.Clamp(cv_brightness:GetFloat(), 0, 100)
+    cachedSettings.brightness = math.Clamp(cv_brightness:GetFloat(), 0, 1000)
     cachedSettings.radius = cv_radius:GetFloat()
     cachedSettings.coneAngle = cv_cone_angle:GetFloat()
     cachedSettings.coneSoftness = cv_cone_softness:GetFloat()
@@ -193,7 +193,7 @@ local function UpdateFlashlight(ply)
     
     -- Get color and brightness
     -- Use stored color for this player, with current brightness settings
-    local scale = cachedSettings.brightness / 100.0
+    local scale = cachedSettings.brightness / 1000.0
     local playerColor = flashData.color or Color(255, 240, 200)
     local r = playerColor.r * scale
     local g = playerColor.g * scale
@@ -419,17 +419,16 @@ end)
 
 -- Tool menu integration
 hook.Add("PopulateToolMenu", "RTXFlashlight_Menu", function()
-    spawnmenu.AddToolMenuOption("Utilities", "RTX Remix", "Flashlight", "Flashlight", "", "", function(panel)
+    spawnmenu.AddToolMenuOption("Utilities", "RTX Remix - API Lights", "Flashlight", "Flashlight", "", "", function(panel)
         panel:ClearControls()
         
         panel:Help("Light Properties")
-        panel:NumSlider("Brightness", "rtx_flashlight_brightness", 0, 100, 1)
-        panel:NumSlider("Radius", "rtx_flashlight_radius", 10, 200, 0)
+        panel:NumSlider("Brightness", "rtx_flashlight_brightness", 0, 1000, 1)
+        panel:NumSlider("Radius", "rtx_flashlight_radius", 1, 200, 0)
         panel:NumSlider("Cone Angle", "rtx_flashlight_cone_angle", 5, 90, 0)
         panel:NumSlider("Cone Softness", "rtx_flashlight_cone_softness", 0, 1, 2)
         panel:NumSlider("Volumetric Scale", "rtx_flashlight_volumetric", 0, 5, 1)
         
-        panel:Help("")
         panel:Help("Color")
         
         -- Color picker
@@ -451,17 +450,11 @@ hook.Add("PopulateToolMenu", "RTXFlashlight_Menu", function()
         end
         
         panel:AddItem(colorPicker)
-        
-        panel:Help("")
+
         panel:Help("Position Offset")
-        panel:NumSlider("Forward Offset", "rtx_flashlight_offset_forward", -20, 30, 0)
-        panel:NumSlider("Right Offset", "rtx_flashlight_offset_right", -20, 20, 0)
-        panel:NumSlider("Up Offset", "rtx_flashlight_offset_up", -20, 20, 0)
-        
-        panel:Help("")
-        panel:Help("Debug")
-        panel:CheckBox("Show Debug Visualization", "rtx_flashlight_debug")
-        panel:Button("Reload Flashlight", "rtx_flashlight_reload")
+        panel:NumSlider("Forward Offset", "rtx_flashlight_offset_forward", -100, 100, 0)
+        panel:NumSlider("Right Offset", "rtx_flashlight_offset_right", -100, 100, 0)
+        panel:NumSlider("Up Offset", "rtx_flashlight_offset_up", -100, 100, 0)
     end)
 end)
 
