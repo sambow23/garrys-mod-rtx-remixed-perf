@@ -35,23 +35,6 @@ local table_insert = table.insert
 local MAX_VERTICES = 30000
 local MAX_TOTAL_VERTICES = 10000000 -- 10 million vertex budget (roughly 400MB)
 local totalVertexCount = 0
--- PVS culling removed
-
--- PVS cache for world renderer
-local lastLeafWorld = nil
-local pvsCacheWorld = nil
-local pvsLastValidWorld = 0
-local pvsUnavailable = false -- Track if PVS is broken for this map
-
-local function IsPVSValid(pvs)
-    if not pvs then return false end
-    for _, v in pairs(pvs) do
-        if v then return true end
-    end
-    return false
-end
-
--- Deprecated BuildMatcherList removed; use RenderCore.IsMaterialAllowed
 
 local function IsMaterialAllowed(matName)
     if not matName then return false end
@@ -61,12 +44,8 @@ local function IsMaterialAllowed(matName)
     return true -- fallback allow
 end
 
--- Pre-allocate common vectors and tables for reuse
-local vertexBuffer = {
-    positions = {},
-    normals = {},
-    uvs = {}
-}
+-- Pre-allocate reusable vectors to avoid GC pressure
+local _tempCenter = Vector(0, 0, 0)
 
 local function ValidateVertex(pos)
     if RenderCore and RenderCore.ValidateVertex then
@@ -202,7 +181,11 @@ local function CreateMeshBatch(vertices, material, maxVertsPerMesh)
 end
 
 GetChunkKey = function(x, y, z)
-    return x .. "," .. y .. "," .. z
+    -- Use integer hash from RenderCore instead of string concat
+    if RenderCore and RenderCore.HashChunkKey then
+        return RenderCore.HashChunkKey(x, y, z)
+    end
+    return x .. "," .. y .. "," .. z  -- Fallback
 end
 
 -- Cleanup helper with proper error tracking
@@ -407,20 +390,20 @@ local function BuildMapMeshes(cancelToken)
                             if not vertices or #vertices == 0 then
                                 process = false
                             else
-                                -- Optimized center calculation
-                                local center = Vector(0, 0, 0)
+                                -- Optimized center calculation using reusable vector
+                                _tempCenter:Zero()
                                 local vertCount = #vertices
                                 for i = 1, vertCount do
                                     local vert = vertices[i]
-                                    if vert then center:Add(vert) end
+                                    if vert then _tempCenter:Add(vert) end
                                 end
-                                center:Div(vertCount)
-                                if hasSkyAABB and center.WithinAABox and center:WithinAABox(skyMins, skyMaxs) then
+                                _tempCenter:Div(vertCount)
+                                if hasSkyAABB and _tempCenter.WithinAABox and _tempCenter:WithinAABox(skyMins, skyMaxs) then
                                     process = false
                                 else
-                                    local chunkX = math_floor(center.x / chunkSize)
-                                    local chunkY = math_floor(center.y / chunkSize)
-                                    local chunkZ = math_floor(center.z / chunkSize)
+                                    local chunkX = math_floor(_tempCenter.x / chunkSize)
+                                    local chunkY = math_floor(_tempCenter.y / chunkSize)
+                                    local chunkZ = math_floor(_tempCenter.z / chunkSize)
                                     local chunkKey = GetChunkKey(chunkX, chunkY, chunkZ)
                                     local material = face:GetMaterial()
                                     if material then
@@ -593,45 +576,10 @@ local function RenderCustomWorld(translucent)
     local useDist = maxDist > 0
     local ply = LocalPlayer and LocalPlayer() or nil
     local eyePos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
-    -- Build PVS once per pass with caching (optional)
-    local pvs
-    if CONVARS.USE_PVS:GetBool() and not pvsUnavailable and NikNaks and NikNaks.CurrentMap and eyePos then
-        if NikNaks.CurrentMap.PointInLeafCache then
-            local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, eyePos, lastLeafWorld)
-            if changed or not IsPVSValid(pvsCacheWorld) then
-                local ok, newPVS = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
-                if ok and IsPVSValid(newPVS) then
-                    pvsCacheWorld = newPVS
-                    lastLeafWorld = leaf
-                    pvsLastValidWorld = SysTime()
-                elseif not ok then
-                    -- PVS is broken for this map, disable it permanently
-                    pvsUnavailable = true
-                    pvsCacheWorld = nil
-                    print("[RTX Fixes] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
-                end
-            end
-            -- Only use cache if it's valid
-            if IsPVSValid(pvsCacheWorld) then
-                pvs = pvsCacheWorld
-            else
-                pvs = nil -- disable PVS culling this frame if we don't have a valid set
-            end
-        elseif NikNaks.CurrentMap.PVSForOrigin then
-            local ok, tmp = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
-            if ok and IsPVSValid(tmp) then
-                pvs = tmp
-                pvsCacheWorld = tmp
-                pvsLastValidWorld = SysTime()
-            elseif not ok then
-                -- PVS is broken for this map, disable it permanently
-                pvsUnavailable = true
-                pvsCacheWorld = nil
-                print("[RTX Fixes] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
-            else
-                pvs = nil
-            end
-        end
+    -- Use centralized PVS from RenderCore
+    local pvs = nil
+    if CONVARS.USE_PVS:GetBool() and RenderCore and RenderCore.GetPVS then
+        pvs = RenderCore.GetPVS(eyePos)
     end
 
     for _, chunkMaterials in pairs(groups) do
@@ -763,9 +711,6 @@ end
 RenderCore.Register("InitPostEntity", "RTXMeshInit", Initialize)
 
 RenderCore.Register("PostCleanupMap", "RTXMeshRebuild", function()
-    pvsUnavailable = false -- Reset PVS flag for new map
-    pvsCacheWorld = nil
-    lastLeafWorld = nil
     RenderCore.RequestRebuild("PostCleanupMap")
 end)
 
@@ -777,9 +722,6 @@ RenderCore.Register("ShutDown", "RTXCustomWorldShutdown", function()
     DisableCustomRendering()
     -- Rely on RenderCore global cleanup for tracked meshes; just clear tables locally
     mapMeshes = { opaque = {}, translucent = {} }
-    pvsUnavailable = false -- Reset PVS flag
-    pvsCacheWorld = nil
-    lastLeafWorld = nil
 end)
 
 -- ConVar Changes

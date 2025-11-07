@@ -251,11 +251,81 @@ do
     end
 
     -- ============================
-    -- Shared Material Filtering
+    -- Shared Material Filtering & Caching
     -- ============================
     local _matcherCache = {}
     local _matcherCacheOrder = {}
     local MAX_MATCHER_CACHE = 100
+    
+    -- Material name lowercase cache
+    local _lowerCache = setmetatable({}, {
+        __index = function(t, str)
+            if not str then return "" end
+            local lower = string.lower(str)
+            t[str] = lower
+            return lower
+        end
+    })
+    
+    -- Centralized PVS cache
+    local _pvsCache = nil
+    local _pvsFrame = -1
+    local _pvsLastLeaf = nil
+    local _pvsUnavailable = false
+    
+    function RemixRenderCore.IsPVSValid(pvs)
+        if not pvs then return false end
+        for _, v in pairs(pvs) do
+            if v then return true end
+        end
+        return false
+    end
+    
+    function RemixRenderCore.GetPVS(eyePos)
+        if _pvsUnavailable or not NikNaks or not NikNaks.CurrentMap or not eyePos then
+            return nil
+        end
+        
+        local frame = FrameNumber()
+        if _pvsFrame == frame and RemixRenderCore.IsPVSValid(_pvsCache) then
+            return _pvsCache
+        end
+        
+        -- Try cached leaf lookup first
+        if NikNaks.CurrentMap.PointInLeafCache then
+            local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, eyePos, _pvsLastLeaf)
+            if not changed and RemixRenderCore.IsPVSValid(_pvsCache) then
+                return _pvsCache
+            end
+            _pvsLastLeaf = leaf
+        end
+        
+        -- Calculate new PVS
+        local ok, newPVS = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
+        if ok and RemixRenderCore.IsPVSValid(newPVS) then
+            _pvsCache = newPVS
+            _pvsFrame = frame
+            return _pvsCache
+        elseif not ok then
+            -- PVS is broken for this map, disable permanently
+            _pvsUnavailable = true
+            _pvsCache = nil
+            print("[RemixRenderCore] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
+        end
+        
+        return nil
+    end
+    
+    function RemixRenderCore.ResetPVS()
+        _pvsCache = nil
+        _pvsFrame = -1
+        _pvsLastLeaf = nil
+        _pvsUnavailable = false
+    end
+    
+    function RemixRenderCore.GetLowerCase(str)
+        return _lowerCache[str]
+    end
     
     function RemixRenderCore.BuildMatcherList(str)
         if not str or str == "" then return {} end
@@ -280,7 +350,7 @@ do
 
     function RemixRenderCore.IsMaterialAllowed(matName, whitelist, blacklist)
         if not matName then return false end
-        local lname = string.lower(matName)
+        local lname = _lowerCache[matName]
         
         -- Check blacklist first
         local bl = RemixRenderCore.BuildMatcherList(blacklist)
@@ -362,8 +432,18 @@ do
     end
 
     -- ============================
-    -- Distance Culling Helper
+    -- Spatial Utilities
     -- ============================
+    -- Integer-based chunk key hashing (avoids string concatenation)
+    function RemixRenderCore.HashChunkKey(x, y, z)
+        -- Use bit operations for fast hashing
+        -- Supports coordinates -2048 to 2047 per axis (12 bits each, 36 bits total)
+        x = bit.band(x + 2048, 0xFFF)
+        y = bit.band(y + 2048, 0xFFF)
+        z = bit.band(z + 2048, 0xFFF)
+        return bit.bor(bit.lshift(x, 24), bit.lshift(y, 12), z)
+    end
+    
     -- Distance culling with epsilon to prevent popping at boundaries
     function RemixRenderCore.ShouldCullByDistance(pos, playerPos, maxDist)
         if maxDist <= 0 then return false end
@@ -420,13 +500,22 @@ do
     -- ============================
     -- Lightweight Job Scheduler
     -- ============================
+    local jobArray = {}
+    local jobsDirty = false
+    
     function RemixRenderCore.ScheduleJob(id, fn)
         if not id or not isfunction(fn) then return end
+        if not jobs[id] then
+            jobsDirty = true
+        end
         jobs[id] = fn
     end
 
     function RemixRenderCore.CancelJob(id)
-        jobs[id] = nil
+        if jobs[id] then
+            jobs[id] = nil
+            jobsDirty = true
+        end
     end
 
     -- Smoothed frame budget calculation
@@ -463,16 +552,31 @@ do
 
     function RemixRenderCore.StepJobs(budgetMs)
         budgetMs = budgetMs or 1.5 / 1000
+        
+        -- Rebuild job array if dirty
+        if jobsDirty then
+            jobArray = {}
+            for id, fn in pairs(jobs) do
+                jobArray[#jobArray + 1] = {id = id, fn = fn}
+            end
+            jobsDirty = false
+        end
+        
+        -- Process jobs using array iteration (faster than pairs)
         local start = SysTime()
-        for id, fn in pairs(jobs) do
-            local ok = true
-            local res
-            ok, res = pcall(fn)
+        local i = 1
+        while i <= #jobArray do
+            local job = jobArray[i]
+            local ok, res = pcall(job.fn)
             if not ok then
-                ErrorNoHalt("[RemixRenderCore] Job '" .. tostring(id) .. "' error: " .. tostring(res) .. "\n")
-                jobs[id] = nil
+                ErrorNoHalt("[RemixRenderCore] Job '" .. tostring(job.id) .. "' error: " .. tostring(res) .. "\n")
+                jobs[job.id] = nil
+                table.remove(jobArray, i)
             elseif res == false then
-                jobs[id] = nil
+                jobs[job.id] = nil
+                table.remove(jobArray, i)
+            else
+                i = i + 1
             end
             if SysTime() - start > budgetMs then break end
         end
@@ -636,6 +740,11 @@ do
         RemixRenderCore.DestroyTrackedMeshes()
         for k in pairs(matCache) do matCache[k] = nil end
         for k in pairs(statsFns) do statsFns[k] = nil end
+        RemixRenderCore.ResetPVS()
+    end)
+    
+    hook.Add("PostCleanupMap", "RemixRenderCoreMapCleanup", function()
+        RemixRenderCore.ResetPVS()
     end)
 end
 

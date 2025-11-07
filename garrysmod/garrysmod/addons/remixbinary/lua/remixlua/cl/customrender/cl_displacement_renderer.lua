@@ -31,19 +31,6 @@ local buildState = { active = false, processed = 0, total = 0 }
 if RemixRenderCore then RemixRenderCore._dispBuildState = buildState end
 local stats = { draws = 0, chunksVisited = 0 }
 
--- PVS cache for displacement renderer
-local lastLeaf = nil
-local pvsCache = nil
-local pvsLastValid = 0
-local pvsUnavailable = false -- Track if PVS is broken for this map
-
-local function IsPVSValid(pvs)
-    if not pvs then return false end
-    for _, v in pairs(pvs) do
-        if v then return true end
-    end
-    return false
-end
 
 local function IsMaterialAllowed(matName)
     if not matName then return false end
@@ -54,7 +41,11 @@ local function IsMaterialAllowed(matName)
 end
 
 local function GetChunkKey(x, y, z)
-    return x .. "," .. y .. "," .. z
+    -- Use integer hash from RenderCore instead of string concat
+    if RenderCore and RenderCore.HashChunkKey then
+        return RenderCore.HashChunkKey(x, y, z)
+    end
+    return x .. "," .. y .. "," .. z  -- Fallback
 end
 
 -- Try to get or build a material that supports 2-texture blending.
@@ -533,45 +524,10 @@ local function RenderDisplacements()
     local ply = LocalPlayer and LocalPlayer() or nil
     local eyePos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
 
-    -- Build PVS
-    local pvs
-    if CONVARS.USE_PVS:GetBool() and not pvsUnavailable and NikNaks and NikNaks.CurrentMap and eyePos then
-        if NikNaks.CurrentMap.PointInLeafCache then
-            local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, eyePos, lastLeaf)
-            if changed or not IsPVSValid(pvsCache) then
-                local ok, newPVS = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
-                if ok and IsPVSValid(newPVS) then
-                    pvsCache = newPVS
-                    lastLeaf = leaf
-                    pvsLastValid = SysTime()
-                elseif not ok then
-                    -- PVS is broken for this map, disable it permanently
-                    pvsUnavailable = true
-                    pvsCache = nil
-                    print("[DispRenderer] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
-                end
-            end
-            -- Only use cache if it's valid
-            if IsPVSValid(pvsCache) then
-                pvs = pvsCache
-            else
-                pvs = nil
-            end
-        elseif NikNaks.CurrentMap.PVSForOrigin then
-            local ok, tmp = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
-            if ok and IsPVSValid(tmp) then
-                pvs = tmp
-                pvsCache = tmp
-                pvsLastValid = SysTime()
-            elseif not ok then
-                -- PVS is broken for this map, disable it permanently
-                pvsUnavailable = true
-                pvsCache = nil
-                print("[DispRenderer] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
-            else
-                pvs = nil
-            end
-        end
+    -- Use centralized PVS from RenderCore
+    local pvs = nil
+    if CONVARS.USE_PVS:GetBool() and RenderCore and RenderCore.GetPVS then
+        pvs = RenderCore.GetPVS(eyePos)
     end
 
     local draws = 0
@@ -673,9 +629,6 @@ end
 RenderCore.Register("InitPostEntity", "RTXDisp_Init", Initialize)
 
 RenderCore.Register("PostCleanupMap", "RTXDisp_Rebuild", function()
-    pvsUnavailable = false -- Reset PVS flag for new map
-    pvsCache = nil
-    lastLeaf = nil
     RenderCore.RequestRebuild("PostCleanupMap")
 end)
 
@@ -691,9 +644,6 @@ RenderCore.Register("ShutDown", "RTXDisp_Shutdown", function()
         end
     end
     dispMeshes = {}
-    pvsUnavailable = false -- Reset PVS flag
-    pvsCache = nil
-    lastLeaf = nil
 end)
 
 -- Stats

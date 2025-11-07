@@ -86,3 +86,43 @@ end
 -- Load all sub-addons
 LoadSubAddons()
 
+-- ============================
+-- Garbage Collection Tuning
+-- ============================
+-- Tune GC to minimize frametime spikes during rendering
+local function ConfigureGC()
+    -- Check if any renderer is actively building
+    local anyBuilding = false
+    if RemixRenderCore then
+        if RemixRenderCore._worldBuildState and RemixRenderCore._worldBuildState.active then
+            anyBuilding = true
+        end
+        if RemixRenderCore._dispBuildState and RemixRenderCore._dispBuildState.active then
+            anyBuilding = true
+        end
+        if RemixRenderCore._sprBuildState and RemixRenderCore._sprBuildState.active then
+            anyBuilding = true
+        end
+    end
+    
+    if anyBuilding then
+        -- During builds: more aggressive collection to prevent buildup
+        collectgarbage("setpause", 100)    -- Default pause
+        collectgarbage("setstepmul", 400)  -- More aggressive stepping
+    else
+        -- During rendering: lazy collection to avoid hitches
+        collectgarbage("setpause", 120)    -- Wait longer before GC
+        collectgarbage("setstepmul", 200)  -- Less aggressive stepping
+    end
+end
+
+-- Run GC tuning periodically (not every frame to reduce overhead)
+local lastGCTune = 0
+hook.Add("Think", "RemixGCTuning", function()
+    local now = SysTime()
+    if now - lastGCTune > 1 then  -- Tune every second
+        ConfigureGC()
+        lastGCTune = now
+    end
+end)
+

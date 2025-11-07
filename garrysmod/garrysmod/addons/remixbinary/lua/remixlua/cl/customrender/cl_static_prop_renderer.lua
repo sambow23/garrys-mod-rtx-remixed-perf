@@ -28,11 +28,6 @@ local sprStats = { rendered = 0, total = 0, distance = 0, lod = 0 }
 local sprBuildStats = { startTime = 0, endTime = 0, built = 0, active = false }
 -- Expose build state for progress tracking
 if RemixRenderCore then RemixRenderCore._sprBuildState = sprBuildStats end
--- PVS cache
-local lastLeaf = nil
-local pvsCache = nil
-local pvsLastValid = 0
-local pvsUnavailable = false -- Track if PVS is broken for this map
 
 local function IsPVSValid(pvs)
     if not pvs then return false end
@@ -393,9 +388,6 @@ RenderCore.Register("ShutDown", "CustomStaticRender_Cleanup", function()
     
     isDataReady = false
     isCachingInProgress = false
-    pvsUnavailable = false -- Reset PVS flag
-    pvsCache = nil
-    lastLeaf = nil
 end)
 
 -- Render the static props
@@ -430,45 +422,10 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     -- Get player eye position for PVS and distance checks (more stable while jumping)
     local ply = LocalPlayer and LocalPlayer() or nil
     local playerPos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
-    -- Build PVS with caching and validation
+    -- Use centralized PVS from RenderCore
     local pvs = nil
-    if convar_UsePVS:GetBool() and not pvsUnavailable and NikNaks and NikNaks.CurrentMap and playerPos then
-        if NikNaks.CurrentMap.PointInLeafCache then
-            local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, playerPos, lastLeaf)
-            if changed or not IsPVSValid(pvsCache) then
-                local ok, newPVS = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(playerPos) end)
-                if ok and IsPVSValid(newPVS) then
-                    pvsCache = newPVS
-                    lastLeaf = leaf
-                    pvsLastValid = SysTime()
-                elseif not ok then
-                    -- PVS is broken for this map, disable it permanently
-                    pvsUnavailable = true
-                    pvsCache = nil
-                    print("[Static Render] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
-                end
-            end
-            -- Only use cache if it's valid
-            if IsPVSValid(pvsCache) then
-                pvs = pvsCache
-            else
-                pvs = nil
-            end
-        elseif NikNaks.CurrentMap.PVSForOrigin then
-            local ok, tmp = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(playerPos) end)
-            if ok and IsPVSValid(tmp) then
-                pvs = tmp
-                pvsCache = tmp
-                pvsLastValid = SysTime()
-            elseif not ok then
-                -- PVS is broken for this map, disable it permanently
-                pvsUnavailable = true
-                pvsCache = nil
-                print("[Static Render] PVS unavailable for this map (invalid cluster data), disabling PVS culling")
-            else
-                pvs = nil
-            end
-        end
+    if convar_UsePVS:GetBool() and RenderCore and RenderCore.GetPVS then
+        pvs = RenderCore.GetPVS(playerPos)
     end
     local maxDistance = convar_RenderDistance:GetFloat()
     local useDistanceLimit = (maxDistance > 0)
@@ -600,9 +557,6 @@ RenderCore.RegisterRebuildSink("StaticPropsRebuild", function(token, reason)
     table.Empty(skyboxProps)
     table.Empty(worldProps)
     table.Empty(meshCache)
-    pvsUnavailable = false -- Reset PVS flag for new map
-    pvsCache = nil
-    lastLeaf = nil
     timer.Simple(0.1, CacheMapStaticProps)
 end)
 
