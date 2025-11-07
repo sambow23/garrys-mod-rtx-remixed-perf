@@ -30,6 +30,7 @@ local buildState = { active = false, processed = 0, total = 0 }
 -- Expose build state for progress tracking
 if RemixRenderCore then RemixRenderCore._dispBuildState = buildState end
 local stats = { draws = 0, chunksVisited = 0 }
+local lastDebugPrint = 0
 
 
 local function IsMaterialAllowed(matName)
@@ -242,6 +243,7 @@ local function BuildDisplacementMeshes(cancelToken)
             return
         end
         local seenFaces = {}
+        local skipStats = { notDisp = 0, duplicate = 0, noMaterial = 0, filtered = 0, noGrid = 0, total = 0 }
         buildState.active = true
         buildState.processed = 0
         buildState.total = 0
@@ -249,7 +251,8 @@ local function BuildDisplacementMeshes(cancelToken)
         local faceCheckCounter = 0
         for _, leaf in pairs(allLeafs) do
             if cancelToken and cancelToken.cancelled then return end
-            if leaf and not leaf:IsOutsideMap() then
+            if leaf then
+                -- Include all leaves regardless of IsOutsideMap() - let PVS handle visibility
                 local okFaces, leafFaces = pcall(function() return leaf:GetFaces(true) end) -- include displacements
                 if leafFaces then
                     local leafCluster = leaf.GetCluster and leaf:GetCluster() or -1
@@ -261,20 +264,40 @@ local function BuildDisplacementMeshes(cancelToken)
                             if cancelToken and cancelToken.cancelled then return end
                         end
                         repeat
-                            if not face or not face.IsDisplacement or not face:IsDisplacement() then break end
+                            skipStats.total = skipStats.total + 1
+                            if not face or not face.IsDisplacement or not face:IsDisplacement() then 
+                                skipStats.notDisp = skipStats.notDisp + 1
+                                break 
+                            end
                             local faceId = face.GetIndex and face:GetIndex() or tostring(face)
-                            if seenFaces[faceId] then break end
+                            if seenFaces[faceId] then 
+                                skipStats.duplicate = skipStats.duplicate + 1
+                                break 
+                            end
                             seenFaces[faceId] = true
-                            if not face.ShouldRender or not face:ShouldRender() then break end
+                            -- REMOVED: ShouldRender check - it culls based on build-time viewpoint
+                            -- if not face.ShouldRender or not face:ShouldRender() then break end
 
                             local mat = face.GetMaterial and face:GetMaterial() or nil
-                            if not mat then break end
+                            if not mat then 
+                                skipStats.noMaterial = skipStats.noMaterial + 1
+                                DebugPrint("Skipped displacement face " .. tostring(faceId) .. ": no material")
+                                break 
+                            end
                             local matName = mat.GetName and mat:GetName() or ""
-                            if not IsMaterialAllowed(matName) then break end
+                            if not IsMaterialAllowed(matName) then 
+                                skipStats.filtered = skipStats.filtered + 1
+                                DebugPrint("Skipped displacement face " .. tostring(faceId) .. ": material filtered - " .. matName)
+                                break 
+                            end
 
                             -- Determine center from base quad (use vertex grid average)
                             local grid = face.GenerateVertexData and face:GenerateVertexData() or nil
-                            if not grid or #grid == 0 then break end
+                            if not grid or #grid == 0 then 
+                                skipStats.noGrid = skipStats.noGrid + 1
+                                DebugPrint("Skipped displacement face " .. tostring(faceId) .. ": no vertex grid")
+                                break 
+                            end
                             local cx, cy, cz = 0, 0, 0
                             for i = 1, #grid do local p = grid[i].pos cx = cx + p.x cy = cy + p.y cz = cz + p.z end
                             cx = cx / #grid cy = cy / #grid cz = cz / #grid
@@ -464,7 +487,19 @@ local function BuildDisplacementMeshes(cancelToken)
         end
 
         buildState.active = false
-        DebugPrint("Built displacement meshes")
+        local totalChunks = 0
+        local totalMeshes = 0
+        local totalFaces = 0
+        for _, mats in pairs(chunks) do
+            totalChunks = totalChunks + 1
+            for k, _ in pairs(mats) do
+                if k ~= "_clusters" then totalMeshes = totalMeshes + 1 end
+            end
+        end
+        totalFaces = table.Count(seenFaces)
+        DebugPrint(string.format("Built %d displacement chunks with %d material groups from %d faces", totalChunks, totalMeshes, totalFaces))
+        DebugPrint(string.format("Skipped faces: %d total, %d not disp, %d duplicate, %d no material, %d filtered, %d no grid",
+            skipStats.total, skipStats.notDisp, skipStats.duplicate, skipStats.noMaterial, skipStats.filtered, skipStats.noGrid))
     end)
 
     -- Drive coroutine
@@ -532,14 +567,20 @@ local function RenderDisplacements()
 
     local draws = 0
     local chunksVisited = 0
+    local chunksCulledDist = 0
+    local chunksCulledPVS = 0
+    local chunksNoClusters = 0
     for _, chunkMaterials in pairs(dispMeshes) do
         chunksVisited = chunksVisited + 1
         local cmins, cmaxs = chunkMaterials._mins, chunkMaterials._maxs
         local skipChunk = false
+        local cullReason = nil
         if cmins and cmaxs and useDist and eyePos then
             local center = (cmins + cmaxs) * 0.5
             if RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(center, eyePos, maxDist) then
                 skipChunk = true
+                cullReason = "distance"
+                chunksCulledDist = chunksCulledDist + 1
             end
         end
         -- Compute clusters for chunk on demand
@@ -562,7 +603,14 @@ local function RenderDisplacements()
             for cl, _ in pairs(clusters) do
                 if pvs[cl] then anyVisible = true break end
             end
-            if not anyVisible then skipChunk = true end
+            if not anyVisible then 
+                skipChunk = true
+                cullReason = "PVS"
+                chunksCulledPVS = chunksCulledPVS + 1
+            end
+        elseif not skipChunk and pvs and (not clusters or next(clusters) == nil) then
+            -- Missing cluster data - render anyway but track it
+            chunksNoClusters = chunksNoClusters + 1
         end
 
         if not skipChunk then
@@ -589,6 +637,16 @@ local function RenderDisplacements()
 
     stats.draws = draws
     stats.chunksVisited = chunksVisited
+    stats.chunksCulledDist = chunksCulledDist
+    stats.chunksCulledPVS = chunksCulledPVS
+    stats.chunksNoClusters = chunksNoClusters
+    
+    -- Only log once per second to avoid console spam
+    if CONVARS.DEBUG:GetBool() and (SysTime() - lastDebugPrint) > 1.0 then
+        lastDebugPrint = SysTime()
+        DebugPrint(string.format("Rendered: %d draws from %d chunks | Culled: %d dist, %d PVS | No clusters: %d",
+            draws, chunksVisited, chunksCulledDist, chunksCulledPVS, chunksNoClusters))
+    end
 end
 
 -- Enable/Disable
@@ -651,6 +709,12 @@ RenderCore.RegisterStats("Displacements", function()
     local extra = ""
     if buildState.active and (buildState.total or 0) > 0 then
         extra = string.format(" | build: %d/%d", buildState.processed or 0, buildState.total or 0)
+    else
+        local culled = (stats.chunksCulledDist or 0) + (stats.chunksCulledPVS or 0)
+        if culled > 0 or (stats.chunksNoClusters or 0) > 0 then
+            extra = string.format(" | culled: %d (dist:%d pvs:%d) nocl:%d", 
+                culled, stats.chunksCulledDist or 0, stats.chunksCulledPVS or 0, stats.chunksNoClusters or 0)
+        end
     end
     return string.format("Disp draws: %d | chunks: %d%s", stats.draws or 0, stats.chunksVisited or 0, extra)
 end)
