@@ -5,8 +5,8 @@ local CONVARS = {
     SHOW_3DSKY_WARNING = CreateClientConVar("rtx_show_3dsky_warning", "1", true, false, "Show warning when enabling r_3dsky")
 }
 
-hook.Add( "PopulateToolMenu", "RTXOptionsClient", function()
-    spawnmenu.AddToolMenuOption( "Utilities", "RTX Remix", "RTX_Client", "#Base Options", "", "", function( panel )
+hook.Add( "PopulateToolMenu", "RTXOptionsClient_BaseOptions", function()
+    spawnmenu.AddToolMenuOption( "Utilities", "RTX Remix", "RTX_Client_BaseOptions", "#Base Options", "", "", function( panel )
         panel:ClearControls()
 
         panel:CheckBox( "Pseudoplayer Enabled", "rtx_pseudoplayer" )
@@ -17,9 +17,27 @@ hook.Add( "PopulateToolMenu", "RTXOptionsClient", function()
         panel:AddControl("Header", {Description = "Render Options:"})
         panel:CheckBox("Show Render Debug HUD", "rtx_render_debug")
         panel:CheckBox("2D Skybox", "rtx_sky2d_enable")
+    end )
+end )
+
+hook.Add( "PopulateToolMenu", "RTXOptionsClient_Culling", function()
+    spawnmenu.AddToolMenuOption( "Utilities", "RTX Remix", "RTX_Client_Culling", "#Culling", "", "", function( panel )
+        panel:ClearControls()
+        
+        panel:AddControl("Header", {Description = "PVS Culling:"})
+        panel:CheckBox("World", "rtx_mwr_use_pvs")
+        panel:ControlHelp("Enables Potentially Visible Set culling for world chunks. Improves performance but may cause some chunks to disappear incorrectly.")
+        panel:CheckBox("Displacements", "rtx_dpr_use_pvs")
+        panel:ControlHelp("Enables Potentially Visible Set culling for displacements. Improves performance but may cause some displacements to disappear incorrectly.")
+        panel:CheckBox("Static Props", "rtx_spr_use_pvs")
+        panel:ControlHelp("Enables Potentially Visible Set culling for static props. Improves performance but may cause some props to disappear incorrectly.")
+        panel:NumSlider("PVS Safety Distance", "rtx_spr_pvs_safety_distance", 0, 8192, 0)
+        panel:ControlHelp("Props within this distance always render, bypassing PVS checks. Increase if props cull in front of you. Saved per-map. (Default: 0)")
+
+        panel:AddControl("Header", {Description = "Entities:"})
         panel:CheckBox("Entity Anti-Culling", "rtx_rearview_enabled")
+        panel:ControlHelp("Prevents culling of engine rendered entities. This can severely impact performance.")
         panel:NumSlider("Distance (units)", "rtx_rearview_off_forward", 100, 5000, 0)
-        panel:Help("This can severely impact performance")
     end )
 end )
 

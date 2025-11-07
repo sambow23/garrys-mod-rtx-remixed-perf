@@ -11,9 +11,75 @@ local convar_RenderDistance = CreateClientConVar("rtx_spr_distance", "10000", tr
 local convar_Whitelist = CreateClientConVar("rtx_spr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include")
 local convar_Blacklist = CreateClientConVar("rtx_spr_mat_blacklist", "", true, false, "Comma-separated material name substrings to exclude")
 local convar_UsePVS = CreateClientConVar("rtx_spr_use_pvs", "1", true, false, "Enable PVS culling for static props")
+local convar_PVSSafetyDistance = CreateClientConVar("rtx_spr_pvs_safety_distance", "0", true, false, "Distance within which PVS culling is disabled (prevents close-range culling bugs)")
 local convar_UseLOD = CreateClientConVar("rtx_spr_use_lod", "1", true, false, "Enable LOD culling for complex props at distance")
 local convar_LODDistance = CreateClientConVar("rtx_spr_lod_distance", "5000", true, false, "Distance at which LOD culling starts")
 local convar_LODComplexity = CreateClientConVar("rtx_spr_lod_complexity", "5000", true, false, "Vertex count threshold for LOD culling")
+
+-- Per-map PVS safety distance persistence
+local PVS_SAFETY_FILE = "rtx_pvs_safety_distances.txt"
+
+local function GetCurrentMapName()
+    return game.GetMap() or "unknown"
+end
+
+local function LoadPerMapPVSSettings()
+    if not file.Exists(PVS_SAFETY_FILE, "DATA") then
+        return {}
+    end
+    
+    local json = file.Read(PVS_SAFETY_FILE, "DATA")
+    if not json then return {} end
+    
+    local ok, data = pcall(util.JSONToTable, json)
+    if not ok or not data then return {} end
+    
+    return data
+end
+
+local function SavePerMapPVSSettings(mapSettings)
+    local json = util.TableToJSON(mapSettings, true)
+    if json then
+        file.Write(PVS_SAFETY_FILE, json)
+    end
+end
+
+local function ApplyMapPVSSettings()
+    local mapName = GetCurrentMapName()
+    local settings = LoadPerMapPVSSettings()
+    
+    if settings[mapName] and settings[mapName].pvs_safety_distance then
+        local savedDistance = settings[mapName].pvs_safety_distance
+        RunConsoleCommand("rtx_spr_pvs_safety_distance", tostring(savedDistance))
+    else
+        -- No saved value for this map, reset to default (0)
+        RunConsoleCommand("rtx_spr_pvs_safety_distance", "0")
+    end
+end
+
+local function SaveCurrentMapPVSSettings()
+    local mapName = GetCurrentMapName()
+    local currentDistance = convar_PVSSafetyDistance:GetFloat()
+    
+    local settings = LoadPerMapPVSSettings()
+    settings[mapName] = settings[mapName] or {}
+    settings[mapName].pvs_safety_distance = currentDistance
+    
+    SavePerMapPVSSettings(settings)
+end
+
+-- Apply saved settings when map loads
+hook.Add("InitPostEntity", "RTX_SPR_LoadMapSettings", function()
+    timer.Simple(0.1, ApplyMapPVSSettings)
+end)
+
+-- Save settings when convar changes
+cvars.AddChangeCallback("rtx_spr_pvs_safety_distance", function(convar, oldValue, newValue)
+    -- Only save if the value actually changed and we're in a map
+    if oldValue ~= newValue and GetCurrentMapName() ~= "unknown" then
+        timer.Simple(0.5, SaveCurrentMapPVSSettings)
+    end
+end, "RTX_SPR_SavePVSDistance")
 
 -- Global state
 local isDataReady = false
@@ -109,11 +175,64 @@ local function ProcessStaticProp(propData)
     
     -- Store this information in the prop data
     prop.isSkybox = isSkyboxProp
-    -- Cache BSP cluster for PVS checks
-    if NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.ClusterFromPoint then
-        prop.cluster = NikNaks.CurrentMap:ClusterFromPoint(prop.origin) or -1
+    -- Cache BSP clusters for PVS checks (multi-cluster for better precision)
+    -- Use AABB to find all clusters this prop touches
+    if NikNaks and NikNaks.CurrentMap and meshCache[cacheKey] and not meshCache[cacheKey].error then
+        local meshData = meshCache[cacheKey]
+        if meshData.mins and meshData.maxs then
+            -- Transform bounds to world space
+            local corners = {
+                prop.matrix * meshData.mins,
+                prop.matrix * meshData.maxs,
+                prop.matrix * Vector(meshData.mins.x, meshData.mins.y, meshData.maxs.z),
+                prop.matrix * Vector(meshData.mins.x, meshData.maxs.y, meshData.mins.z),
+                prop.matrix * Vector(meshData.maxs.x, meshData.mins.y, meshData.mins.z),
+                prop.matrix * Vector(meshData.maxs.x, meshData.maxs.y, meshData.mins.z),
+                prop.matrix * Vector(meshData.maxs.x, meshData.mins.y, meshData.maxs.z),
+                prop.matrix * Vector(meshData.mins.x, meshData.maxs.y, meshData.maxs.z),
+            }
+            -- Find AABB of transformed corners
+            local worldMins = Vector(math.huge, math.huge, math.huge)
+            local worldMaxs = Vector(-math.huge, -math.huge, -math.huge)
+            for _, corner in ipairs(corners) do
+                if corner.x < worldMins.x then worldMins.x = corner.x end
+                if corner.y < worldMins.y then worldMins.y = corner.y end
+                if corner.z < worldMins.z then worldMins.z = corner.z end
+                if corner.x > worldMaxs.x then worldMaxs.x = corner.x end
+                if corner.y > worldMaxs.y then worldMaxs.y = corner.y end
+                if corner.z > worldMaxs.z then worldMaxs.z = corner.z end
+            end
+            
+            -- Get all leaves that intersect this AABB
+            prop.clusters = {}
+            if NikNaks.CurrentMap.AABBInLeafs then
+                local ok, leaves = pcall(function() return NikNaks.CurrentMap:AABBInLeafs(0, worldMins, worldMaxs) end)
+                if ok and leaves then
+                    for _, leaf in ipairs(leaves) do
+                        local cl = leaf.GetCluster and leaf:GetCluster() or -1
+                        if cl and cl >= 0 then
+                            prop.clusters[cl] = true
+                        end
+                    end
+                end
+            end
+            -- Fallback to origin-based cluster if multi-cluster failed
+            if not next(prop.clusters) and NikNaks.CurrentMap.ClusterFromPoint then
+                local cl = NikNaks.CurrentMap:ClusterFromPoint(prop.origin) or -1
+                if cl >= 0 then
+                    prop.clusters[cl] = true
+                end
+            end
+        end
     else
-        prop.cluster = -1
+        -- Fallback: single cluster from origin
+        prop.clusters = {}
+        if NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.ClusterFromPoint then
+            local cl = NikNaks.CurrentMap:ClusterFromPoint(prop.origin) or -1
+            if cl >= 0 then
+                prop.clusters[cl] = true
+            end
+        end
     end
     
     -- Check if we already cached this model's mesh
@@ -451,9 +570,29 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
             continue
         end
         -- PVS culling for world props only (skip skybox props)
-        if not bDrawingSkybox and pvs and prop.cluster and prop.cluster >= 0 and not pvs[prop.cluster] then
-            skippedProps = skippedProps + 1
-            continue
+        if not bDrawingSkybox and pvs and prop.clusters and next(prop.clusters) then
+            -- Safety distance check: always render props very close to player
+            local safetyDist = convar_PVSSafetyDistance:GetFloat()
+            local withinSafetyDistance = false
+            if safetyDist > 0 and playerPos then
+                local distSqr = prop.origin:DistToSqr(playerPos)
+                withinSafetyDistance = distSqr < (safetyDist * safetyDist)
+            end
+            
+            if not withinSafetyDistance then
+                -- Check if any cluster is visible
+                local anyVisible = false
+                for cl in pairs(prop.clusters) do
+                    if pvs[cl] then
+                        anyVisible = true
+                        break
+                    end
+                end
+                if not anyVisible then
+                    skippedProps = skippedProps + 1
+                    continue
+                end
+            end
         end
         if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(prop.origin, playerPos, maxDistance) then
             distanceSkipped = distanceSkipped + 1
