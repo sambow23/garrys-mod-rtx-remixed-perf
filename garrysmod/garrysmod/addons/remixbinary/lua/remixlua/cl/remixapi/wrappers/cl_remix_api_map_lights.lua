@@ -1,7 +1,6 @@
 local brightness_multiplier = CreateClientConVar("rtx_api_map_lights_brightness", "1.0", true, false, "Brightness multiplier for converted lights")
-local size_multiplier = CreateClientConVar("rtx_api_map_lights_size", "5.0", true, false, "Size multiplier for converted lights")
-local min_size = CreateClientConVar("rtx_api_map_lights_min_size", "100", true, false, "Minimum size for RTX lights")
-local max_size = CreateClientConVar("rtx_api_map_lights_max_size", "1000", true, false, "Maximum size for RTX lights")
+local min_size = CreateClientConVar("rtx_api_map_lights_min_size", "0", true, false, "Minimum size for RTX lights")
+local max_size = CreateClientConVar("rtx_api_map_lights_max_size", "9", true, false, "Maximum size for RTX lights")
 local visual_mode = CreateClientConVar("rtx_api_map_lights_visual", "0", true, false, "Show visible models for lights")
 local debug_mode = CreateClientConVar("rtx_api_map_lights_debug", "0", true, false, "Enable debug messages")
 local env_max_brightness = CreateClientConVar("rtx_api_map_lights_env_max_brightness", "3", true, false, "Max brightness (0-100 scale) for directional lights; 0 disables clamping")
@@ -20,6 +19,10 @@ local env_brightness_mult = CreateClientConVar("rtx_api_map_lights_env_brightnes
 local point_volumetric_mult = CreateClientConVar("rtx_api_map_lights_point_volumetric_mult", "1.0", true, false, "Volumetric scale multiplier for point lights")
 local spot_volumetric_mult = CreateClientConVar("rtx_api_map_lights_spot_volumetric_mult", "1.0", true, false, "Volumetric scale multiplier for spot lights")
 local env_volumetric_mult = CreateClientConVar("rtx_api_map_lights_env_volumetric_mult", "1.0", true, false, "Volumetric scale multiplier for directional lights")
+
+local point_size_mult = CreateClientConVar("rtx_api_map_lights_point_size_mult", "1.0", true, false, "Size scaling multiplier for point lights")
+local spot_size_mult = CreateClientConVar("rtx_api_map_lights_spot_size_mult", "1.0", true, false, "Size scaling multiplier for spot lights")
+local env_size_mult = CreateClientConVar("rtx_api_map_lights_env_size_mult", "1.0", true, false, "Size scaling multiplier for directional lights")
 
 local creation_batch_size = CreateClientConVar("rtx_api_map_lights_batch_size", "1", true, false, "Number of lights to create in each batch")
 local creation_batch_delay = CreateClientConVar("rtx_api_map_lights_batch_delay", "0.0", true, false, "Delay between batches in seconds")
@@ -203,18 +206,30 @@ local function ParseEntityAngles(ent)
 end
 
 -- Helper function to estimate appropriate light size based on brightness
-local function estimateLightSize(brightness, entitySize)
-    -- Base size on brightness - brighter lights should be larger
-    local baseSize = entitySize or 200
+-- Returns: finalSize, baseSizeBeforeMultipliers
+local function estimateLightSize(brightness, entitySize, lightType)
+    -- Base size - scaled down to work with per-type multipliers
+    local baseSize = entitySize or 5
     
-    -- Scale it by brightness
-    baseSize = baseSize * (1 + brightness / 200)
+    -- Scale slightly by brightness (reduced influence)
+    baseSize = baseSize * (1 + brightness / 1000)
     
-    -- Apply size multiplier
-    baseSize = baseSize * size_multiplier:GetFloat()
+    -- Store this value BEFORE type multiplier (for runtime updates)
+    local baseSizeBeforeMultipliers = baseSize
+    
+    -- Apply per-type size multiplier
+    local typeMult = 1.0
+    if lightType == "light" or lightType == "light_dynamic" then
+        typeMult = point_size_mult:GetFloat()
+    elseif lightType == "light_spot" or lightType == "env_projectedtexture" then
+        typeMult = spot_size_mult:GetFloat()
+    elseif lightType == "light_environment" then
+        typeMult = env_size_mult:GetFloat()
+    end
+    baseSize = baseSize * typeMult
     
     -- Enforce minimum and maximum size
-    return math.Clamp(baseSize, min_size:GetFloat(), max_size:GetFloat())
+    return math.Clamp(baseSize, min_size:GetFloat(), max_size:GetFloat()), baseSizeBeforeMultipliers
 end
 
 -- Helper function to estimate light brightness and color from BSP entity data
@@ -256,7 +271,10 @@ local function getLightProperties(entity)
     brightness = brightness * brightness_multiplier:GetFloat()
     
     -- Estimate appropriate size
-    local size = estimateLightSize(brightness, entitySize)
+    local size, baseSizeBeforeMultipliers = estimateLightSize(brightness, entitySize, entity.classname)
+    
+    -- Store the base size for runtime updates
+    lightProps.baseSizeBeforeMultipliers = baseSizeBeforeMultipliers
     
     -- Special handling for certain light types
     if entity.classname == "light_environment" then
@@ -630,7 +648,7 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         local baseAngular = (lightProps and tonumber(lightProps.angularDiameter)) or 0.53
         local distant = {
             direction = { x = dir.x, y = dir.y, z = dir.z },
-            angularDiameterDegrees = baseAngular * (env_angular_mult:GetFloat() or 1.0),
+            angularDiameterDegrees = baseAngular * (env_angular_mult:GetFloat() or 1.0) * (env_size_mult:GetFloat() or 1.0),
             volumetricRadianceScale = env_volumetric_mult:GetFloat() or 1.0,
         }
         if istable(RemixLightQueue) and RemixLightQueue.CreateDistant then
@@ -640,7 +658,9 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         end
     else
         -- Sphere info as a reasonable default representation
-        local baseRadius = tonumber(size) or 200
+        local baseRadius = tonumber(size) or 5
+        -- If size is 0 or very small, use default
+        if baseRadius < 0.1 then baseRadius = 5 end
         local rmult = (kind == "spot") and (spot_radius_mult:GetFloat() or 1.0) or (point_radius_mult:GetFloat() or 1.0)
         local vmult = (kind == "spot") and (spot_volumetric_mult:GetFloat() or 1.0) or (point_volumetric_mult:GetFloat() or 1.0)
         local sphere = {
@@ -691,6 +711,7 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         baseBrightness = appliedBrightness,
         baseAngular = (classname == "light_environment") and ((lightProps and tonumber(lightProps.angularDiameter)) or 0.53) or nil,
         baseRadius = (classname ~= "light_environment") and (tonumber(size) or 200) or nil,
+        baseSizeBeforeMultipliers = (classname ~= "light_environment") and (lightProps and tonumber(lightProps.baseSizeBeforeMultipliers)) or nil,
         -- Debug/inspection fields
         angles = angles,
         direction = dir,
@@ -899,7 +920,7 @@ local function updateEntryRuntime(entry)
         local baseAngular = tonumber(entry.baseAngular) or 0.53
         local distant = {
             direction = (function() local d = computeDir(); return { x = d.x, y = d.y, z = d.z } end)(),
-            angularDiameterDegrees = baseAngular * (env_angular_mult:GetFloat() or 1.0),
+            angularDiameterDegrees = baseAngular * (env_angular_mult:GetFloat() or 1.0) * (env_size_mult:GetFloat() or 1.0),
             volumetricRadianceScale = env_volumetric_mult:GetFloat() or 1.0,
         }
         if istable(RemixLightQueue) and RemixLightQueue.UpdateDistant then
@@ -909,10 +930,27 @@ local function updateEntryRuntime(entry)
         end
     else
         local rmult = (kind == "spot") and (spot_radius_mult:GetFloat() or 1.0) or (point_radius_mult:GetFloat() or 1.0)
+        local smult = (kind == "spot") and (spot_size_mult:GetFloat() or 1.0) or (point_size_mult:GetFloat() or 1.0)
         local vmult = (kind == "spot") and (spot_volumetric_mult:GetFloat() or 1.0) or (point_volumetric_mult:GetFloat() or 1.0)
+        
+        -- Use baseSizeBeforeMultipliers if available to apply type size multiplier at runtime
+        local baseSize = tonumber(entry.baseSizeBeforeMultipliers) or tonumber(entry.baseRadius) or tonumber(entry.size) or 5
+        -- If size is 0 or very small, use default (matches creation logic)
+        if baseSize < 0.1 then baseSize = 5 end
+        local radiusWithSizeMult = baseSize * smult
+        
+        -- Debug: Print values for lights that seem stuck
+        if debug_mode:GetBool() and radiusWithSizeMult < 2 then
+            DebugPrint(string.format("Light %s: baseSize=%.2f, smult=%.2f, result=%.2f, hasBaseBeforeMult=%s", 
+                entry.classname or "?", baseSize, smult, radiusWithSizeMult, tostring(entry.baseSizeBeforeMultipliers ~= nil)))
+        end
+        
+        -- Apply min/max clamping just like during creation
+        radiusWithSizeMult = math.Clamp(radiusWithSizeMult, min_size:GetFloat(), max_size:GetFloat())
+        
         local sphere = {
             position = { x = entry.pos.x, y = entry.pos.y, z = entry.pos.z },
-            radius = (tonumber(entry.baseRadius) or tonumber(entry.size) or 200) * rmult,
+            radius = radiusWithSizeMult * rmult,
             volumetricRadianceScale = vmult,
         }
         if entry.shapingEnabled then
@@ -961,6 +999,11 @@ if cvars and cvars.AddChangeCallback then
     cvars.AddChangeCallback("rtx_api_map_lights_point_volumetric_mult", function() updateAllOfKind("point") end, "rtx_maplights_point_vmult")
     cvars.AddChangeCallback("rtx_api_map_lights_spot_volumetric_mult", function() updateAllOfKind("spot") end, "rtx_maplights_spot_vmult")
     cvars.AddChangeCallback("rtx_api_map_lights_env_volumetric_mult", function() updateAllOfKind("env") end, "rtx_maplights_env_vmult")
+    cvars.AddChangeCallback("rtx_api_map_lights_point_size_mult", function() updateAllOfKind("point") end, "rtx_maplights_point_smult")
+    cvars.AddChangeCallback("rtx_api_map_lights_spot_size_mult", function() updateAllOfKind("spot") end, "rtx_maplights_spot_smult")
+    cvars.AddChangeCallback("rtx_api_map_lights_env_size_mult", function() updateAllOfKind("env") end, "rtx_maplights_env_smult")
+    cvars.AddChangeCallback("rtx_api_map_lights_min_size", function() refreshAllLights() end, "rtx_maplights_min_size")
+    cvars.AddChangeCallback("rtx_api_map_lights_max_size", function() refreshAllLights() end, "rtx_maplights_max_size")
     -- Flip callback: re-evaluate env directions from stored angles when toggled
     cvars.AddChangeCallback("rtx_api_map_lights_env_dir_flip", function() updateAllOfKind("env") end, "rtx_maplights_env_flip")
 end
