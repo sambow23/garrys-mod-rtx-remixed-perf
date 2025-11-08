@@ -205,6 +205,12 @@ local function ParseEntityAngles(ent)
     return nil, "none"
 end
 
+-- Convert sRGB (0-255) to linear space for physically accurate lighting
+local function srgbToLinear(c)
+    c = c / 255.0
+    return (c <= 0.04045) and (c / 12.92) or math.pow((c + 0.055) / 1.055, 2.4)
+end
+
 -- Helper function to estimate appropriate light size based on brightness
 -- Returns: finalSize, baseSizeBeforeMultipliers
 local function estimateLightSize(brightness, entitySize, lightType)
@@ -615,9 +621,14 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
     local typeBrightnessMult = (kind == "env") and env_brightness_mult:GetFloat()
         or ((kind == "spot") and spot_brightness_mult:GetFloat() or point_brightness_mult:GetFloat())
     local bscale = scale * (typeBrightnessMult or 1.0)
+    
     local base = {
         hash = tonumber(util.CRC(string.format("maplight_%s", posKey))) or entityId,
-        radiance = { x = color.r * bscale, y = color.g * bscale, z = color.b * bscale },
+        radiance = { 
+            x = srgbToLinear(color.r) * bscale * 255, 
+            y = srgbToLinear(color.g) * bscale * 255, 
+            z = srgbToLinear(color.b) * bscale * 255 
+        },
     }
 
     -- Direction from angles if present
@@ -898,9 +909,14 @@ local function updateEntryRuntime(entry)
         bmult = point_brightness_mult:GetFloat()
     end
     local amult = tonumber(entry.animMul or 1.0) or 1.0
+    local bscale = scale * (bmult or 1.0) * amult
     local base = {
         hash = tonumber(util.CRC("upd_" .. tostring(entry.id))) or entry.entityId,
-        radiance = { x = entry.color.r * scale * (bmult or 1.0) * amult, y = entry.color.g * scale * (bmult or 1.0) * amult, z = entry.color.b * scale * (bmult or 1.0) * amult },
+        radiance = { 
+            x = srgbToLinear(entry.color.r) * bscale * 255, 
+            y = srgbToLinear(entry.color.g) * bscale * 255, 
+            z = srgbToLinear(entry.color.b) * bscale * 255 
+        },
     }
     -- Helper to compute direction for distant/spot from stored angles if available
     local function computeDir()
