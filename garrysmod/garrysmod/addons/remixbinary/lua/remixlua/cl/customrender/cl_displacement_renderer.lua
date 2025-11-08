@@ -554,6 +554,12 @@ end
 -- Render
 local function RenderDisplacements()
     if not CONVARS.ENABLED:GetBool() then return end
+    
+    -- Skip rendering displacements in offscreen RTs (e.g., rear-view camera with dynamic_only filter)
+    if RenderCore and RenderCore.IsOffscreen and RenderCore.IsOffscreen() then
+        return
+    end
+    
     local maxDist = CONVARS.DISTANCE:GetFloat()
     local useDist = maxDist > 0
     local ply = LocalPlayer and LocalPlayer() or nil

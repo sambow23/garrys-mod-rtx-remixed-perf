@@ -567,6 +567,11 @@ end
 -- Rendering Functions
 local function RenderCustomWorld(translucent)
     if not isEnabled then return end
+    
+    -- Skip rendering world in offscreen RTs (e.g., rear-view camera with dynamic_only filter)
+    if RenderCore and RenderCore.IsOffscreen and RenderCore.IsOffscreen() then
+        return
+    end
 
     local draws = 0
     local currentMaterial = nil

@@ -515,6 +515,11 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
         return
     end
     
+    -- Skip rendering static props in offscreen RTs (e.g., rear-view camera with dynamic_only filter)
+    if RenderCore and RenderCore.IsOffscreen and RenderCore.IsOffscreen() then
+        return
+    end
+    
     -- Clear instancing batches at start of frame
     if PropInstancing and PropInstancing.ClearBatches then
         PropInstancing.ClearBatches()

@@ -14,6 +14,12 @@ REARVIEW._rendering = false
 REARVIEW._panel = nil
 REARVIEW.lastView = nil
 
+-- Entity filtering for selective rendering
+REARVIEW.filterMode = "dynamic_only" -- "all", "whitelist", "blacklist", "dynamic_only"
+REARVIEW.classWhitelist = {} -- Set of class names to include (when filterMode = "whitelist")
+REARVIEW.classBlacklist = {} -- Set of class names to exclude (when filterMode = "blacklist")
+REARVIEW._hiddenEntities = {} -- Temporary storage for entities hidden during RT rendering
+
 local function CreateRT()
     if REARVIEW.rt and REARVIEW.rt:IsError() == false then return end
 
@@ -112,6 +118,87 @@ local function GetCameraOrigin()
     return baseOrigin + fwd * offF + right * offR + up * offU
 end
 
+-- Check if an entity should be rendered in the rear-view RT
+local function ShouldRenderEntity(ent)
+    if not IsValid(ent) then return false end
+    
+    local class = ent:GetClass()
+    
+    -- Filter mode: all (render everything)
+    if REARVIEW.filterMode == "all" then
+        return true
+    end
+    
+    -- Filter mode: whitelist (only render classes in the whitelist)
+    if REARVIEW.filterMode == "whitelist" then
+        return REARVIEW.classWhitelist[class] == true
+    end
+    
+    -- Filter mode: blacklist (render everything except classes in the blacklist)
+    if REARVIEW.filterMode == "blacklist" then
+        return REARVIEW.classBlacklist[class] ~= true
+    end
+    
+    -- Filter mode: dynamic_only (only render dynamic entities: players, NPCs, physics props, vehicles)
+    if REARVIEW.filterMode == "dynamic_only" then
+        -- Players
+        if ent:IsPlayer() then return true end
+        
+        -- NPCs
+        if ent:IsNPC() then return true end
+        
+        -- Vehicles
+        if ent:IsVehicle() then return true end
+        
+        -- Ragdolls
+        if class == "prop_ragdoll" or class == "class C_ClientRagdoll" then return true end
+        
+        -- Physics props (all physics props, not just moveable ones)
+        if class == "prop_physics" or class == "prop_physics_multiplayer" or class == "prop_physics_override" then
+            return true
+        end
+        
+        -- Dynamic props
+        if class == "prop_dynamic" or class == "prop_dynamic_override" then
+            return true
+        end
+        
+        -- Other common moveable prop types
+        if class:find("^prop_") and ent:GetPhysicsObject():IsValid() then
+            return true
+        end
+        
+        return false
+    end
+    
+    return true
+end
+
+-- Hide entities that should not render in the RT
+local function HideFilteredEntities()
+    REARVIEW._hiddenEntities = {}
+    
+    for _, ent in ipairs(ents.GetAll()) do
+        if IsValid(ent) and not ShouldRenderEntity(ent) then
+            local wasHidden = ent:GetNoDraw()
+            if not wasHidden then
+                REARVIEW._hiddenEntities[ent] = true
+                ent:SetNoDraw(true)
+            end
+        end
+    end
+end
+
+-- Restore entities that were hidden for RT rendering
+local function RestoreFilteredEntities()
+    for ent, _ in pairs(REARVIEW._hiddenEntities) do
+        if IsValid(ent) then
+            ent:SetNoDraw(false)
+        end
+    end
+    REARVIEW._hiddenEntities = {}
+end
+
 local function UpdateRearRT()
     if not REARVIEW.enabled then return end
     if REARVIEW._rendering then return end
@@ -155,16 +242,23 @@ local function UpdateRearRT()
             drawmonitors = false
         }
 
+        -- Hide filtered entities before rendering
+        HideFilteredEntities()
+
         -- Render scene into our RT (flag as offscreen so other systems like skybox skip per-frame logic)
         if RenderCore and RenderCore.PushOffscreen then RenderCore.PushOffscreen() end
         render.RenderView(view)
         if RenderCore and RenderCore.PopOffscreen then RenderCore.PopOffscreen() end
 
+        -- Restore filtered entities after rendering
+        RestoreFilteredEntities()
+
         render.PopRenderTarget()
     end)
 
-    -- Always reset rendering flag, even if error occurred
+    -- Always reset rendering flag and restore entities, even if error occurred
     REARVIEW._rendering = false
+    RestoreFilteredEntities() -- Safety: ensure entities are restored even on error
 
     if not success then
         ErrorNoHalt("[RearView] Render error: " .. tostring(err) .. "\n")
@@ -266,6 +360,8 @@ CreateClientConVar("rtx_rearview_off_forward", "2000", true, false, "Rear-view l
 CreateClientConVar("rtx_rearview_off_right", "0", true, false, "Rear-view local right offset in units")
 CreateClientConVar("rtx_rearview_off_up", "0", true, false, "Rear-view local up offset in units")
 CreateClientConVar("rtx_rearview_yaw_add", "180", true, false, "Additional yaw in degrees (default 180 = look behind)")
+-- Filtering convars
+CreateClientConVar("rtx_rearview_filter_mode", "dynamic_only", true, false, "Filter mode: all, whitelist, blacklist, dynamic_only")
 
 cvars.AddChangeCallback("rtx_rearview_enabled", function(convar, old, new)
     local enable = tonumber(new) == 1
@@ -335,9 +431,123 @@ concommand.Add("rtx_rearview_resetoffset", function()
     RunConsoleCommand("rtx_rearview_yaw_add", "180")
 end, nil, "Reset rear-view offsets and yaw to defaults")
 
+-- Filtering commands
+concommand.Add("rtx_rearview_filter_mode", function(ply, cmd, args)
+    local mode = tostring(args and args[1] or "all"):lower()
+    if mode ~= "all" and mode ~= "whitelist" and mode ~= "blacklist" and mode ~= "dynamic_only" then
+        print("[RearView] Invalid filter mode. Options: all, whitelist, blacklist, dynamic_only")
+        return
+    end
+    REARVIEW.filterMode = mode
+    RunConsoleCommand("rtx_rearview_filter_mode", mode)
+    print("[RearView] Filter mode set to: " .. mode)
+end, nil, "Set filter mode: all, whitelist, blacklist, dynamic_only")
+
+concommand.Add("rtx_rearview_whitelist_add", function(ply, cmd, args)
+    local class = tostring(args and args[1] or "")
+    if class == "" then
+        print("[RearView] Usage: rtx_rearview_whitelist_add <classname>")
+        return
+    end
+    REARVIEW.classWhitelist[class] = true
+    print("[RearView] Added to whitelist: " .. class)
+end, nil, "Add entity class to whitelist")
+
+concommand.Add("rtx_rearview_whitelist_remove", function(ply, cmd, args)
+    local class = tostring(args and args[1] or "")
+    if class == "" then
+        print("[RearView] Usage: rtx_rearview_whitelist_remove <classname>")
+        return
+    end
+    REARVIEW.classWhitelist[class] = nil
+    print("[RearView] Removed from whitelist: " .. class)
+end, nil, "Remove entity class from whitelist")
+
+concommand.Add("rtx_rearview_whitelist_clear", function()
+    REARVIEW.classWhitelist = {}
+    print("[RearView] Whitelist cleared")
+end, nil, "Clear whitelist")
+
+concommand.Add("rtx_rearview_whitelist_list", function()
+    print("[RearView] Whitelist:")
+    local count = 0
+    for class, _ in pairs(REARVIEW.classWhitelist) do
+        print("  - " .. class)
+        count = count + 1
+    end
+    if count == 0 then
+        print("  (empty)")
+    end
+end, nil, "List whitelisted classes")
+
+concommand.Add("rtx_rearview_blacklist_add", function(ply, cmd, args)
+    local class = tostring(args and args[1] or "")
+    if class == "" then
+        print("[RearView] Usage: rtx_rearview_blacklist_add <classname>")
+        return
+    end
+    REARVIEW.classBlacklist[class] = true
+    print("[RearView] Added to blacklist: " .. class)
+end, nil, "Add entity class to blacklist")
+
+concommand.Add("rtx_rearview_blacklist_remove", function(ply, cmd, args)
+    local class = tostring(args and args[1] or "")
+    if class == "" then
+        print("[RearView] Usage: rtx_rearview_blacklist_remove <classname>")
+        return
+    end
+    REARVIEW.classBlacklist[class] = nil
+    print("[RearView] Removed from blacklist: " .. class)
+end, nil, "Remove entity class from blacklist")
+
+concommand.Add("rtx_rearview_blacklist_clear", function()
+    REARVIEW.classBlacklist = {}
+    print("[RearView] Blacklist cleared")
+end, nil, "Clear blacklist")
+
+concommand.Add("rtx_rearview_blacklist_list", function()
+    print("[RearView] Blacklist:")
+    local count = 0
+    for class, _ in pairs(REARVIEW.classBlacklist) do
+        print("  - " .. class)
+        count = count + 1
+    end
+    if count == 0 then
+        print("  (empty)")
+    end
+end, nil, "List blacklisted classes")
+
+concommand.Add("rtx_rearview_list_entities", function()
+    print("[RearView] All entity classes currently in world:")
+    local classes = {}
+    for _, ent in ipairs(ents.GetAll()) do
+        if IsValid(ent) then
+            local class = ent:GetClass()
+            classes[class] = (classes[class] or 0) + 1
+        end
+    end
+    local sorted = {}
+    for class, count in pairs(classes) do
+        table.insert(sorted, {class = class, count = count})
+    end
+    table.sort(sorted, function(a, b) return a.count > b.count end)
+    for _, entry in ipairs(sorted) do
+        print(string.format("  %3dx %s", entry.count, entry.class))
+    end
+end, nil, "List all entity classes in the world")
+
 -- Auto-create on join if convar persisted
 hook.Add("InitPostEntity", "RearView_Init", function()
     if GetConVar("rtx_rearview_enabled") and GetConVar("rtx_rearview_enabled"):GetBool() then
         SetEnabled(true)
+    end
+    
+    -- Load filter mode from convar
+    local filterCv = GetConVar("rtx_rearview_filter_mode")
+    if filterCv then
+        local mode = filterCv:GetString():lower()
+        if mode == "all" or mode == "whitelist" or mode == "blacklist" or mode == "dynamic_only" then
+            REARVIEW.filterMode = mode
+        end
     end
 end)
