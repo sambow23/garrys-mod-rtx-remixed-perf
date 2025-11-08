@@ -118,14 +118,14 @@ local function GetCachedMaterial(matName)
 end
 
 -- Get mesh data directly using GetModelMeshes
-local function GetModelMeshes(modelPath)
+local function GetModelMeshes(modelPath, skin)
     -- Load the model if not already loaded
     if not util.IsModelLoaded(modelPath) then
         util.PrecacheModel(modelPath)
     end
     
-    -- Try to get mesh data directly
-    return util.GetModelMeshes(modelPath)
+    -- Try to get mesh data directly with skin support
+    return util.GetModelMeshes(modelPath, 0, 0, skin or 0)
 end
 
 local function IsMaterialAllowedName(matName)
@@ -238,8 +238,8 @@ local function ProcessStaticProp(propData)
     -- Check if we already cached this model's mesh
     local cacheKey = modelPath .. "_skin" .. prop.skin
     if not meshCache[cacheKey] then
-        -- Get the mesh data
-        local meshData = GetModelMeshes(modelPath)
+        -- Get the mesh data with skin support
+        local meshData = GetModelMeshes(modelPath, prop.skin)
         
         if not meshData or #meshData == 0 then
             DebugPrint("Failed to get mesh data for:", modelPath)
@@ -318,7 +318,7 @@ local function ProcessStaticProp(propData)
                 vertexCount = totalVertexCount
             }
             
-            DebugPrint("Cached mesh for model:", modelPath, "#mesh groups:", #processedMeshes, "vertices:", totalVertexCount)
+            DebugPrint("Cached mesh for model:", modelPath, "skin:", prop.skin, "#mesh groups:", #processedMeshes, "vertices:", totalVertexCount)
         else
             DebugPrint("No valid mesh groups found for model:", modelPath)
             meshCache[cacheKey] = {
