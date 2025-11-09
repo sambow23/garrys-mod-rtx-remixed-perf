@@ -36,7 +36,7 @@ hook.Add("PopulateToolMenu", "RemixAPILights", function()
         local btnSpotReset = panel:Button("Reset", "")
         btnSpotReset.DoClick = function()
             RunConsoleCommand("rtx_api_map_lights_spot_brightness_mult", "1.0")
-            RunConsoleCommand("rtx_api_map_lights_spot_radius_mult", "2.0")
+            RunConsoleCommand("rtx_api_map_lights_spot_radius_mult", "1.5")
             RunConsoleCommand("rtx_api_map_lights_spot_size_mult", "1.0")
             RunConsoleCommand("rtx_api_map_lights_spot_volumetric_mult", "1.0")
         end
