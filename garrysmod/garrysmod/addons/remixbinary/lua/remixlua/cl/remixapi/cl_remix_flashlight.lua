@@ -6,17 +6,17 @@ if not CLIENT then return end
 
 -- Configuration ConVars
 local cv_enabled = CreateClientConVar("rtx_flashlight_enabled", "1", true, false, "Enable RTX flashlight replacement")
-local cv_brightness = CreateClientConVar("rtx_flashlight_brightness", "15", true, false, "Flashlight brightness (0-100)")
-local cv_radius = CreateClientConVar("rtx_flashlight_radius", "80", true, false, "Flashlight sphere radius")
-local cv_cone_angle = CreateClientConVar("rtx_flashlight_cone_angle", "35", true, false, "Flashlight cone angle in degrees")
-local cv_cone_softness = CreateClientConVar("rtx_flashlight_cone_softness", "0.3", true, false, "Flashlight cone edge softness (0-1)")
+local cv_brightness = CreateClientConVar("rtx_flashlight_brightness", "1000", true, false, "Flashlight brightness (0-100)")
+local cv_radius = CreateClientConVar("rtx_flashlight_radius", "20", true, false, "Flashlight sphere radius")
+local cv_cone_angle = CreateClientConVar("rtx_flashlight_cone_angle", "25", true, false, "Flashlight cone angle in degrees")
+local cv_cone_softness = CreateClientConVar("rtx_flashlight_cone_softness", "0.45", true, false, "Flashlight cone edge softness (0-1)")
 local cv_color_r = CreateClientConVar("rtx_flashlight_color_r", "255", true, false, "Flashlight red color (0-255)")
-local cv_color_g = CreateClientConVar("rtx_flashlight_color_g", "240", true, false, "Flashlight green color (0-255)")
-local cv_color_b = CreateClientConVar("rtx_flashlight_color_b", "200", true, false, "Flashlight blue color (0-255)")
-local cv_offset_forward = CreateClientConVar("rtx_flashlight_offset_forward", "10", true, false, "Forward offset from player eyes")
-local cv_offset_right = CreateClientConVar("rtx_flashlight_offset_right", "5", true, false, "Right offset from player eyes")
-local cv_offset_up = CreateClientConVar("rtx_flashlight_offset_up", "-3", true, false, "Up offset from player eyes")
-local cv_volumetric = CreateClientConVar("rtx_flashlight_volumetric", "2.0", true, false, "Volumetric intensity multiplier")
+local cv_color_g = CreateClientConVar("rtx_flashlight_color_g", "255", true, false, "Flashlight green color (0-255)")
+local cv_color_b = CreateClientConVar("rtx_flashlight_color_b", "255", true, false, "Flashlight blue color (0-255)")
+local cv_offset_forward = CreateClientConVar("rtx_flashlight_offset_forward", "-5", true, false, "Forward offset from player eyes")
+local cv_offset_right = CreateClientConVar("rtx_flashlight_offset_right", "0", true, false, "Right offset from player eyes")
+local cv_offset_up = CreateClientConVar("rtx_flashlight_offset_up", "0", true, false, "Up offset from player eyes")
+local cv_volumetric = CreateClientConVar("rtx_flashlight_volumetric", "0.0", true, false, "Volumetric intensity multiplier")
 local cv_debug = CreateClientConVar("rtx_flashlight_debug", "0", true, false, "Show debug info")
 
 -- Optional queue include

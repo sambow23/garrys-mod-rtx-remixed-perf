@@ -13,7 +13,7 @@ local CONVARS = {
     MAT_WHITELIST = CreateClientConVar("rtx_mwr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include"),
     MAT_BLACKLIST = CreateClientConVar("rtx_mwr_mat_blacklist", "toolsskybox,skybox/", true, false, "Comma-separated material name substrings to exclude"),
     DISTANCE = CreateClientConVar("rtx_mwr_distance", "0", true, false, "World chunk distance limit (0 = off)"),
-    USE_PVS = CreateClientConVar("rtx_mwr_use_pvs", "1", true, false, "Enable PVS culling for world chunks")
+    USE_PVS = CreateClientConVar("rtx_mwr_use_pvs", "0", true, false, "Enable PVS culling for world chunks")
 }
 
 -- Local Variables and Caches

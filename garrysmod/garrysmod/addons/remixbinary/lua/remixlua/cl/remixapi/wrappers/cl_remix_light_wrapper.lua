@@ -4,7 +4,7 @@ if not CLIENT then return end
 -- Configuration
 local cv_enabled = CreateClientConVar("rtx_light_wrapper_enabled", "1", true, false, "Enable automatic RTX light wrapping for legacy light entities")
 local cv_debug = CreateClientConVar("rtx_light_wrapper_debug", "0", true, false, "Debug logging for light wrapper")
-local cv_update_rate = CreateClientConVar("rtx_light_wrapper_update_rate", "0.1", true, false, "How often to check for entity property changes (seconds)")
+local cv_update_rate = CreateClientConVar("rtx_light_wrapper_update_rate", "0.001", true, false, "How often to check for entity property changes (seconds)")
 local cv_brightness_scale = CreateClientConVar("rtx_light_wrapper_brightness_scale", "1", true, false, "Brightness scaling factor (Source uses 0-255, RTX uses radiance)")
 local cv_radius_power = CreateClientConVar("rtx_light_wrapper_radius_power", "0.1", true, false, "Power/exponent for radius curve (1.0=linear, <1.0=compress large sizes, >1.0=amplify large sizes)")
 local cv_radius_scale_point = CreateClientConVar("rtx_light_wrapper_radius_scale_point", "1.50", true, false, "Radius scaling factor for point lights")

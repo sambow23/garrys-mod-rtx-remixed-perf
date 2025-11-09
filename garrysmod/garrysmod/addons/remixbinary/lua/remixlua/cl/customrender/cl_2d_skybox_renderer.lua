@@ -2,7 +2,7 @@ if not CLIENT then return end
 local RenderCore = include("remixlua/cl/customrender/render_core.lua") or RemixRenderCore
 
 -- Custom 2D Skybox Renderer
--- Draws a classic 6-sided skybox even when r_drawworld is 0 (capture mode)
+-- Draws a 2D skybox
 -- Author: CR
 
 local cv_enable = CreateClientConVar("rtx_sky2d_enable", "1", true, false, "Enable custom 2D skybox rendering")
@@ -15,7 +15,7 @@ local cv_depthFar  = CreateClientConVar("rtx_sky2d_depthfar",  "1.0",  true, fal
 local cv_zTest  = CreateClientConVar("rtx_sky2d_ztest", "1", true, false, "Enable depth test during 2D sky draw")
 local cv_zWrite = CreateClientConVar("rtx_sky2d_zwrites", "1", true, false, "Enable depth writes during 2D sky draw")
 local cv_clearDepth = CreateClientConVar("rtx_sky2d_clear_depth", "0", true, false, "Clear depth buffer before drawing 2D sky")
-local cv_size = CreateClientConVar("rtx_sky2d_size", "8196", true, false, "Half-extent of the sky cube in units")
+local cv_size = CreateClientConVar("rtx_sky2d_size", "1", true, false, "Half-extent of the sky cube in units")
 local cv_camNear = CreateClientConVar("rtx_sky2d_cam_znear", "1", true, false, "Camera z-near for 2D sky pass")
 local cv_camFar  = CreateClientConVar("rtx_sky2d_cam_zfar", "65536", true, false, "Camera z-far for 2D sky pass")
 local cv_disableCull = CreateClientConVar("rtx_sky2d_disable_cull", "0", true, false, "Disable backface culling when drawing sky quads")

@@ -10,10 +10,10 @@ hook.Add("PopulateToolMenu", "RTXLightWrapper_Menu", function()
         -- Enable/Disable
         panel:CheckBox("Enable Light Wrapper", "rtx_light_wrapper_enabled")
         
-        local updateSlider = panel:NumSlider("Update Rate (seconds)", "rtx_light_wrapper_update_rate", 0.01, 1.0, 2)
-        if updateSlider then updateSlider:SetDecimals(2) end
+        local updateSlider = panel:NumSlider("Update Rate (seconds)", "rtx_light_wrapper_update_rate", 0.001, 1.0, 2)
+        if updateSlider then updateSlider:SetDecimals(3) end
         
-        local brightnessSlider = panel:NumSlider("Brightness Scale", "rtx_light_wrapper_brightness_scale", 1, 1, 3)
+        local brightnessSlider = panel:NumSlider("Brightness Scale", "rtx_light_wrapper_brightness_scale", 0, 1, 3)
         if brightnessSlider then brightnessSlider:SetDecimals(3) end
         
         local radiusPowerSlider = panel:NumSlider("Radius Power", "rtx_light_wrapper_radius_power", 0.10, 2.0, 1.0)
