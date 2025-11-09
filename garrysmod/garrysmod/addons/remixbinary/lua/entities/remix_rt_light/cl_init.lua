@@ -106,12 +106,25 @@ function ENT:Draw()
     -- Don't draw the physics prop - only visualizations in HUDPaint
 end
 
+-- Cache for light entities
+local cachedLightEnts = {}
+local lastLightCacheTime = 0
+local LIGHT_CACHE_INTERVAL = 0.5  -- Update cache every 0.5 seconds
+
 -- HUD Paint visualization
 hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
     if not cv_visualize:GetBool() then return end
     
     local ply = LocalPlayer()
     if not IsValid(ply) then return end
+    
+    local curTime = CurTime()
+    if curTime - lastLightCacheTime > LIGHT_CACHE_INTERVAL then
+        cachedLightEnts = ents.FindByClass("remix_rt_light")
+        lastLightCacheTime = curTime
+    end
+    
+    if #cachedLightEnts == 0 then return end
     
     -- Hide visualizations when using the camera tool
     local wep = ply:GetActiveWeapon()
@@ -125,7 +138,7 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
     local fillOpacity = math.Clamp(cv_vis_fill_opacity:GetInt(), 0, 255)
     local lineThickness = 2
     
-    for _, ent in ipairs(ents.FindByClass("remix_rt_light")) do
+    for _, ent in ipairs(cachedLightEnts) do
         if not IsValid(ent) then continue end
         
         local pos = ent:GetPos()
@@ -248,12 +261,12 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
             local halfX = xsize / 2
             local halfY = ysize / 2
             
-            local corners = {
-                pos + right * halfX + up * halfY,      -- Top-right
-                pos + right * halfX - up * halfY,      -- Bottom-right
-                pos - right * halfX - up * halfY,      -- Bottom-left
-                pos - right * halfX + up * halfY,      -- Top-left
-            }
+            -- Reuse table to avoid allocation
+            local corners = corners or {}
+            corners[1] = pos + right * halfX + up * halfY      -- Top-right
+            corners[2] = pos + right * halfX - up * halfY      -- Bottom-right
+            corners[3] = pos - right * halfX - up * halfY      -- Bottom-left
+            corners[4] = pos - right * halfX + up * halfY      -- Top-left
             
             -- Draw filled rectangle
             if fillOpacity > 0 then
@@ -284,13 +297,16 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
             local up = ang:Up()
             local segments = 24
             
-            -- Build ellipse points for fill
+            -- Build ellipse points for fill (skip if fillOpacity is 0 to save work)
             if fillOpacity > 0 then
-                local ellipsePoints = {}
+                local ellipsePoints = ellipsePoints or {}  -- Reuse table
                 for i = 0, segments - 1 do
                     local angle = (i / segments) * math.pi * 2
-                    local p = pos + right * (math.cos(angle) * xrad) + up * (math.sin(angle) * yrad)
-                    table.insert(ellipsePoints, p)
+                    ellipsePoints[i + 1] = pos + right * (math.cos(angle) * xrad) + up * (math.sin(angle) * yrad)
+                end
+                -- Trim table if needed
+                for i = segments + 1, #ellipsePoints do
+                    ellipsePoints[i] = nil
                 end
                 DrawFilledWorldPoly(ellipsePoints, col.r, col.g, col.b, fillOpacity * (alpha / 255))
             end
@@ -331,15 +347,20 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
             -- Draw top and bottom circles (12 segments each)
             local segments = 12
             
-            -- Build circle points for filling
+            -- Build circle points for filling (skip if fillOpacity is 0)
             if fillOpacity > 0 then
-                local topPoints = {}
-                local bottomPoints = {}
+                local topPoints = topPoints or {}
+                local bottomPoints = bottomPoints or {}
                 for i = 0, segments - 1 do
                     local angle = (i / segments) * math.pi * 2
                     local offset = right * (math.cos(angle) * cylRadius) + forward * (math.sin(angle) * cylRadius)
-                    table.insert(topPoints, topCenter + offset)
-                    table.insert(bottomPoints, bottomCenter + offset)
+                    topPoints[i + 1] = topCenter + offset
+                    bottomPoints[i + 1] = bottomCenter + offset
+                end
+                -- Trim tables if needed
+                for i = segments + 1, #topPoints do
+                    topPoints[i] = nil
+                    bottomPoints[i] = nil
                 end
                 DrawFilledWorldPoly(topPoints, col.r, col.g, col.b, fillOpacity * (alpha / 255))
                 DrawFilledWorldPoly(bottomPoints, col.r, col.g, col.b, fillOpacity * (alpha / 255))
@@ -418,13 +439,16 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
             
             local segments = 20
             
-            -- Build circle points for fill
+            -- Build circle points for fill (skip if fillOpacity is 0)
             if fillOpacity > 0 then
-                local circlePoints = {}
+                local circlePoints = circlePoints or {}
                 for i = 0, segments - 1 do
                     local angle = (i / segments) * math.pi * 2
-                    local p = pos + right * (math.cos(angle) * sphereRadius) + up * (math.sin(angle) * sphereRadius)
-                    table.insert(circlePoints, p)
+                    circlePoints[i + 1] = pos + right * (math.cos(angle) * sphereRadius) + up * (math.sin(angle) * sphereRadius)
+                end
+                -- Trim table if needed
+                for i = segments + 1, #circlePoints do
+                    circlePoints[i] = nil
                 end
                 DrawFilledWorldPoly(circlePoints, col.r, col.g, col.b, fillOpacity * (alpha / 255) * 0.5)
             end
