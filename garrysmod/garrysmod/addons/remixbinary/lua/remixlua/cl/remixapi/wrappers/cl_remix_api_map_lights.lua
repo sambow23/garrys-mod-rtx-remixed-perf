@@ -1380,6 +1380,18 @@ function Light2RTX.FadeBrightnessByTargetName(name, targetMul, duration)
     end
 end
 
+-- Get all lights of a specific classname (for HDRI Editor and other external tools)
+function Light2RTX.GetEntriesByClassname(classname)
+    local result = {}
+    if not classname or classname == "" then return result end
+    for _, entry in ipairs(createdLights) do
+        if entry.classname == classname then
+            table.insert(result, entry)
+        end
+    end
+    return result
+end
+
 print("[Light2RTX] Loaded! Use 'rtx_api_map_lights_process' to convert map lights to RTX lights")
 print("[Light2RTX] Use 'rtx_api_map_lights_clear' to remove all created lights")
 print("[Light2RTX] Use 'rtx_api_map_lights_toggle_visual' to toggle visual mode for moving lights with physgun")
