@@ -15,6 +15,7 @@ local convar_PVSSafetyDistance = CreateClientConVar("rtx_spr_pvs_safety_distance
 local convar_UseLOD = CreateClientConVar("rtx_spr_use_lod", "1", true, false, "Enable LOD culling for complex props at distance")
 local convar_LODDistance = CreateClientConVar("rtx_spr_lod_distance", "5000", true, false, "Distance at which LOD culling starts")
 local convar_LODComplexity = CreateClientConVar("rtx_spr_lod_complexity", "5000", true, false, "Vertex count threshold for LOD culling")
+local convar_FrameSkip = CreateClientConVar("rtx_spr_frame_skip", "2", true, false, "Update prop visibility every N frames (2 = every other frame, 1 = every frame)")
 
 -- Per-map PVS safety distance persistence
 local PVS_SAFETY_FILE = "rtx_pvs_safety_distances.txt"
@@ -94,6 +95,10 @@ local sprStats = { rendered = 0, total = 0, distance = 0, lod = 0 }
 local sprBuildStats = { startTime = 0, endTime = 0, built = 0, active = false }
 -- Expose build state for progress tracking
 if RemixRenderCore then RemixRenderCore._sprBuildState = sprBuildStats end
+
+-- Frame skipping cache
+local cachedRenderList = {}
+local lastUpdateFrame = -1
 
 local function IsPVSValid(pvs)
     if not pvs then return false end
@@ -528,6 +533,17 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     -- Choose which prop list to render based on skybox state
     local propsToRender = bDrawingSkybox and skyboxProps or worldProps
     
+    -- Frame skip optimization: only rebuild visibility list every N frames
+    local currentFrame = FrameNumber()
+    local frameSkip = math.max(1, convar_FrameSkip:GetInt())
+    local shouldUpdate = (currentFrame - lastUpdateFrame) >= frameSkip
+    
+    -- Update visibility list if needed
+    if shouldUpdate then
+        lastUpdateFrame = currentFrame
+        cachedRenderList = {}
+    end
+    
     if #propsToRender == 0 then
         if convar_Debug:GetBool() then
             local frameCount = FrameNumber()
@@ -568,59 +584,68 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
         lastDebugFrame = frameCount
     end
     
-    for _, prop in ipairs(propsToRender) do
-        local meshData = prop.cachedMesh
-        if not meshData or not meshData.meshes then
-            skippedProps = skippedProps + 1
-            continue
-        end
-        -- PVS culling for world props only (skip skybox props)
-        if not bDrawingSkybox and pvs and prop.clusters and next(prop.clusters) then
-            -- Safety distance check: always render props very close to player
-            local safetyDist = convar_PVSSafetyDistance:GetFloat()
-            local withinSafetyDistance = false
-            if safetyDist > 0 and playerPos then
-                local distSqr = prop.origin:DistToSqr(playerPos)
-                withinSafetyDistance = distSqr < (safetyDist * safetyDist)
+    -- Build or use cached render list
+    if shouldUpdate then
+        for _, prop in ipairs(propsToRender) do
+            local meshData = prop.cachedMesh
+            if not meshData or not meshData.meshes then
+                skippedProps = skippedProps + 1
+                continue
             end
-            
-            if not withinSafetyDistance then
-                -- Check if any cluster is visible
-                local anyVisible = false
-                for cl in pairs(prop.clusters) do
-                    if pvs[cl] then
-                        anyVisible = true
-                        break
+            -- PVS culling for world props only (skip skybox props)
+            if not bDrawingSkybox and pvs and prop.clusters and next(prop.clusters) then
+                -- Safety distance check: always render props very close to player
+                local safetyDist = convar_PVSSafetyDistance:GetFloat()
+                local withinSafetyDistance = false
+                if safetyDist > 0 and playerPos then
+                    local distSqr = prop.origin:DistToSqr(playerPos)
+                    withinSafetyDistance = distSqr < (safetyDist * safetyDist)
+                end
+                
+                if not withinSafetyDistance then
+                    -- Check if any cluster is visible
+                    local anyVisible = false
+                    for cl in pairs(prop.clusters) do
+                        if pvs[cl] then
+                            anyVisible = true
+                            break
+                        end
+                    end
+                    if not anyVisible then
+                        skippedProps = skippedProps + 1
+                        continue
                     end
                 end
-                if not anyVisible then
-                    skippedProps = skippedProps + 1
+            end
+            if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(prop.origin, playerPos, maxDistance) then
+                distanceSkipped = distanceSkipped + 1
+                continue
+            end
+            -- LOD culling: skip complex props at medium distance
+            if useLOD and not bDrawingSkybox and playerPos and prop.vertexCount > lodComplexity then
+                local distSqr = prop.origin:DistToSqr(playerPos)
+                if distSqr > (lodDistance * lodDistance) then
+                    lodSkipped = lodSkipped + 1
                     continue
                 end
             end
+            
+            -- Add to render list
+            cachedRenderList[#cachedRenderList + 1] = prop
         end
-        if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(prop.origin, playerPos, maxDistance) then
-            distanceSkipped = distanceSkipped + 1
-            continue
-        end
-        -- LOD culling: skip complex props at medium distance
-        if useLOD and not bDrawingSkybox and playerPos and prop.vertexCount > lodComplexity then
-            local distSqr = prop.origin:DistToSqr(playerPos)
-            if distSqr > (lodDistance * lodDistance) then
-                lodSkipped = lodSkipped + 1
-                continue
-            end
-        end
-        
+    end
+    
+    -- Render from cached list
+    for _, prop in ipairs(cachedRenderList) do
         -- Try to batch with instancing system first
         local batched = false
         if PropInstancing and PropInstancing.AddPropInstance then
-            batched = PropInstancing.AddPropInstance(prop.model, prop.matrix, meshData, prop.color)
+            batched = PropInstancing.AddPropInstance(prop.model, prop.matrix, prop.cachedMesh, prop.color)
         end
         
         -- Fallback: render directly if batch is full or instancing disabled
         if not batched then
-            for _, meshInfo in ipairs(meshData.meshes) do
+            for _, meshInfo in ipairs(prop.cachedMesh.meshes) do
                 if meshInfo.mesh and meshInfo.material then
                     RenderCore.Submit({
                         material = meshInfo.material,
