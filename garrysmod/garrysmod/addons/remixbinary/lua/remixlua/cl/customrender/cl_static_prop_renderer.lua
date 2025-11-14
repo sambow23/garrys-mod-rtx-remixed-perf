@@ -12,6 +12,7 @@ local convar_Blacklist = CreateClientConVar("rtx_spr_mat_blacklist", "", true, f
 local convar_UsePVS = CreateClientConVar("rtx_spr_use_pvs", "1", true, false, "Enable PVS culling for static props")
 local convar_PVSSafetyDistance = CreateClientConVar("rtx_spr_pvs_safety_distance", "0", true, false, "Distance within which PVS culling is disabled (prevents close-range culling bugs)")
 local convar_FrameSkip = CreateClientConVar("rtx_spr_frame_skip", "2", true, false, "Update prop visibility every N frames (2 = every other frame, 1 = every frame)")
+local convar_UseMeshCombining = CreateClientConVar("rtx_spr_mesh_combining", "1", true, false, "Combine props into single meshes per material to reduce draw calls")
 
 -- Per-map PVS safety distance persistence
 local PVS_SAFETY_FILE = "rtx_pvs_safety_distances.txt"
@@ -95,6 +96,241 @@ if RemixRenderCore then RemixRenderCore._sprBuildState = sprBuildStats end
 -- Frame skipping cache
 local cachedRenderList = {}
 local lastUpdateFrame = -1
+
+-- Combined mesh cache (per material) - built once during initialization
+local combinedMeshes = {} -- [materialName] = { material = IMaterial, mesh = IMesh, propCount = N, props = {prop indices} }
+local combinedMeshesBuilt = false
+local MAX_VERTS_PER_COMBINED_MESH = 21000 -- Leave room under 21845 vertex limit
+
+-- Build a combined mesh from multiple props with the same material (forward declare)
+local BuildCombinedMesh
+
+-- Build all combined meshes once during initialization
+local function BuildAllCombinedMeshes()
+    combinedMeshes = {}
+    combinedMeshesBuilt = false
+    
+    -- Group world props by material
+    local materialGroups = {} -- [materialName] = { props = {indices}, material = IMaterial }
+    
+    for idx, prop in ipairs(worldProps) do
+        if prop.cachedMesh and prop.cachedMesh.meshes then
+            for _, meshInfo in ipairs(prop.cachedMesh.meshes) do
+                local mat = meshInfo.material
+                if mat and mat.GetName then
+                    local matName = mat:GetName()
+                    
+                    if not materialGroups[matName] then
+                        materialGroups[matName] = {
+                            material = mat,
+                            propIndices = {}
+                        }
+                    end
+                    
+                    table.insert(materialGroups[matName].propIndices, idx)
+                end
+            end
+        end
+    end
+    
+    -- Build combined mesh for each material group (may create multiple batches per material)
+    local batchCounter = 0
+    for matName, group in pairs(materialGroups) do
+        -- Smart batching: accumulate props until we approach vertex limit
+        local currentBatch = {}
+        local currentBatchIndices = {}
+        local estimatedVerts = 0
+        local VERT_ESTIMATE_PER_PROP = 300 -- Conservative average
+        
+        for _, propIdx in ipairs(group.propIndices) do
+            local prop = worldProps[propIdx]
+            local propVerts = (prop.cachedMesh and prop.cachedMesh.vertexCount) or VERT_ESTIMATE_PER_PROP
+            
+            -- Start new batch if this prop would exceed limit
+            if estimatedVerts + propVerts > MAX_VERTS_PER_COMBINED_MESH and #currentBatch > 0 then
+                -- Build current batch
+                local combinedMesh = BuildCombinedMesh(currentBatch, group.material)
+                if combinedMesh then
+                    batchCounter = batchCounter + 1
+                    local batchKey = matName .. "_batch" .. batchCounter
+                    
+                    -- Pre-calculate unique clusters for this batch for faster PVS checks
+                    local batchClusters = {}
+                    for _, idx in ipairs(currentBatchIndices) do
+                        local prop = worldProps[idx]
+                        if prop.clusters then
+                            for cl in pairs(prop.clusters) do
+                                batchClusters[cl] = true
+                            end
+                        end
+                    end
+                    
+                    combinedMeshes[batchKey] = {
+                        material = group.material,
+                        mesh = combinedMesh,
+                        propCount = #currentBatch,
+                        propIndices = currentBatchIndices,
+                        clusters = batchClusters -- Cache for fast PVS checks
+                    }
+                end
+                
+                -- Reset for next batch
+                currentBatch = {}
+                currentBatchIndices = {}
+                estimatedVerts = 0
+            end
+            
+            -- Add prop to current batch
+            table.insert(currentBatch, {
+                prop = prop,
+                mesh = nil
+            })
+            table.insert(currentBatchIndices, propIdx)
+            estimatedVerts = estimatedVerts + propVerts
+        end
+        
+        -- Build final batch for this material
+        if #currentBatch > 0 then
+            local combinedMesh = BuildCombinedMesh(currentBatch, group.material)
+            if combinedMesh then
+                batchCounter = batchCounter + 1
+                local batchKey = matName .. "_batch" .. batchCounter
+                
+                -- Pre-calculate unique clusters for this batch for faster PVS checks
+                local batchClusters = {}
+                for _, idx in ipairs(currentBatchIndices) do
+                    local prop = worldProps[idx]
+                    if prop.clusters then
+                        for cl in pairs(prop.clusters) do
+                            batchClusters[cl] = true
+                        end
+                    end
+                end
+                
+                combinedMeshes[batchKey] = {
+                    material = group.material,
+                    mesh = combinedMesh,
+                    propCount = #currentBatch,
+                    propIndices = currentBatchIndices,
+                    clusters = batchClusters -- Cache for fast PVS checks
+                }
+            end
+        end
+    end
+    
+    combinedMeshesBuilt = true
+    
+    -- Free triangle data to save memory (no longer needed after combining)
+    if convar_UseMeshCombining:GetBool() then
+        for _, prop in ipairs(worldProps) do
+            if prop.cachedMesh and prop.cachedMesh.meshes then
+                for _, meshInfo in ipairs(prop.cachedMesh.meshes) do
+                    meshInfo.triangles = nil
+                end
+            end
+        end
+    end
+end
+
+-- Build a combined mesh from multiple props with the same material
+BuildCombinedMesh = function(propList, material)
+    if not propList or #propList == 0 or not material then return nil end
+    
+    local allVertices = {}
+    local totalVerts = 0
+    
+    -- Cache material name once
+    local targetMatName = material:GetName()
+    
+    -- Extract and transform vertices from each prop using cached vertex data
+    for _, propData in ipairs(propList) do
+        local prop = propData.prop
+        local matrix = prop.matrix
+        
+        -- Pre-calculate rotation vectors once per prop (not per vertex)
+        local ang = matrix:GetAngles()
+        local fwd = ang:Forward()
+        local right = ang:Right()
+        local up = ang:Up()
+        
+        -- Use cached mesh data which includes raw triangles
+        if prop.cachedMesh and prop.cachedMesh.meshes then
+            for _, meshInfo in ipairs(prop.cachedMesh.meshes) do
+                -- Skip if no triangles cached or material doesn't match
+                if not meshInfo.triangles or not meshInfo.material then continue end
+                
+                local meshMatName = meshInfo.material:GetName()
+                
+                if meshMatName == targetMatName then
+                    local triangles = meshInfo.triangles
+                    
+                    -- Transform each vertex
+                    for i = 1, #triangles do
+                        local vert = triangles[i]
+                        
+                        -- Transform position
+                        local transformedPos = matrix * vert.pos
+                        
+                        -- Transform normal by rotation part of matrix
+                        local transformedNormal = vert.normal
+                        if vert.normal then
+                            local nx, ny, nz = vert.normal.x, vert.normal.y, vert.normal.z
+                            transformedNormal = fwd * nx + right * ny + up * nz
+                            transformedNormal:Normalize()
+                        end
+                        
+                        allVertices[totalVerts + 1] = {
+                            pos = transformedPos,
+                            normal = transformedNormal,
+                            u = vert.u,
+                            v = vert.v,
+                            userdata = vert.userdata
+                        }
+                        
+                        totalVerts = totalVerts + 1
+                        
+                        -- Safety check: don't exceed vertex limit
+                        if totalVerts >= MAX_VERTS_PER_COMBINED_MESH then
+                            break
+                        end
+                    end
+                end
+                
+                if totalVerts >= MAX_VERTS_PER_COMBINED_MESH then
+                    break
+                end
+            end
+        end
+        
+        if totalVerts >= MAX_VERTS_PER_COMBINED_MESH then
+            break
+        end
+    end
+    
+    if #allVertices == 0 then return nil end
+    
+    -- Build the combined mesh
+    local combinedMesh = Mesh(material)
+    mesh.Begin(combinedMesh, MATERIAL_TRIANGLES, #allVertices / 3)
+    
+    for _, vert in ipairs(allVertices) do
+        mesh.Position(vert.pos)
+        mesh.Normal(vert.normal or Vector(0, 0, 1))
+        mesh.TexCoord(0, vert.u or 0, vert.v or 0)
+        if vert.userdata then
+            mesh.UserData(vert.userdata[1] or 0, vert.userdata[2] or 0, vert.userdata[3] or 0, vert.userdata[4] or 0)
+        end
+        mesh.AdvanceVertex()
+    end
+    
+    mesh.End()
+    
+    if RenderCore and RenderCore.TrackMesh then
+        RenderCore.TrackMesh(combinedMesh)
+    end
+    
+    return combinedMesh
+end
 
 local function IsPVSValid(pvs)
     if not pvs then return false end
@@ -287,10 +523,11 @@ local function ProcessStaticProp(propData)
                 local mesh = Mesh()
                 mesh:BuildFromTriangles(group.triangles)
                 
-                -- Add to processed meshes
+                -- Add to processed meshes (store raw triangles for combining)
                 table.insert(processedMeshes, {
                     mesh = mesh,
-                    material = mat
+                    material = mat,
+                    triangles = group.triangles -- Store raw vertex data for mesh combining
                 })
 
                 if RenderCore and RenderCore.TrackMesh then
@@ -443,6 +680,14 @@ local function CacheMapStaticProps()
             end
         end
         SeparateSkyboxProps()
+        
+        -- Build combined meshes once after caching
+        if convar_UseMeshCombining:GetBool() then
+            print("[Static Render] Building combined meshes...")
+            BuildAllCombinedMeshes()
+            print(string.format("[Static Render] Built %d combined meshes", table.Count(combinedMeshes)))
+        end
+        
         isDataReady = true
         isCachingInProgress = false
         print(string.format("[Static Render] Caching complete. %d static props processed, %d skipped.", 
@@ -505,6 +750,8 @@ RenderCore.Register("ShutDown", "CustomStaticRender_Cleanup", function()
     table.Empty(skyboxProps)
     table.Empty(worldProps)
     table.Empty(meshCache)
+    table.Empty(combinedMeshes)
+    combinedMeshesBuilt = false
     
     isDataReady = false
     isCachingInProgress = false
@@ -607,8 +854,54 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
         end
     end
     
-    -- Render from cached list
-    for _, prop in ipairs(cachedRenderList) do
+    -- Render combined meshes or individual props
+    if convar_UseMeshCombining:GetBool() and combinedMeshesBuilt then
+        -- Track unique props to avoid double-counting (props with multiple materials)
+        local renderedPropIndices = {}
+        
+        -- Render pre-built combined meshes (just check PVS per material group)
+        for matName, combined in pairs(combinedMeshes) do
+            -- Fast PVS check using cached cluster set
+            local anyVisible = false
+            if not pvs or not bDrawingSkybox then
+                if not pvs then
+                    anyVisible = true -- No PVS, render everything
+                else
+                    -- Check if any cached cluster is visible (much faster than iterating props)
+                    if combined.clusters then
+                        for cl in pairs(combined.clusters) do
+                            if pvs[cl] then
+                                anyVisible = true
+                                break
+                            end
+                        end
+                    else
+                        anyVisible = true -- No cluster data, render to be safe
+                    end
+                end
+            else
+                anyVisible = true -- Skybox props always visible
+            end
+            
+            if anyVisible and combined.mesh and combined.material then
+                RenderCore.Submit({
+                    material = combined.material,
+                    mesh = combined.mesh,
+                    translucent = false
+                })
+                
+                -- Count unique props only (avoid double-counting multi-material props)
+                for _, propIdx in ipairs(combined.propIndices or {}) do
+                    if not renderedPropIndices[propIdx] then
+                        renderedPropIndices[propIdx] = true
+                        renderedProps = renderedProps + 1
+                    end
+                end
+            end
+        end
+    else
+        -- Fallback: render individual props
+        for _, prop in ipairs(cachedRenderList) do
         -- Try to batch with instancing system first
         local batched = false
         if PropInstancing and PropInstancing.AddPropInstance then
@@ -629,11 +922,12 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
                 end
             end
         end
-        renderedProps = renderedProps + 1
+            renderedProps = renderedProps + 1
+        end
     end
     
-    -- Render all batched instances at the end
-    if PropInstancing and PropInstancing.RenderInstancedProps then
+    -- Render all batched instances at the end (only used in non-combining mode)
+    if not convar_UseMeshCombining:GetBool() and PropInstancing and PropInstancing.RenderInstancedProps then
         PropInstancing.RenderInstancedProps()
     end
     
