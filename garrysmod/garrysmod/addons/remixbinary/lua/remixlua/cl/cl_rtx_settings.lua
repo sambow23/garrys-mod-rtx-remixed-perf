@@ -25,12 +25,8 @@ hook.Add( "PopulateToolMenu", "RTXOptionsClient_Culling", function()
         panel:ClearControls()
         
         panel:AddControl("Header", {Description = "PVS Culling:"})
-        panel:CheckBox("World", "rtx_mwr_use_pvs")
-        panel:ControlHelp("Enables Potentially Visible Set culling for world chunks. Improves performance but may cause some chunks to disappear incorrectly.")
-        panel:CheckBox("Displacements", "rtx_dpr_use_pvs")
-        panel:ControlHelp("Enables Potentially Visible Set culling for displacements. Improves performance but may cause some displacements to disappear incorrectly.")
         panel:CheckBox("Static Props", "rtx_spr_use_pvs")
-        panel:ControlHelp("Enables Potentially Visible Set culling for static props. Improves performance but may cause some props to disappear incorrectly.")
+        panel:ControlHelp("Enables Potentially Visible Set culling for static props. Improves performance but may cause some props to cull incorrectly.")
         panel:NumSlider("PVS Safety Distance", "rtx_spr_pvs_safety_distance", 0, 8192, 0)
         panel:ControlHelp("Props within this distance always render, bypassing PVS checks. Increase if props cull in front of you. Saved per-map. (Default: 0)")
 
@@ -48,7 +44,7 @@ local function Show3DSkyWarning()
     -- Create the warning panel
     local frame = vgui.Create("DFrame")
     frame:SetTitle("RTX Remix Fixes 2")
-    frame:SetSize(400, 200)
+    frame:SetSize(400, 200) 
     frame:Center()
     frame:MakePopup()
     

@@ -8,9 +8,7 @@ local CONVARS = {
     DEBUG = CreateClientConVar("rtx_dpr_debug", "0", true, false, "Debug prints for displacement renderer"),
     CHUNK_SIZE = CreateClientConVar("rtx_dpr_chunk_size", "65536", true, false, "Size of chunks for displacement grouping"),
     MAT_WHITELIST = CreateClientConVar("rtx_dpr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include"),
-    MAT_BLACKLIST = CreateClientConVar("rtx_dpr_mat_blacklist", "toolsskybox,skybox/", true, false, "Comma-separated material name substrings to exclude"),
-    DISTANCE = CreateClientConVar("rtx_dpr_distance", "0", true, false, "Displacement chunk distance limit (0 = off)"),
-    USE_PVS = CreateClientConVar("rtx_dpr_use_pvs", "0", true, false, "Enable PVS culling for displacement chunks")
+    MAT_BLACKLIST = CreateClientConVar("rtx_dpr_mat_blacklist", "toolsskybox,skybox/", true, false, "Comma-separated material name substrings to exclude")
 }
 
 local function DebugPrint(...)
@@ -252,10 +250,8 @@ local function BuildDisplacementMeshes(cancelToken)
         for _, leaf in pairs(allLeafs) do
             if cancelToken and cancelToken.cancelled then return end
             if leaf then
-                -- Include all leaves regardless of IsOutsideMap() - let PVS handle visibility
                 local okFaces, leafFaces = pcall(function() return leaf:GetFaces(true) end) -- include displacements
                 if leafFaces then
-                    local leafCluster = leaf.GetCluster and leaf:GetCluster() or -1
                     for _, face in pairs(leafFaces) do
                         -- Check cancellation every 100 faces to avoid long delays
                         faceCheckCounter = faceCheckCounter + 1
@@ -310,10 +306,6 @@ local function BuildDisplacementMeshes(cancelToken)
 
                             chunks[chunkKey] = chunks[chunkKey] or {}
                             local chunkData = chunks[chunkKey]
-                            if leafCluster and leafCluster >= 0 then
-                                chunkData._clusters = chunkData._clusters or {}
-                                chunkData._clusters[leafCluster] = true
-                            end
 
                             -- Build per-vertex alpha from disp verts (pass 1: accumulate by position)
                             local dispInfo = face.GetDisplacementInfo and face:GetDisplacementInfo() or nil
@@ -438,9 +430,8 @@ local function BuildDisplacementMeshes(cancelToken)
 
         -- Build IMeshes per chunk/material
         for chunkKey, materials in pairs(chunks) do
-            dispMeshes[chunkKey] = { _clusters = materials._clusters }
+            dispMeshes[chunkKey] = {}
             for matKey, group in pairs(materials) do
-                if matKey ~= "_clusters" then
                     local material = group.material
                     local triStream = group._stream
                     if triStream and #triStream > 0 and material then
@@ -484,7 +475,6 @@ local function BuildDisplacementMeshes(cancelToken)
                     startTime = SysTime()
                 end
             end
-        end
 
         buildState.active = false
         local totalChunks = 0
@@ -560,68 +550,13 @@ local function RenderDisplacements()
         return
     end
     
-    local maxDist = CONVARS.DISTANCE:GetFloat()
-    local useDist = maxDist > 0
-    local ply = LocalPlayer and LocalPlayer() or nil
-    local eyePos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
-
-    -- Use centralized PVS from RenderCore
-    local pvs = nil
-    if CONVARS.USE_PVS:GetBool() and RenderCore and RenderCore.GetPVS then
-        pvs = RenderCore.GetPVS(eyePos)
-    end
-
     local draws = 0
     local chunksVisited = 0
-    local chunksCulledDist = 0
-    local chunksCulledPVS = 0
-    local chunksNoClusters = 0
+
     for _, chunkMaterials in pairs(dispMeshes) do
         chunksVisited = chunksVisited + 1
-        local cmins, cmaxs = chunkMaterials._mins, chunkMaterials._maxs
-        local skipChunk = false
-        local cullReason = nil
-        if cmins and cmaxs and useDist and eyePos then
-            local center = (cmins + cmaxs) * 0.5
-            if RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(center, eyePos, maxDist) then
-                skipChunk = true
-                cullReason = "distance"
-                chunksCulledDist = chunksCulledDist + 1
-            end
-        end
-        -- Compute clusters for chunk on demand
-        local clusters = chunkMaterials._clusters
-        if not skipChunk and pvs and cmins and cmaxs and (not clusters or next(clusters) == nil) and NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.AABBInLeafs then
-            local leaves = NikNaks.CurrentMap:AABBInLeafs(0, cmins, cmaxs)
-            clusters = {}
-            if leaves then
-                for i = 1, #leaves do
-                    local leaf = leaves[i]
-                    local cl = leaf and leaf:GetCluster() or -1
-                    if cl and cl >= 0 then clusters[cl] = true end
-                end
-            end
-            chunkMaterials._clusters = clusters
-        end
-        -- PVS culling
-        if not skipChunk and pvs and clusters and next(clusters) ~= nil then
-            local anyVisible = false
-            for cl, _ in pairs(clusters) do
-                if pvs[cl] then anyVisible = true break end
-            end
-            if not anyVisible then 
-                skipChunk = true
-                cullReason = "PVS"
-                chunksCulledPVS = chunksCulledPVS + 1
-            end
-        elseif not skipChunk and pvs and (not clusters or next(clusters) == nil) then
-            -- Missing cluster data - render anyway but track it
-            chunksNoClusters = chunksNoClusters + 1
-        end
-
-        if not skipChunk then
-            for key, group in pairs(chunkMaterials) do
-                if key ~= "_mins" and key ~= "_maxs" and key ~= "_clusters" then
+        for key, group in pairs(chunkMaterials) do
+                if key ~= "_mins" and key ~= "_maxs" then
                     if group and group.meshes then
                         local meshes = group.meshes
                         for i = 1, #meshes do
@@ -638,20 +573,15 @@ local function RenderDisplacements()
                     end
                 end
             end
-        end
     end
 
     stats.draws = draws
     stats.chunksVisited = chunksVisited
-    stats.chunksCulledDist = chunksCulledDist
-    stats.chunksCulledPVS = chunksCulledPVS
-    stats.chunksNoClusters = chunksNoClusters
     
     -- Only log once per second to avoid console spam
     if CONVARS.DEBUG:GetBool() and (SysTime() - lastDebugPrint) > 1.0 then
         lastDebugPrint = SysTime()
-        DebugPrint(string.format("Rendered: %d draws from %d chunks | Culled: %d dist, %d PVS | No clusters: %d",
-            draws, chunksVisited, chunksCulledDist, chunksCulledPVS, chunksNoClusters))
+        DebugPrint(string.format("Rendered: %d draws from %d chunks", draws, chunksVisited))
     end
 end
 
@@ -715,12 +645,6 @@ RenderCore.RegisterStats("Displacements", function()
     local extra = ""
     if buildState.active and (buildState.total or 0) > 0 then
         extra = string.format(" | build: %d/%d", buildState.processed or 0, buildState.total or 0)
-    else
-        local culled = (stats.chunksCulledDist or 0) + (stats.chunksCulledPVS or 0)
-        if culled > 0 or (stats.chunksNoClusters or 0) > 0 then
-            extra = string.format(" | culled: %d (dist:%d pvs:%d) nocl:%d", 
-                culled, stats.chunksCulledDist or 0, stats.chunksCulledPVS or 0, stats.chunksNoClusters or 0)
-        end
     end
     return string.format("Disp draws: %d | chunks: %d%s", stats.draws or 0, stats.chunksVisited or 0, extra)
 end)
@@ -739,7 +663,6 @@ end
 DebounceRebuildOnCvar("rtx_dpr_chunk_size")
 DebounceRebuildOnCvar("rtx_dpr_mat_whitelist")
 DebounceRebuildOnCvar("rtx_dpr_mat_blacklist")
-DebounceRebuildOnCvar("rtx_dpr_distance")
 
 -- Console helper
 concommand.Add("rtx_rebuild_displacements", function()

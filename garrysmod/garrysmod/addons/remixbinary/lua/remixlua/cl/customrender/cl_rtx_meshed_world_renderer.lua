@@ -11,9 +11,7 @@ local CONVARS = {
     CHUNK_SIZE = CreateClientConVar("rtx_mwr_chunk_size", "65536", true, false, "Size of chunks for mesh combining"),
     CAPTURE_MODE = CreateClientConVar("rtx_mwr_capture_mode", "0", true, false, "Toggles r_drawworld for capture mode"),
     MAT_WHITELIST = CreateClientConVar("rtx_mwr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include"),
-    MAT_BLACKLIST = CreateClientConVar("rtx_mwr_mat_blacklist", "toolsskybox,skybox/", true, false, "Comma-separated material name substrings to exclude"),
-    DISTANCE = CreateClientConVar("rtx_mwr_distance", "0", true, false, "World chunk distance limit (0 = off)"),
-    USE_PVS = CreateClientConVar("rtx_mwr_use_pvs", "0", true, false, "Enable PVS culling for world chunks")
+    MAT_BLACKLIST = CreateClientConVar("rtx_mwr_mat_blacklist", "toolsskybox,skybox/", true, false, "Comma-separated material name substrings to exclude")
 }
 
 -- Local Variables and Caches
@@ -375,7 +373,6 @@ local function BuildMapMeshes(cancelToken)
             if leaf and not leaf:IsOutsideMap() then
                 local okFaces, leafFaces = pcall(function() return leaf:GetFaces(true) end)
                 if leafFaces then
-                    local leafCluster = leaf.GetCluster and leaf:GetCluster() or -1
                     for _, face in pairs(leafFaces) do
                         -- Check cancellation every 100 faces to avoid long delays
                         faceCheckCounter = faceCheckCounter + 1
@@ -417,10 +414,6 @@ local function BuildMapMeshes(cancelToken)
                                             local chunkGroup = face:IsTranslucent() and chunks.translucent or chunks.opaque
                                             chunkGroup[chunkKey] = chunkGroup[chunkKey] or {}
                                             local chunkData = chunkGroup[chunkKey]
-                                            if leafCluster and leafCluster >= 0 then
-                                                chunkData._clusters = chunkData._clusters or {}
-                                                chunkData._clusters[leafCluster] = true
-                                            end
                                             chunkData[matName] = chunkData[matName] or {
                                                 material = material,
                                                 faces = {}
@@ -471,10 +464,6 @@ local function BuildMapMeshes(cancelToken)
         for renderType, chunkGroup in pairs(chunks) do
             for chunkKey, materials in pairs(chunkGroup) do
                 mapMeshes[renderType][chunkKey] = {}
-                -- carry forward precomputed cluster set for PVS culling
-                if materials._clusters then
-                    mapMeshes[renderType][chunkKey]._clusters = materials._clusters
-                end
                 for matName, group in pairs(materials) do
                     if cancelToken and cancelToken.cancelled then return end
                     if group.faces and #group.faces > 0 then
@@ -574,57 +563,13 @@ local function RenderCustomWorld(translucent)
     end
 
     local draws = 0
-    local currentMaterial = nil
     local chunksVisited = 0
     
     -- Regular faces
     local groups = translucent and mapMeshes.translucent or mapMeshes.opaque
-    local maxDist = CONVARS.DISTANCE:GetFloat()
-    local useDist = maxDist > 0
-    local ply = LocalPlayer and LocalPlayer() or nil
-    local eyePos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
-    -- Use centralized PVS from RenderCore
-    local pvs = nil
-    if CONVARS.USE_PVS:GetBool() and RenderCore and RenderCore.GetPVS then
-        pvs = RenderCore.GetPVS(eyePos)
-    end
 
     for _, chunkMaterials in pairs(groups) do
         chunksVisited = chunksVisited + 1
-        local cmins, cmaxs = chunkMaterials._mins, chunkMaterials._maxs
-        if cmins and cmaxs and useDist and eyePos then
-            local center = (cmins + cmaxs) * 0.5
-            if RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(center, eyePos, maxDist) then
-                continue
-            end
-        end
-        -- Ensure cluster set exists: if empty or missing, compute once from AABB
-        local clusters = chunkMaterials._clusters
-        if pvs and cmins and cmaxs and (not clusters or next(clusters) == nil) and NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.AABBInLeafs then
-            local leaves = NikNaks.CurrentMap:AABBInLeafs(0, cmins, cmaxs)
-            clusters = {}
-            if leaves then
-                for i = 1, #leaves do
-                    local leaf = leaves[i]
-                    local cl = leaf and leaf:GetCluster() or -1
-                    if cl and cl >= 0 then clusters[cl] = true end
-                end
-            end
-            chunkMaterials._clusters = clusters
-        end
-        -- PVS culling: skip chunks with no cluster visible in player's PVS
-        if pvs and clusters and next(clusters) ~= nil then
-            local anyVisible = false
-            for cl, _ in pairs(clusters) do
-                if pvs[cl] then
-                    anyVisible = true
-                    break
-                end
-            end
-            if not anyVisible then
-                continue
-            end
-        end
         for key, group in pairs(chunkMaterials) do
             if key == "_mins" or key == "_maxs" then continue end
             if not group or not group.meshes then continue end
@@ -756,10 +701,9 @@ local function DebounceRebuildOnCvar(name)
     end, "RTXMeshRebuild-" .. name)
 end
 
-DebounceRebuildOnCvar("rtx_mwr_chunk_size")
-DebounceRebuildOnCvar("rtx_mwr_mat_whitelist")
-DebounceRebuildOnCvar("rtx_mwr_mat_blacklist")
-DebounceRebuildOnCvar("rtx_mwr_distance")
+ DebounceRebuildOnCvar("rtx_mwr_chunk_size")
+ DebounceRebuildOnCvar("rtx_mwr_mat_whitelist")
+ DebounceRebuildOnCvar("rtx_mwr_mat_blacklist")
 
 -- Console Commands
 concommand.Add("rtx_rebuild_meshes", BuildMapMeshes)
