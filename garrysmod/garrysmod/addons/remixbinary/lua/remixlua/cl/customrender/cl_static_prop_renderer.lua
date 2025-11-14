@@ -7,14 +7,10 @@ local PropInstancing = include("remixlua/cl/customrender/cl_prop_instancing.lua"
 
 local convar_Enable = CreateClientConVar("rtx_spr_enable", "1", true, false, "Enable custom rendering of static props")
 local convar_Debug = CreateClientConVar("rtx_spr_debug", "0", true, false, "Enable debug prints for static prop renderer")
-local convar_RenderDistance = CreateClientConVar("rtx_spr_distance", "10000", true, false, "Maximum distance to render static props (0 = no limit)")
 local convar_Whitelist = CreateClientConVar("rtx_spr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include")
 local convar_Blacklist = CreateClientConVar("rtx_spr_mat_blacklist", "", true, false, "Comma-separated material name substrings to exclude")
 local convar_UsePVS = CreateClientConVar("rtx_spr_use_pvs", "1", true, false, "Enable PVS culling for static props")
 local convar_PVSSafetyDistance = CreateClientConVar("rtx_spr_pvs_safety_distance", "0", true, false, "Distance within which PVS culling is disabled (prevents close-range culling bugs)")
-local convar_UseLOD = CreateClientConVar("rtx_spr_use_lod", "1", true, false, "Enable LOD culling for complex props at distance")
-local convar_LODDistance = CreateClientConVar("rtx_spr_lod_distance", "5000", true, false, "Distance at which LOD culling starts")
-local convar_LODComplexity = CreateClientConVar("rtx_spr_lod_complexity", "5000", true, false, "Vertex count threshold for LOD culling")
 local convar_FrameSkip = CreateClientConVar("rtx_spr_frame_skip", "2", true, false, "Update prop visibility every N frames (2 = every other frame, 1 = every frame)")
 
 -- Per-map PVS safety distance persistence
@@ -91,7 +87,7 @@ local lastDebugFrame = 0
 local bDrawingSkybox = false
 local skyboxProps = {}
 local worldProps = {}
-local sprStats = { rendered = 0, total = 0, distance = 0, lod = 0 }
+local sprStats = { rendered = 0, total = 0 }
 local sprBuildStats = { startTime = 0, endTime = 0, built = 0, active = false }
 -- Expose build state for progress tracking
 if RemixRenderCore then RemixRenderCore._sprBuildState = sprBuildStats end
@@ -556,32 +552,20 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     
     local renderedProps = 0
     local skippedProps = 0
-    local distanceSkipped = 0
-    local lodSkipped = 0
     
-    -- Get player eye position for PVS and distance checks (more stable while jumping)
+    -- Get player eye position for PVS checks (more stable while jumping)
     local ply = LocalPlayer and LocalPlayer() or nil
     local playerPos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
     -- Use centralized PVS from RenderCore
-    local pvs = nil
-    if convar_UsePVS:GetBool() and RenderCore and RenderCore.GetPVS then
-        pvs = RenderCore.GetPVS(playerPos)
-    end
-    local maxDistance = convar_RenderDistance:GetFloat()
-    local useDistanceLimit = (maxDistance > 0)
-    local useLOD = convar_UseLOD:GetBool()
-    local lodDistance = convar_LODDistance:GetFloat()
-    local lodComplexity = convar_LODComplexity:GetFloat()
+    local usePVS = convar_UsePVS:GetBool()
+    local pvs = (usePVS and RenderCore and RenderCore.GetPVS) and RenderCore.GetPVS(playerPos) or nil
     
-    -- Debug stats only calculated once per frame
     local shouldDebug = convar_Debug:GetBool()
     local frameCount = FrameNumber()
     local isNewFrame = lastDebugFrame ~= frameCount
     
     if shouldDebug and isNewFrame then
-        DebugPrint("Attempting to render", #propsToRender, "props in " .. (bDrawingSkybox and "skybox" or "world"), 
-                  useDistanceLimit and ("with distance limit " .. maxDistance) or "with no distance limit")
-        lastDebugFrame = frameCount
+        DebugPrint("Attempting to render", #propsToRender, "props in " .. (bDrawingSkybox and "skybox" or "world"))
     end
     
     -- Build or use cached render list
@@ -615,18 +599,6 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
                         skippedProps = skippedProps + 1
                         continue
                     end
-                end
-            end
-            if useDistanceLimit and RenderCore and RenderCore.ShouldCullByDistance and RenderCore.ShouldCullByDistance(prop.origin, playerPos, maxDistance) then
-                distanceSkipped = distanceSkipped + 1
-                continue
-            end
-            -- LOD culling: skip complex props at medium distance
-            if useLOD and not bDrawingSkybox and playerPos and prop.vertexCount > lodComplexity then
-                local distSqr = prop.origin:DistToSqr(playerPos)
-                if distSqr > (lodDistance * lodDistance) then
-                    lodSkipped = lodSkipped + 1
-                    continue
                 end
             end
             
@@ -666,21 +638,13 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     end
     
     sprStats.rendered = renderedProps
-    sprStats.distance = distanceSkipped
     sprStats.skipped = skippedProps
-    sprStats.lod = lodSkipped
     
     -- Debug output
     if shouldDebug and isNewFrame then
-        if useDistanceLimit or useLOD then
-            DebugPrint("Rendered", renderedProps, "props in " .. (bDrawingSkybox and "skybox" or "world"),
-                      skippedProps, "skipped due to errors,", 
-                      distanceSkipped, "skipped due to distance,",
-                      lodSkipped, "skipped due to LOD")
-        else
-            DebugPrint("Rendered", renderedProps, "props in " .. (bDrawingSkybox and "skybox" or "world"),
-                      skippedProps, "skipped")
-        end
+        DebugPrint("Rendered", renderedProps, "props in " .. (bDrawingSkybox and "skybox" or "world"),
+                  skippedProps, "skipped")
+        lastDebugFrame = frameCount
     end
 end)
 
@@ -711,7 +675,7 @@ RenderCore.RegisterStats("StaticProps", function()
     local built = sprBuildStats.built or 0
     local t = (sprBuildStats.endTime > 0 and sprBuildStats.endTime or SysTime()) - (sprBuildStats.startTime or 0)
     local rate = (t > 0) and (built / t) or 0
-    return string.format("Static props: %d/%d (-E:%d, -D:%d, -L:%d) | build: %.2fs, %.1f/s", sprStats.rendered or 0, sprStats.total or 0, sprStats.skipped or 0, sprStats.distance or 0, sprStats.lod or 0, t, rate)
+    return string.format("Static props: %d/%d (skipped:%d) | build: %.2fs, %.1f/s", sprStats.rendered or 0, sprStats.total or 0, sprStats.skipped or 0, t, rate)
 end)
 
 -- Rebuild sink and debounced cvar watchers
