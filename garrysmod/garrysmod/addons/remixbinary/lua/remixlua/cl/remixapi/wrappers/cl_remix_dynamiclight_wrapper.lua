@@ -7,11 +7,6 @@ local cv_debug = CreateClientConVar("rtx_dynamiclight_wrapper_debug", "0", true,
 local cv_brightness_scale = CreateClientConVar("rtx_dynamiclight_wrapper_brightness_scale", "50", true, false, "Brightness scaling for dynamic lights")
 local cv_radius_scale = CreateClientConVar("rtx_dynamiclight_wrapper_radius_scale", "0.01", true, false, "Radius scaling for dynamic lights")
 
--- Optional queue include
-if file.Exists("remixlua/cl/remixapi/cl_remix_light_queue.lua", "LUA") then
-    include("remixlua/cl/remixapi/cl_remix_light_queue.lua")
-end
-
 -- Tracking: lightId -> { rtxLightId, lastUpdate, props }
 local wrappedDynamicLights = {}
 
@@ -69,9 +64,7 @@ local function UpdateRTXFromDynamicLight(lightId, dlight)
     if not data or not data.rtxLightId or data.rtxLightId == 0 then
         -- Create new RTX light
         local rtxLightId = nil
-        if RemixLightQueue and RemixLightQueue.CreateSphere then
-            rtxLightId = RemixLightQueue.CreateSphere(base, sphere, lightId + 100000)
-        elseif RemixLight.CreateSphere then
+        if RemixLight.CreateSphere then
             rtxLightId = RemixLight.CreateSphere(base, sphere, lightId + 100000)
         end
         
@@ -95,9 +88,7 @@ local function UpdateRTXFromDynamicLight(lightId, dlight)
         if math.abs(oldProps.size - size) > 1 then changed = true end
         
         if changed then
-            if RemixLightQueue and RemixLightQueue.UpdateSphere then
-                RemixLightQueue.UpdateSphere(base, sphere, data.rtxLightId)
-            elseif RemixLight.UpdateSphere then
+            if RemixLight.UpdateSphere then
                 RemixLight.UpdateSphere(base, sphere, data.rtxLightId)
             end
             
@@ -129,9 +120,7 @@ local function CleanupExpiredLights()
     for _, lightId in ipairs(expired) do
         local data = wrappedDynamicLights[lightId]
         if data and data.rtxLightId then
-            if RemixLightQueue and RemixLightQueue.DestroyLight then
-                RemixLightQueue.DestroyLight(data.rtxLightId)
-            elseif istable(RemixLight) and RemixLight.DestroyLight then
+            if istable(RemixLight) and RemixLight.DestroyLight then
                 RemixLight.DestroyLight(data.rtxLightId)
             end
             DebugPrint("Destroyed expired RTX light", data.rtxLightId, "for DynamicLight", lightId)
@@ -190,9 +179,7 @@ end)
 hook.Add("OnReloaded", "RTXDynamicLight_Cleanup", function()
     for lightId, data in pairs(wrappedDynamicLights) do
         if data.rtxLightId then
-            if RemixLightQueue and RemixLightQueue.DestroyLight then
-                RemixLightQueue.DestroyLight(data.rtxLightId)
-            elseif istable(RemixLight) and RemixLight.DestroyLight then
+            if istable(RemixLight) and RemixLight.DestroyLight then
                 RemixLight.DestroyLight(data.rtxLightId)
             end
         end
@@ -203,9 +190,7 @@ end)
 hook.Add("ShutDown", "RTXDynamicLight_Cleanup", function()
     for lightId, data in pairs(wrappedDynamicLights) do
         if data.rtxLightId then
-            if RemixLightQueue and RemixLightQueue.DestroyLight then
-                RemixLightQueue.DestroyLight(data.rtxLightId)
-            elseif istable(RemixLight) and RemixLight.DestroyLight then
+            if istable(RemixLight) and RemixLight.DestroyLight then
                 RemixLight.DestroyLight(data.rtxLightId)
             end
         end
@@ -230,9 +215,7 @@ concommand.Add("rtx_dynamiclight_clear", function()
     local count = table.Count(wrappedDynamicLights)
     for lightId, data in pairs(wrappedDynamicLights) do
         if data.rtxLightId then
-            if RemixLightQueue and RemixLightQueue.DestroyLight then
-                RemixLightQueue.DestroyLight(data.rtxLightId)
-            elseif istable(RemixLight) and RemixLight.DestroyLight then
+            if istable(RemixLight) and RemixLight.DestroyLight then
                 RemixLight.DestroyLight(data.rtxLightId)
             end
         end

@@ -2,11 +2,6 @@
 
 local function vec(x, y, z) return { x = x, y = y, z = z } end
 
--- Optional queue include to throttle RemixLight operations
-if file.Exists("remixlua/cl/remixapi/cl_remix_light_queue.lua", "LUA") then
-  include("remixlua/cl/remixapi/cl_remix_light_queue.lua")
-end
-
 local function spawn_sphere_for_ent(ent, radius, r, g, b)
   if not IsValid(ent) or not RemixLight then return nil end
   radius = tonumber(radius) or 40
@@ -34,9 +29,6 @@ local function spawn_sphere_for_ent(ent, radius, r, g, b)
     volumetricRadianceScale = 1.0,
   }
 
-  if RemixLightQueue and RemixLightQueue.CreateSphere then
-    return RemixLightQueue.CreateSphere(base, sphere, ent:EntIndex())
-  end
   return RemixLight.CreateSphere and RemixLight.CreateSphere(base, sphere, ent:EntIndex()) or nil
 end
 
@@ -56,9 +48,6 @@ local function spawn_sphere_at_crosshair(radius, r, g, b)
     shaping = { direction = { x = dir.x, y = dir.y, z = dir.z }, coneAngleDegrees = 35.0, coneSoftness = 0.2, focusExponent = 1.0 },
     volumetricRadianceScale = 1.0,
   }
-  if RemixLightQueue and RemixLightQueue.CreateSphere then
-    return RemixLightQueue.CreateSphere(base, sphere, ply:EntIndex())
-  end
   return RemixLight.CreateSphere and RemixLight.CreateSphere(base, sphere, ply:EntIndex()) or nil
 end
 
@@ -88,14 +77,12 @@ end)
 concommand.Add("remix_light_clear", function()
   local lp = LocalPlayer()
   if not IsValid(lp) or not RemixLight then return end
-  if RemixLightQueue and RemixLightQueue.DestroyLight and RemixLight.GetLightsForEntity then
+  if RemixLight.DestroyLightsForEntity then
+    RemixLight.DestroyLightsForEntity(lp:EntIndex())
+  elseif RemixLight.GetLightsForEntity and RemixLight.DestroyLight then
     local ids = RemixLight.GetLightsForEntity(lp:EntIndex()) or {}
     for _, id in ipairs(ids) do
-      RemixLightQueue.DestroyLight(id)
-    end
-  else
-    if RemixLight.DestroyLightsForEntity then
-      RemixLight.DestroyLightsForEntity(lp:EntIndex())
+      RemixLight.DestroyLight(id)
     end
   end
   print("[RemixLight] Cleared lights for LocalPlayer")

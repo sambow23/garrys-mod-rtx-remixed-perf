@@ -662,9 +662,7 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
             angularDiameterDegrees = baseAngular * (env_angular_mult:GetFloat() or 1.0) * (env_size_mult:GetFloat() or 1.0),
             volumetricRadianceScale = env_volumetric_mult:GetFloat() or 1.0,
         }
-        if istable(RemixLightQueue) and RemixLightQueue.CreateDistant then
-            lightId = RemixLightQueue.CreateDistant(base, distant, entityId)
-        elseif RemixLight.CreateDistant then
+        if RemixLight.CreateDistant then
             lightId = RemixLight.CreateDistant(base, distant, entityId)
         end
     else
@@ -690,9 +688,7 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         end
 
         -- Create the light (synchronous) and get its id
-        if istable(RemixLightQueue) and RemixLightQueue.CreateSphere then
-            lightId = RemixLightQueue.CreateSphere(base, sphere, entityId)
-        elseif RemixLight.CreateSphere then
+        if RemixLight.CreateSphere then
             lightId = RemixLight.CreateSphere(base, sphere, entityId)
         end
     end
@@ -939,9 +935,7 @@ local function updateEntryRuntime(entry)
             angularDiameterDegrees = baseAngular * (env_angular_mult:GetFloat() or 1.0) * (env_size_mult:GetFloat() or 1.0),
             volumetricRadianceScale = env_volumetric_mult:GetFloat() or 1.0,
         }
-        if istable(RemixLightQueue) and RemixLightQueue.UpdateDistant then
-            RemixLightQueue.UpdateDistant(base, distant, entry.id)
-        elseif istable(RemixLight) and RemixLight.UpdateDistant then
+        if istable(RemixLight) and RemixLight.UpdateDistant then
             RemixLight.UpdateDistant(base, distant, entry.id)
         end
     else
@@ -978,9 +972,7 @@ local function updateEntryRuntime(entry)
                 focusExponent = 1.0,
             }
         end
-        if istable(RemixLightQueue) and RemixLightQueue.UpdateSphere then
-            RemixLightQueue.UpdateSphere(base, sphere, entry.id)
-        elseif istable(RemixLight) and RemixLight.UpdateSphere then
+        if istable(RemixLight) and RemixLight.UpdateSphere then
             RemixLight.UpdateSphere(base, sphere, entry.id)
         end
     end
@@ -1137,14 +1129,14 @@ hook.Add("Think", "rtx_api_map_lights_PhysgunThink", function()
                         entry.pos = newPos
                         if istable(RemixLight) and RemixLight.UpdateSphereFields then
                             RemixLight.UpdateSphereFields(entry.id, { position = { x = newPos.x, y = newPos.y, z = newPos.z } })
-                        elseif istable(RemixLightQueue) and RemixLightQueue.UpdateSphere then
+                        elseif istable(RemixLight) and RemixLight.UpdateSphere then
                             -- Fallback: build minimal base+info from cached entry, only include shaping if enabled
                             local base = { hash = tonumber(util.CRC("upd_" .. tostring(entry.id))) or entry.entityId, radiance = { x = entry.color.r, y = entry.color.g, z = entry.color.b } }
                             local info = { position = { x = newPos.x, y = newPos.y, z = newPos.z }, radius = entry.size or 200, volumetricRadianceScale = 1.0 }
                             if entry.shapingEnabled then
                                 info.shaping = { direction = { x = 0, y = 0, z = -1 }, coneAngleDegrees = 45.0, coneSoftness = 0.2, focusExponent = 1.0 }
                             end
-                            RemixLightQueue.UpdateSphere(base, info, entry.id)
+                            RemixLight.UpdateSphere(base, info, entry.id)
                         end
                         break
                     end

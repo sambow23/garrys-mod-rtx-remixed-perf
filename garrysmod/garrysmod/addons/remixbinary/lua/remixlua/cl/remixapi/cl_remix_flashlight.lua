@@ -19,11 +19,6 @@ local cv_offset_up = CreateClientConVar("rtx_flashlight_offset_up", "0", true, f
 local cv_volumetric = CreateClientConVar("rtx_flashlight_volumetric", "0.0", true, false, "Volumetric intensity multiplier")
 local cv_debug = CreateClientConVar("rtx_flashlight_debug", "0", true, false, "Show debug info")
 
--- Optional queue include
-if file.Exists("remixlua/cl/remixapi/cl_remix_light_queue.lua", "LUA") then
-    include("remixlua/cl/remixapi/cl_remix_light_queue.lua")
-end
-
 -- State tracking
 local flashlightActive = false
 local flashlightLightId = nil
@@ -98,11 +93,9 @@ local function CreateFlashlight(ply, colorOverride)
         volumetricRadianceScale = cv_volumetric:GetFloat(),
     }
     
-    -- Create via queue or direct
+    -- Create directly
     local lightId = nil
-    if RemixLightQueue and RemixLightQueue.CreateSphere then
-        lightId = RemixLightQueue.CreateSphere(base, sphere, ply:EntIndex())
-    elseif RemixLight.CreateSphere then
+    if RemixLight.CreateSphere then
         lightId = RemixLight.CreateSphere(base, sphere, ply:EntIndex())
     end
     
@@ -216,10 +209,8 @@ local function UpdateFlashlight(ply)
         volumetricRadianceScale = cachedSettings.volumetric,
     }
     
-    -- Update via queue or direct
-    if RemixLightQueue and RemixLightQueue.UpdateSphere then
-        RemixLightQueue.UpdateSphere(base, sphere, flashData.lightId)
-    elseif RemixLight.UpdateSphere then
+    -- Update directly
+    if RemixLight.UpdateSphere then
         RemixLight.UpdateSphere(base, sphere, flashData.lightId)
     end
 end
@@ -242,19 +233,14 @@ local function DestroyFlashlight(ply)
         flashlightLightId = nil
     end
     
-    -- Small delay to allow any queued updates to check the flag
-    timer.Simple(0, function()
-        if RemixLightQueue and RemixLightQueue.DestroyLight then
-            RemixLightQueue.DestroyLight(lightIdToDestroy)
-        elseif istable(RemixLight) and RemixLight.DestroyLight then
-            RemixLight.DestroyLight(lightIdToDestroy)
-        end
-        
-        -- Remove from tracking table
-        playerFlashlights[ply] = nil
-        
-        DebugPrint("Flashlight destroyed for player", IsValid(ply) and ply:Nick() or "invalid", "ID:", lightIdToDestroy)
-    end)
+    -- Destroy directly
+    if istable(RemixLight) and RemixLight.DestroyLight then
+        RemixLight.DestroyLight(lightIdToDestroy)
+    end
+    
+    playerFlashlights[ply] = nil
+    
+    DebugPrint("Flashlight destroyed for player", IsValid(ply) and ply:Nick() or "invalid", "ID:", lightIdToDestroy)
 end
 
 -- Toggle flashlight on/off for local player

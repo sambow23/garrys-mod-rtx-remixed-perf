@@ -4,7 +4,8 @@ if not CLIENT then return end
 -- Configuration
 local cv_enabled = CreateClientConVar("rtx_light_wrapper_enabled", "1", true, false, "Enable automatic RTX light wrapping for legacy light entities")
 local cv_debug = CreateClientConVar("rtx_light_wrapper_debug", "0", true, false, "Debug logging for light wrapper")
-local cv_update_rate = CreateClientConVar("rtx_light_wrapper_update_rate", "0.001", true, false, "How often to check for entity property changes (seconds)")
+local cv_skip_change_detection = CreateClientConVar("rtx_light_wrapper_skip_change_detection", "0", true, false, "Skip change detection and update every frame (highest latency but most responsive)")
+local cv_update_rate = CreateClientConVar("rtx_light_wrapper_update_rate", "0.001", true, false, "How often to check for entity property changes when change detection is enabled (seconds)")
 local cv_brightness_scale = CreateClientConVar("rtx_light_wrapper_brightness_scale", "1", true, false, "Brightness scaling factor (Source uses 0-255, RTX uses radiance)")
 local cv_radius_power = CreateClientConVar("rtx_light_wrapper_radius_power", "0.1", true, false, "Power/exponent for radius curve (1.0=linear, <1.0=compress large sizes, >1.0=amplify large sizes)")
 local cv_radius_scale_point = CreateClientConVar("rtx_light_wrapper_radius_scale_point", "1.50", true, false, "Radius scaling factor for point lights")
@@ -12,11 +13,6 @@ local cv_radius_scale_spot = CreateClientConVar("rtx_light_wrapper_radius_scale_
 local cv_offset_x = CreateClientConVar("rtx_light_wrapper_offset_x", "0", true, false, "Position offset X in local space (forward/back relative to entity)")
 local cv_offset_y = CreateClientConVar("rtx_light_wrapper_offset_y", "0", true, false, "Position offset Y in local space (left/right relative to entity)")
 local cv_offset_z = CreateClientConVar("rtx_light_wrapper_offset_z", "0", true, false, "Position offset Z in local space (up/down relative to entity)")
-
--- Optional queue include
-if file.Exists("remixlua/cl/remixapi/cl_remix_light_queue.lua", "LUA") then
-    include("remixlua/cl/remixapi/cl_remix_light_queue.lua")
-end
 
 -- Light entity classes we want to wrap
 local WRAPPABLE_CLASSES = {
@@ -281,9 +277,7 @@ local function CreateRTXLightFromEntity(ent)
     
     -- Create the light
     local lightId = nil
-    if RemixLightQueue and RemixLightQueue.CreateSphere then
-        lightId = RemixLightQueue.CreateSphere(base, sphere, ent:EntIndex())
-    elseif RemixLight.CreateSphere then
+    if RemixLight.CreateSphere then
         lightId = RemixLight.CreateSphere(base, sphere, ent:EntIndex())
     end
     
@@ -304,8 +298,10 @@ local function UpdateRTXLightFromEntity(ent, lightId, oldProps)
     local props = GetEntityLightProps(ent)
     if not props then return false end
     
-    -- Check if update is needed
-    if not PropsChanged(oldProps, props) then
+    local skipChangeDetection = cv_skip_change_detection:GetBool()
+    
+    -- Check if update is needed (skip if forced update mode)
+    if not skipChangeDetection and not PropsChanged(oldProps, props) then
         return true -- No change needed, but not an error
     end
     
@@ -359,13 +355,13 @@ local function UpdateRTXLightFromEntity(ent, lightId, oldProps)
     end
     
     -- Update the light
-    if RemixLightQueue and RemixLightQueue.UpdateSphere then
-        RemixLightQueue.UpdateSphere(base, sphere, lightId)
-    elseif RemixLight.UpdateSphere then
+    if RemixLight.UpdateSphere then
         RemixLight.UpdateSphere(base, sphere, lightId)
     end
     
-    DebugPrint("Updated RTX light", lightId, "for entity", ent:EntIndex(), "enabled:", props.enabled)
+    if not skipChangeDetection then
+        DebugPrint("Updated RTX light", lightId, "for entity", ent:EntIndex(), "enabled:", props.enabled)
+    end
     return true
 end
 
@@ -373,9 +369,7 @@ end
 local function DestroyRTXLight(lightId)
     if not lightId or lightId == 0 then return end
     
-    if RemixLightQueue and RemixLightQueue.DestroyLight then
-        RemixLightQueue.DestroyLight(lightId)
-    elseif istable(RemixLight) and RemixLight.DestroyLight then
+    if istable(RemixLight) and RemixLight.DestroyLight then
         RemixLight.DestroyLight(lightId)
     end
     
@@ -431,6 +425,7 @@ local function UpdateWrappedLights()
         return
     end
     
+    local skipChangeDetection = cv_skip_change_detection:GetBool()
     local updateInterval = cv_update_rate:GetFloat()
     local currentTime = CurTime()
     
@@ -438,11 +433,11 @@ local function UpdateWrappedLights()
         if not IsValid(ent) then
             -- Entity removed, clean up
             UnwrapEntity(ent)
-        elseif currentTime - data.lastUpdate >= updateInterval then
-            -- Time to check for updates
+        elseif skipChangeDetection or (currentTime - data.lastUpdate >= updateInterval) then
+            -- Update every frame (skip mode) or time-based check
             local props = GetEntityLightProps(ent)
             if props then
-                if PropsChanged(data.cachedProps, props) then
+                if skipChangeDetection or PropsChanged(data.cachedProps, props) then
                     UpdateRTXLightFromEntity(ent, data.lightId, data.cachedProps)
                     data.cachedProps = props
                 end

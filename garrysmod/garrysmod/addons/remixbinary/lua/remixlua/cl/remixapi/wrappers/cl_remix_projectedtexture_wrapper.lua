@@ -6,15 +6,10 @@ local cv_enabled = CreateClientConVar("rtx_projectedtexture_wrapper_enabled", "1
 local cv_debug = CreateClientConVar("rtx_projectedtexture_wrapper_debug", "0", true, false, "Debug logging for projected texture wrapper")
 local cv_brightness_scale = CreateClientConVar("rtx_projectedtexture_wrapper_brightness_scale", "10", true, false, "Brightness scaling for projected textures")
 local cv_radius_scale = CreateClientConVar("rtx_projectedtexture_wrapper_radius_scale", "0.005", true, false, "Radius scaling for projected textures")
-local cv_update_rate = CreateClientConVar("rtx_projectedtexture_wrapper_update_rate", "0.001", true, false, "Update rate in seconds (lower = faster updates)")
+local cv_skip_change_detection = CreateClientConVar("rtx_projectedtexture_wrapper_skip_change_detection", "1", true, false, "Skip change detection and update every frame (lowest latency)")
 local cv_offset_x = CreateClientConVar("rtx_projectedtexture_wrapper_offset_x", "50", true, false, "Position offset X in local space (forward/back relative to entity)")
 local cv_offset_y = CreateClientConVar("rtx_projectedtexture_wrapper_offset_y", "0", true, false, "Position offset Y in local space (left/right relative to entity)")
 local cv_offset_z = CreateClientConVar("rtx_projectedtexture_wrapper_offset_z", "0", true, false, "Position offset Z in local space (up/down relative to entity)")
-
--- Queue include
-if file.Exists("remixlua/cl/remixapi/cl_remix_light_queue.lua", "LUA") then
-    include("remixlua/cl/remixapi/cl_remix_light_queue.lua")
-end
 
 -- Tracking: projectedTexture object -> { rtxLightId, props }
 local wrappedProjectedTextures = {}
@@ -103,11 +98,9 @@ local function UpdateRTXFromProjectedTexture(projTex, textureId)
     local data = wrappedProjectedTextures[projTex]
     
     if not data or not data.rtxLightId or data.rtxLightId == 0 then
-        -- Create new RTX light
+        -- Create new RTX light (always direct for lowest latency)
         local rtxLightId = nil
-        if RemixLightQueue and RemixLightQueue.CreateSphere then
-            rtxLightId = RemixLightQueue.CreateSphere(base, sphere, textureId + 200000)
-        elseif RemixLight.CreateSphere then
+        if RemixLight.CreateSphere then
             rtxLightId = RemixLight.CreateSphere(base, sphere, textureId + 200000)
         end
         
@@ -121,26 +114,31 @@ local function UpdateRTXFromProjectedTexture(projTex, textureId)
         end
     else
         -- Update existing RTX light
-        local oldProps = data.props
+        local skipChangeDetection = cv_skip_change_detection:GetBool()
         
-        -- Only update if properties changed significantly
-        local changed = false
-        if oldProps.pos:DistToSqr(pos) > 1 then changed = true end
-        if math.abs((oldProps.angles.p or 0) - (angles.p or 0)) > 0.5 then changed = true end
-        if math.abs((oldProps.angles.y or 0) - (angles.y or 0)) > 0.5 then changed = true end
-        if oldProps.color.r ~= color.r or oldProps.color.g ~= color.g or oldProps.color.b ~= color.b then changed = true end
-        if math.abs((oldProps.brightness or 0) - brightness) > 0.1 then changed = true end
-        if math.abs((oldProps.fov or 0) - (fov or 0)) > 1 then changed = true end
+        local needsUpdate = skipChangeDetection
         
-        if changed then
-            if RemixLightQueue and RemixLightQueue.UpdateSphere then
-                RemixLightQueue.UpdateSphere(base, sphere, data.rtxLightId)
-            elseif RemixLight.UpdateSphere then
+        if not skipChangeDetection then
+            -- Check if properties changed significantly
+            local oldProps = data.props
+            if oldProps.pos:DistToSqr(pos) > 1 then needsUpdate = true end
+            if math.abs((oldProps.angles.p or 0) - (angles.p or 0)) > 0.5 then needsUpdate = true end
+            if math.abs((oldProps.angles.y or 0) - (angles.y or 0)) > 0.5 then needsUpdate = true end
+            if oldProps.color.r ~= color.r or oldProps.color.g ~= color.g or oldProps.color.b ~= color.b then needsUpdate = true end
+            if math.abs((oldProps.brightness or 0) - brightness) > 0.1 then needsUpdate = true end
+            if math.abs((oldProps.fov or 0) - (fov or 0)) > 1 then needsUpdate = true end
+        end
+        
+        if needsUpdate then
+            -- Update directly
+            if RemixLight.UpdateSphere then
                 RemixLight.UpdateSphere(base, sphere, data.rtxLightId)
             end
             
             data.props = { pos = pos, angles = angles, color = color, brightness = brightness, fov = fov, farZ = farZ }
-            DebugPrint("Updated RTX spotlight", data.rtxLightId, "for ProjectedTexture", textureId)
+            if not skipChangeDetection then
+                DebugPrint("Updated RTX spotlight", data.rtxLightId, "for ProjectedTexture", textureId)
+            end
         end
     end
 end
@@ -151,9 +149,7 @@ local function RemoveRTXForProjectedTexture(projTex)
     if not data then return end
     
     if data.rtxLightId then
-        if RemixLightQueue and RemixLightQueue.DestroyLight then
-            RemixLightQueue.DestroyLight(data.rtxLightId)
-        elseif istable(RemixLight) and RemixLight.DestroyLight then
+        if istable(RemixLight) and RemixLight.DestroyLight then
             RemixLight.DestroyLight(data.rtxLightId)
         end
         DebugPrint("Destroyed RTX spotlight", data.rtxLightId, "for ProjectedTexture", data.textureId)
@@ -184,40 +180,20 @@ function ProjectedTexture()
     return projTex
 end
 
--- Update function for periodic checks
-local function UpdateProjectedTextures()
+-- Hook-based update for instant response
+hook.Add("Think", "RTXProjectedTexture_Update", function()
     if not cv_enabled:GetBool() then return end
+    if not istable(RemixLight) then return end
     
     local toRemove = {}
     
     for projTex, data in pairs(wrappedProjectedTextures) do
-        -- Check if still valid (ProjectedTexture has been removed)
-        -- Try multiple methods to detect removal
-        local isValid = false
-        local success, result = pcall(function()
-            -- Try to access position - will error if removed
-            local pos = projTex:GetPos()
-            return pos ~= nil
-        end)
-        
-        if success and result then
-            isValid = true
-        end
-        
-        -- Also check IsValid if it exists
-        if isValid and IsValid then
-            local validCheck = pcall(function() return IsValid(projTex) end)
-            if validCheck and not IsValid(projTex) then
-                isValid = false
-            end
-        end
-        
-        if not isValid then
-            -- ProjectedTexture was removed, clean up RTX light
+        -- Check if ProjectedTexture was removed using IsValid()
+        if not IsValid(projTex) then
             table.insert(toRemove, projTex)
-            DebugPrint("ProjectedTexture", data.textureId, "was removed, cleaning up RTX light")
+            DebugPrint("Detected removed ProjectedTexture", data.textureId)
         else
-            -- Update position/angles (vehicles move)
+            -- Still valid - update position/angles every frame (vehicles move)
             UpdateRTXFromProjectedTexture(projTex, data.textureId)
         end
     end
@@ -226,32 +202,13 @@ local function UpdateProjectedTextures()
     for _, projTex in ipairs(toRemove) do
         RemoveRTXForProjectedTexture(projTex)
     end
-end
-
--- Create timer with configurable rate
-local function CreateUpdateTimer()
-    local rate = cv_update_rate:GetFloat()
-    timer.Create("RTXProjectedTextureUpdate", rate, 0, UpdateProjectedTextures)
-    DebugPrint("Update timer created with rate:", rate)
-end
-
--- Initial timer creation
-CreateUpdateTimer()
-
--- Recreate timer when rate changes
-cvars.AddChangeCallback("rtx_projectedtexture_wrapper_update_rate", function(convar, oldValue, newValue)
-    timer.Remove("RTXProjectedTextureUpdate")
-    CreateUpdateTimer()
-    print("[RTX ProjectedTexture] Update rate changed to " .. newValue .. "s")
-end, "RTXProjectedTextureUpdateRate")
+end)
 
 -- Cleanup on map change
 hook.Add("OnReloaded", "RTXProjectedTexture_Cleanup", function()
     for projTex, data in pairs(wrappedProjectedTextures) do
         if data.rtxLightId then
-            if RemixLightQueue and RemixLightQueue.DestroyLight then
-                RemixLightQueue.DestroyLight(data.rtxLightId)
-            elseif istable(RemixLight) and RemixLight.DestroyLight then
+            if istable(RemixLight) and RemixLight.DestroyLight then
                 RemixLight.DestroyLight(data.rtxLightId)
             end
         end
@@ -263,9 +220,7 @@ end)
 hook.Add("ShutDown", "RTXProjectedTexture_Cleanup", function()
     for projTex, data in pairs(wrappedProjectedTextures) do
         if data.rtxLightId then
-            if RemixLightQueue and RemixLightQueue.DestroyLight then
-                RemixLightQueue.DestroyLight(data.rtxLightId)
-            elseif istable(RemixLight) and RemixLight.DestroyLight then
+            if istable(RemixLight) and RemixLight.DestroyLight then
                 RemixLight.DestroyLight(data.rtxLightId)
             end
         end
@@ -282,17 +237,14 @@ concommand.Add("rtx_projectedtexture_list", function()
     for projTex, data in pairs(wrappedProjectedTextures) do
         local props = data.props
         
-        -- Check if still valid
-        local success = pcall(function() return projTex:GetPos() end)
-        
-        if success and props.pos then
-            local pos = props.pos
+        if IsValid(projTex) then
+            local pos = props.pos or Vector(0,0,0)
             local angles = props.angles or Angle(0,0,0)
             print(string.format("  - ProjectedTexture %d -> RTX Light %d (pos: %.0f %.0f %.0f, ang: %.0f %.0f %.0f, fov: %.0f) [VALID]",
                 data.textureId, data.rtxLightId or 0, pos.x, pos.y, pos.z, angles.p, angles.y, angles.r, props.fov or 0))
             count = count + 1
         else
-            print(string.format("  - ProjectedTexture %d -> RTX Light %d [INVALID/REMOVED]", data.textureId, data.rtxLightId or 0))
+            print(string.format("  - ProjectedTexture %d -> RTX Light %d [INVALID]", data.textureId, data.rtxLightId or 0))
             invalidCount = invalidCount + 1
         end
     end
@@ -304,9 +256,7 @@ concommand.Add("rtx_projectedtexture_clear", function()
     local count = table.Count(wrappedProjectedTextures)
     for projTex, data in pairs(wrappedProjectedTextures) do
         if data.rtxLightId then
-            if RemixLightQueue and RemixLightQueue.DestroyLight then
-                RemixLightQueue.DestroyLight(data.rtxLightId)
-            elseif istable(RemixLight) and RemixLight.DestroyLight then
+            if istable(RemixLight) and RemixLight.DestroyLight then
                 RemixLight.DestroyLight(data.rtxLightId)
             end
         end
@@ -318,23 +268,30 @@ end, nil, "Clear all wrapped projected textures")
 concommand.Add("rtx_projectedtexture_cleanup", function()
     print("[RTX ProjectedTexture] Running manual cleanup...")
     local toRemove = {}
-    local cleanedCount = 0
     
     for projTex, data in pairs(wrappedProjectedTextures) do
-        local success = pcall(function() return projTex:GetPos() end)
-        if not success then
+        if not IsValid(projTex) then
             table.insert(toRemove, projTex)
+            print(string.format("  Removing invalid ProjectedTexture %d", data.textureId))
         end
     end
     
     for _, projTex in ipairs(toRemove) do
         RemoveRTXForProjectedTexture(projTex)
-        cleanedCount = cleanedCount + 1
     end
     
-    print(string.format("[RTX ProjectedTexture] Cleaned up %d invalid projected textures", cleanedCount))
+    print(string.format("[RTX ProjectedTexture] Cleaned up %d invalid projected textures", #toRemove))
     print(string.format("[RTX ProjectedTexture] Remaining: %d", table.Count(wrappedProjectedTextures)))
 end, nil, "Clean up invalid projected textures")
+
+concommand.Add("rtx_projectedtexture_force_clear_all", function()
+    local count = table.Count(wrappedProjectedTextures)
+    for projTex, data in pairs(wrappedProjectedTextures) do
+        RemoveRTXForProjectedTexture(projTex)
+    end
+    wrappedProjectedTextures = {}
+    print("[RTX ProjectedTexture] Force cleared all " .. count .. " projected texture lights")
+end, nil, "Force clear ALL projected texture lights (debug)")
 
 concommand.Add("rtx_projectedtexture_reset_offsets", function()
     RunConsoleCommand("rtx_projectedtexture_wrapper_offset_x", "50")

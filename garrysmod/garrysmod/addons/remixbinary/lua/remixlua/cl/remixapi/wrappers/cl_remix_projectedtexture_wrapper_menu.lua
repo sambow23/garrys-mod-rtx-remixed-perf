@@ -11,9 +11,6 @@ hook.Add("PopulateToolMenu", "RTXProjectedTextureWrapper_Menu", function()
         -- Enable/Disable
         panel:CheckBox("Enable Projected Texture Wrapper", "rtx_projectedtexture_wrapper_enabled")
         
-        local updateSlider = panel:NumSlider("Update Rate (seconds)", "rtx_projectedtexture_wrapper_update_rate", 0.001, 0.5, 2)
-        if updateSlider then updateSlider:SetDecimals(3) end
-        panel:Help("Lower = faster updates/more responsive. Higher = better performance.")
         
         local brightnessSlider = panel:NumSlider("Brightness Scale", "rtx_projectedtexture_wrapper_brightness_scale", 1, 500, 0)
         if brightnessSlider then brightnessSlider:SetDecimals(0) end
