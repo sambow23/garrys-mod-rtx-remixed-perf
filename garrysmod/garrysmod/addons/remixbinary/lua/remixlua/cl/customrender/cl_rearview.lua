@@ -163,6 +163,11 @@ local function ShouldRenderEntity(ent)
             return true
         end
         
+        -- Brush-based entities (doors, breakables, details)
+        if class == "func_door" or class == "func_door_rotating" then return true end
+        if class == "func_breakable" or class == "func_breakable_surf" then return true end
+        if class == "func_detail" then return true end
+        
         -- Other common moveable prop types
         if class:find("^prop_") and ent:GetPhysicsObject():IsValid() then
             return true
