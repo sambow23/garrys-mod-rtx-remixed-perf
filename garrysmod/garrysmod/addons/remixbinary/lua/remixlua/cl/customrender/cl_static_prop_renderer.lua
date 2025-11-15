@@ -807,6 +807,8 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     local usePVS = convar_UsePVS:GetBool()
     local pvs = (usePVS and RenderCore and RenderCore.GetPVS) and RenderCore.GetPVS(playerPos) or nil
     
+    -- Cache ConVar checks to avoid duplicate calls
+    local useMeshCombining = convar_UseMeshCombining:GetBool()
     local shouldDebug = convar_Debug:GetBool()
     local frameCount = FrameNumber()
     local isNewFrame = lastDebugFrame ~= frameCount
@@ -868,7 +870,7 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     end
     
     -- Render combined meshes or individual props
-    if convar_UseMeshCombining:GetBool() and combinedMeshesBuilt then
+    if useMeshCombining and combinedMeshesBuilt then
         -- Track unique props to avoid double-counting (props with multiple materials)
         local renderedPropIndices = {}
         
@@ -940,7 +942,7 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     end
     
     -- Render all batched instances at the end (only used in non-combining mode)
-    if not convar_UseMeshCombining:GetBool() and PropInstancing and PropInstancing.RenderInstancedProps then
+    if not useMeshCombining and PropInstancing and PropInstancing.RenderInstancedProps then
         PropInstancing.RenderInstancedProps()
     end
     

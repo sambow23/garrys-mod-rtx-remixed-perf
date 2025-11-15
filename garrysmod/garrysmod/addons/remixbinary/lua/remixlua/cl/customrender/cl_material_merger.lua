@@ -65,28 +65,41 @@ function GetMaterialGroupLeader(mat)
     return mat
 end
 
--- Stats
-hook.Add("Think", "MaterialMergerStats", function()
-    if not convar_Debug:GetBool() then return end
+-- Stats printing function
+local function PrintMergerStats()
+    local totalMaterials = 0
+    local totalGroups = table.Count(materialGroups)
+    for hash, group in pairs(materialGroups) do
+        totalMaterials = totalMaterials + #group
+    end
     
-    -- Print stats every 5 seconds
-    local time = CurTime()
-    if not MaterialMergerLastPrint or time - MaterialMergerLastPrint > 5 then
-        MaterialMergerLastPrint = time
-        
-        local totalMaterials = 0
-        local totalGroups = table.Count(materialGroups)
-        for hash, group in pairs(materialGroups) do
-            totalMaterials = totalMaterials + #group
+    if totalMaterials > 0 then
+        local reduction = (1 - (totalGroups / totalMaterials)) * 100
+        print(string.format("[MaterialMerger] %d materials -> %d groups (%.1f%% reduction)", 
+            totalMaterials, totalGroups, reduction))
+    end
+end
+
+-- Enable/disable stats timer based on debug convar
+local function UpdateStatsTimer()
+    if convar_Debug:GetBool() then
+        if not timer.Exists("MaterialMergerStats") then
+            timer.Create("MaterialMergerStats", 5, 0, PrintMergerStats)
         end
-        
-        if totalMaterials > 0 then
-            local reduction = (1 - (totalGroups / totalMaterials)) * 100
-            print(string.format("[MaterialMerger] %d materials -> %d groups (%.1f%% reduction)", 
-                totalMaterials, totalGroups, reduction))
+    else
+        if timer.Exists("MaterialMergerStats") then
+            timer.Remove("MaterialMergerStats")
         end
     end
-end)
+end
+
+-- Watch for debug convar changes
+cvars.AddChangeCallback("rtx_merge_materials_debug", function(convar, oldValue, newValue)
+    UpdateStatsTimer()
+end, "MaterialMergerDebugWatch")
+
+-- Initialize timer state on load
+UpdateStatsTimer()
 
 -- Reset on map change
 hook.Add("ShutDown", "MaterialMergerCleanup", function()

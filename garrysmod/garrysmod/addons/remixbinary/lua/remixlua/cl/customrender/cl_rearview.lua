@@ -19,6 +19,9 @@ REARVIEW.filterMode = "dynamic_only" -- "all", "whitelist", "blacklist", "dynami
 REARVIEW.classWhitelist = {} -- Set of class names to include (when filterMode = "whitelist")
 REARVIEW.classBlacklist = {} -- Set of class names to exclude (when filterMode = "blacklist")
 REARVIEW._hiddenEntities = {} -- Temporary storage for entities hidden during RT rendering
+REARVIEW._filteredEntityCache = nil -- Cached list of entities to hide
+REARVIEW._filterCacheFrame = -1 -- Frame number when cache was last built
+REARVIEW._filterCacheRebuildInterval = 30 -- Rebuild cache every N frames
 
 local function CreateRT()
     if REARVIEW.rt and REARVIEW.rt:IsError() == false then return end
@@ -179,12 +182,34 @@ local function ShouldRenderEntity(ent)
     return true
 end
 
--- Hide entities that should not render in the RT
-local function HideFilteredEntities()
-    REARVIEW._hiddenEntities = {}
+-- Rebuild the filtered entity cache
+local function RebuildFilterCache()
+    REARVIEW._filteredEntityCache = {}
     
     for _, ent in ipairs(ents.GetAll()) do
         if IsValid(ent) and not ShouldRenderEntity(ent) then
+            REARVIEW._filteredEntityCache[#REARVIEW._filteredEntityCache + 1] = ent
+        end
+    end
+    
+    REARVIEW._filterCacheFrame = FrameNumber()
+end
+
+-- Hide entities that should not render in the RT (using cache)
+local function HideFilteredEntities()
+    -- Rebuild cache if stale or doesn't exist
+    local currentFrame = FrameNumber()
+    if not REARVIEW._filteredEntityCache or 
+       (currentFrame - REARVIEW._filterCacheFrame) >= REARVIEW._filterCacheRebuildInterval then
+        RebuildFilterCache()
+    end
+    
+    REARVIEW._hiddenEntities = {}
+    
+    -- Use cached list instead of iterating all entities
+    for i = 1, #REARVIEW._filteredEntityCache do
+        local ent = REARVIEW._filteredEntityCache[i]
+        if IsValid(ent) then
             local wasHidden = ent:GetNoDraw()
             if not wasHidden then
                 REARVIEW._hiddenEntities[ent] = true
@@ -203,6 +228,19 @@ local function RestoreFilteredEntities()
     end
     REARVIEW._hiddenEntities = {}
 end
+
+-- Invalidate cache when entities spawn or are removed
+hook.Add("OnEntityCreated", "RearView_InvalidateCache", function()
+    if REARVIEW.enabled then
+        REARVIEW._filteredEntityCache = nil
+    end
+end)
+
+hook.Add("EntityRemoved", "RearView_InvalidateCache", function()
+    if REARVIEW.enabled then
+        REARVIEW._filteredEntityCache = nil
+    end
+end)
 
 local function UpdateRearRT()
     if not REARVIEW.enabled then return end
@@ -276,18 +314,9 @@ hook.Add("PreRender", "RearView_UpdateRT", function()
     UpdateRearRT()
 end)
 
--- Capture the current camera each frame; this reflects final camera used by engine for rendering
-hook.Add("RenderScene", "RearView_CaptureView", function(origin, angles, fov)
-    if not REARVIEW.enabled then return end
-    if REARVIEW._rendering then return end -- don't capture while we render our own RT
-    REARVIEW.lastView = REARVIEW.lastView or {}
-    REARVIEW.lastView.origin = origin
-    REARVIEW.lastView.angles = angles
-    REARVIEW.lastView.fov = fov
-end)
-
--- Also capture from CalcView so we follow custom camera logic provided by the gamemode/addons
-hook.Add("CalcView", "RearView_CalcViewCapture", function(ply, pos, ang, fov)
+-- Capture from CalcView so we follow custom camera logic provided by the gamemode/addons
+-- Note: Using CalcView only (not RenderScene) to avoid redundant captures - CalcView is more accurate
+hook.Add("CalcView", "RearView_CaptureView", function(ply, pos, ang, fov)
     if not REARVIEW.enabled then return end
     if REARVIEW._rendering then return end
     REARVIEW.lastView = REARVIEW.lastView or {}
@@ -444,6 +473,7 @@ concommand.Add("rtx_rearview_filter_mode", function(ply, cmd, args)
         return
     end
     REARVIEW.filterMode = mode
+    REARVIEW._filteredEntityCache = nil -- Invalidate cache on mode change
     RunConsoleCommand("rtx_rearview_filter_mode", mode)
     print("[RearView] Filter mode set to: " .. mode)
 end, nil, "Set filter mode: all, whitelist, blacklist, dynamic_only")
@@ -455,6 +485,7 @@ concommand.Add("rtx_rearview_whitelist_add", function(ply, cmd, args)
         return
     end
     REARVIEW.classWhitelist[class] = true
+    REARVIEW._filteredEntityCache = nil -- Invalidate cache
     print("[RearView] Added to whitelist: " .. class)
 end, nil, "Add entity class to whitelist")
 
@@ -465,11 +496,13 @@ concommand.Add("rtx_rearview_whitelist_remove", function(ply, cmd, args)
         return
     end
     REARVIEW.classWhitelist[class] = nil
+    REARVIEW._filteredEntityCache = nil -- Invalidate cache
     print("[RearView] Removed from whitelist: " .. class)
 end, nil, "Remove entity class from whitelist")
 
 concommand.Add("rtx_rearview_whitelist_clear", function()
     REARVIEW.classWhitelist = {}
+    REARVIEW._filteredEntityCache = nil -- Invalidate cache
     print("[RearView] Whitelist cleared")
 end, nil, "Clear whitelist")
 
@@ -492,6 +525,7 @@ concommand.Add("rtx_rearview_blacklist_add", function(ply, cmd, args)
         return
     end
     REARVIEW.classBlacklist[class] = true
+    REARVIEW._filteredEntityCache = nil -- Invalidate cache
     print("[RearView] Added to blacklist: " .. class)
 end, nil, "Add entity class to blacklist")
 
@@ -502,11 +536,13 @@ concommand.Add("rtx_rearview_blacklist_remove", function(ply, cmd, args)
         return
     end
     REARVIEW.classBlacklist[class] = nil
+    REARVIEW._filteredEntityCache = nil -- Invalidate cache
     print("[RearView] Removed from blacklist: " .. class)
 end, nil, "Remove entity class from blacklist")
 
 concommand.Add("rtx_rearview_blacklist_clear", function()
     REARVIEW.classBlacklist = {}
+    REARVIEW._filteredEntityCache = nil -- Invalidate cache
     print("[RearView] Blacklist cleared")
 end, nil, "Clear blacklist")
 

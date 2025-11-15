@@ -44,6 +44,86 @@ end
 local skyCache = {}
 local lastDrawFrame = -1
 
+-- Cached ConVar values (updated on change callbacks)
+local cachedConVars = {
+    size = 16384,
+    brightness = 1.0,
+    disableCull = false,
+    clearDepth = false,
+    zTest = false,
+    zWrite = false,
+    useDepthRange = false,
+    depthNear = 0.999,
+    depthFar = 1.0,
+    rot_pitch = 0,
+    rot_yaw = 0,
+    rot_roll = 0,
+    rot_rt = 0,
+    rot_lf = 0,
+    rot_bk = 0,
+    rot_ft = 0,
+    rot_up = 0,
+    rot_dn = 0,
+    swapLR = false,
+    swapUD = false
+}
+
+-- Update cache from ConVars
+local function UpdateConVarCache()
+    cachedConVars.size = math.max(1024, math.floor(cv_size:GetFloat() or 16384))
+    cachedConVars.brightness = math.max(0.0, cv_brightness:GetFloat())
+    cachedConVars.disableCull = cv_disableCull:GetBool()
+    cachedConVars.clearDepth = cv_clearDepth:GetBool()
+    cachedConVars.zTest = cv_zTest:GetBool()
+    cachedConVars.zWrite = cv_zWrite:GetBool()
+    cachedConVars.useDepthRange = cv_useDepthRange:GetBool()
+    cachedConVars.depthNear = math.Clamp(cv_depthNear:GetFloat() or 0.999, 0, 1)
+    cachedConVars.depthFar = math.Clamp((cv_depthFar and cv_depthFar:GetFloat()) or 1, 0, 1)
+    if cachedConVars.depthFar < cachedConVars.depthNear then
+        cachedConVars.depthFar = cachedConVars.depthNear
+    end
+    cachedConVars.rot_pitch = cv_rot_pitch:GetFloat() or 0
+    cachedConVars.rot_yaw = cv_rot_yaw:GetFloat() or 0
+    cachedConVars.rot_roll = cv_rot_roll:GetFloat() or 0
+    cachedConVars.rot_rt = cv_rot_rt:GetFloat()
+    cachedConVars.rot_lf = cv_rot_lf:GetFloat()
+    cachedConVars.rot_bk = cv_rot_bk:GetFloat()
+    cachedConVars.rot_ft = cv_rot_ft:GetFloat()
+    cachedConVars.rot_up = cv_rot_up:GetFloat()
+    cachedConVars.rot_dn = cv_rot_dn:GetFloat()
+    cachedConVars.swapLR = cv_swapLR:GetBool()
+    cachedConVars.swapUD = cv_swapUD:GetBool()
+end
+
+-- Initialize cache
+UpdateConVarCache()
+
+-- Register change callbacks to invalidate cache
+for name, _ in pairs({
+    rtx_2dskybox_size = true,
+    rtx_2dskybox_brightness = true,
+    rtx_2dskybox_disable_cull = true,
+    rtx_2dskybox_clear_depth = true,
+    rtx_2dskybox_ztest = true,
+    rtx_2dskybox_zwrite = true,
+    rtx_2dskybox_use_depth_range = true,
+    rtx_2dskybox_depth_near = true,
+    rtx_2dskybox_depth_far = true,
+    rtx_2dskybox_rot_pitch = true,
+    rtx_2dskybox_rot_yaw = true,
+    rtx_2dskybox_rot_roll = true,
+    rtx_2dskybox_rot_rt = true,
+    rtx_2dskybox_rot_lf = true,
+    rtx_2dskybox_rot_bk = true,
+    rtx_2dskybox_rot_ft = true,
+    rtx_2dskybox_rot_up = true,
+    rtx_2dskybox_rot_dn = true,
+    rtx_2dskybox_swap_lr = true,
+    rtx_2dskybox_swap_ud = true
+}) do
+    cvars.AddChangeCallback(name, UpdateConVarCache, "RTX2DSky_CacheUpdate")
+end
+
 local function getSkyName()
     local o = string.Trim(cv_override:GetString() or "")
     if o ~= "" then return o end
@@ -104,30 +184,27 @@ local function Draw2DSky()
     local name = getSkyName()
     local mats = getSkyMaterials(name)
 
-    -- Rendering parameters
+    -- Rendering parameters (use cached values)
     local origin = EyePos()
-    local size = math.max(1024, math.floor(cv_size:GetFloat() or 16384))
-    local br = math.max(0.0, cv_brightness:GetFloat())
+    local size = cachedConVars.size
+    local br = cachedConVars.brightness
     
     render.SuppressEngineLighting(true)
-    if cv_disableCull:GetBool() then
+    if cachedConVars.disableCull then
         render.CullMode(MATERIAL_CULLMODE_NONE)
     end
     -- Control depth test/write and optional clear
-    if cv_clearDepth:GetBool() then
+    if cachedConVars.clearDepth then
         render.ClearDepth()
     end
-    render.OverrideDepthEnable(cv_zTest:GetBool(), cv_zWrite:GetBool())
-    if cv_useDepthRange:GetBool() then
-        local dn = math.Clamp(cv_depthNear:GetFloat() or 0.999, 0, 1)
-        local df = math.Clamp((cv_depthFar and cv_depthFar:GetFloat()) or 1, 0, 1)
-        if df < dn then df = dn end
-        render.DepthRange(dn, df)
+    render.OverrideDepthEnable(cachedConVars.zTest, cachedConVars.zWrite)
+    if cachedConVars.useDepthRange then
+        render.DepthRange(cachedConVars.depthNear, cachedConVars.depthFar)
     end
     render.SetColorModulation(br, br, br)
 
     -- Global rotation basis
-    local ang = Angle(cv_rot_pitch:GetFloat() or 0, cv_rot_yaw:GetFloat() or 0, cv_rot_roll:GetFloat() or 0)
+    local ang = Angle(cachedConVars.rot_pitch, cachedConVars.rot_yaw, cachedConVars.rot_roll)
     local axisX = Vector(1, 0, 0)
     local axisY = Vector(0, 1, 0)
     local axisZ = Vector(0, 0, 1)
@@ -139,55 +216,46 @@ local function Draw2DSky()
     -- Right/Left with optional swap
     local rtMat = mats["rt"]
     local lfMat = mats["lf"]
-    if cv_swapLR:GetBool() then
+    if cachedConVars.swapLR then
         rtMat, lfMat = lfMat, rtMat
     end
     -- Right (rt): plane at +X, facing inward (-X)
-    drawFace(rtMat, origin + axisX * size, -axisX, size, cv_rot_rt:GetFloat())
+    drawFace(rtMat, origin + axisX * size, -axisX, size, cachedConVars.rot_rt)
     -- Left (lf): plane at -X, facing inward (+X)
-    drawFace(lfMat, origin - axisX * size,  axisX, size, cv_rot_lf:GetFloat())
+    drawFace(lfMat, origin - axisX * size,  axisX, size, cachedConVars.rot_lf)
     -- Back (bk): plane at -Y, facing inward (+Y)
-    drawFace(mats["bk"], origin - axisY * size,  axisY, size, cv_rot_bk:GetFloat())
+    drawFace(mats["bk"], origin - axisY * size,  axisY, size, cachedConVars.rot_bk)
     -- Front (ft): plane at +Y, facing inward (-Y)
-    drawFace(mats["ft"], origin + axisY * size, -axisY, size, cv_rot_ft:GetFloat())
+    drawFace(mats["ft"], origin + axisY * size, -axisY, size, cachedConVars.rot_ft)
     -- Up/Down with optional swap
     local upMat = mats["up"]
     local dnMat = mats["dn"]
-    if cv_swapUD:GetBool() then
+    if cachedConVars.swapUD then
         upMat, dnMat = dnMat, upMat
     end
     -- Up (up): plane at +Z, facing inward (-Z)
-    local gyaw = (cv_rot_yaw:GetFloat() or 0)
-    drawFace(upMat, origin + axisZ * size, -axisZ, size, cv_rot_up:GetFloat() - gyaw)
+    drawFace(upMat, origin + axisZ * size, -axisZ, size, cachedConVars.rot_up - cachedConVars.rot_yaw)
     -- Down (dn): plane at -Z, facing inward (+Z)
-    drawFace(dnMat, origin - axisZ * size,  axisZ, size, cv_rot_dn:GetFloat() - gyaw)
+    drawFace(dnMat, origin - axisZ * size,  axisZ, size, cachedConVars.rot_dn - cachedConVars.rot_yaw)
 
     -- Restore render state
     render.SetColorModulation(1, 1, 1)
-    if cv_useDepthRange:GetBool() then
+    if cachedConVars.useDepthRange then
         render.DepthRange(0, 1)
     end
     render.OverrideDepthEnable(false, false)
-    if cv_disableCull:GetBool() then
+    if cachedConVars.disableCull then
         render.CullMode(MATERIAL_CULLMODE_CCW)
     end
     render.SuppressEngineLighting(false)
 end
 
 -- Draw very early in the frame so it acts as background
+-- Note: Frame number guard in Draw2DSky() prevents multiple draws per frame even with multiple hooks
+-- Using PreDrawOpaqueRenderables as primary hook for reliability
 RenderCore.Register("PreDrawOpaqueRenderables", "RTX2DSky_Draw", { fn = function(bDrawingDepth, bDrawingSkybox)
     if bDrawingDepth then return end
     -- Only draw in world pass, not during skybox depth pass
-    Draw2DSky()
-end, prio = -10000 })
-
--- Also draw during the engine's 2D skybox phase so RTX Remix can tag it as a sky draw
-RenderCore.Register("PostDraw2DSkyBox", "RTX2DSky_Draw2DPhase", { fn = function()
-    Draw2DSky()
-end, prio = -10000 })
-
--- And in the engine skybox phase as a fallback for detection
-RenderCore.Register("PreDrawSkyBox", "RTX2DSky_DrawSkyPhase", { fn = function()
     Draw2DSky()
 end, prio = -10000 })
 

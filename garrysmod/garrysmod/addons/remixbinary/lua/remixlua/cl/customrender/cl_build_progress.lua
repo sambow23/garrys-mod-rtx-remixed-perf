@@ -287,6 +287,7 @@ vgui.Register("RemixBuildProgress", PANEL, "DFrame")
 -- Global state tracking
 local progressPanel = nil
 local lastCheckTime = 0
+local isMonitoring = false
 
 -- Check if any renderer is building and show/hide panel accordingly
 local function CheckBuildState()
@@ -319,10 +320,42 @@ local function CheckBuildState()
     if not anyBuilding and IsValid(progressPanel) then
         -- Let the panel close itself to show the "Complete!" message
     end
+    
+    -- Stop monitoring if nothing is building
+    if not anyBuilding and isMonitoring then
+        hook.Remove("Think", "RemixBuildProgress_Check")
+        isMonitoring = false
+    end
 end
 
--- Hook into Think to check build state
-hook.Add("Think", "RemixBuildProgress_Check", CheckBuildState)
+-- Start monitoring for build state changes
+local function StartMonitoring()
+    if isMonitoring then return end
+    isMonitoring = true
+    hook.Add("Think", "RemixBuildProgress_Check", CheckBuildState)
+end
+
+-- Monitor build states on a timer (only check every second when idle)
+timer.Create("RemixBuildProgress_IdleCheck", 1, 0, function()
+    if isMonitoring then return end -- Already monitoring via Think hook
+    
+    local anyBuilding = false
+    if RemixRenderCore then
+        if RemixRenderCore._worldBuildState and RemixRenderCore._worldBuildState.active then
+            anyBuilding = true
+        end
+        if RemixRenderCore._dispBuildState and RemixRenderCore._dispBuildState.active then
+            anyBuilding = true
+        end
+        if RemixRenderCore._sprBuildState and RemixRenderCore._sprBuildState.active then
+            anyBuilding = true
+        end
+    end
+    
+    if anyBuilding then
+        StartMonitoring()
+    end
+end)
 
 -- Clean up on disconnect
 hook.Add("ShutDown", "RemixBuildProgress_Cleanup", function()
