@@ -32,7 +32,7 @@ You can join servers without the addon but you ***will*** experience visual issu
 
 ## Support
 ### [Known Issues](https://github.com/sambow23/garrys-mod-rtx-remixed-perf/wiki/Known-issues)
-### [Incompatible Addons](https://github.com/sambow23/garrys-mod-rtx-remixed-perf/wiki/Incompatible-Addons)
+### [Problematic Addons](https://github.com/sambow23/garrys-mod-rtx-remixed-perf/wiki/Problematic-Addons)
 
 ## Recommended Resources
 ### [HDRI Editor](https://github.com/sambow23/hdri_cube/blob/main/README.md)
