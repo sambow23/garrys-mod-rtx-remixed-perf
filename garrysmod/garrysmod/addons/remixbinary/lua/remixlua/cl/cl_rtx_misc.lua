@@ -33,8 +33,9 @@ local function DrawFix(self, flags)
         end
     end
 
-    -- Draw the model with static lighting
-    self:DrawModel(flags + STUDIO_STATIC_LIGHTING)
+    -- Draw the model with static lighting (handle nil flags from infmap addon)
+    local drawFlags = (flags or 0) + STUDIO_STATIC_LIGHTING
+    self:DrawModel(drawFlags)
     render.MaterialOverride(nil)
     render.SuppressEngineLighting(false)
 end
