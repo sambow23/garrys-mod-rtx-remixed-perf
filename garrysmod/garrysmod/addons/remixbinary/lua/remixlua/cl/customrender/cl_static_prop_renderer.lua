@@ -810,13 +810,27 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     local shouldDebug = convar_Debug:GetBool()
     local frameCount = FrameNumber()
     local isNewFrame = lastDebugFrame ~= frameCount
-    
+
     if shouldDebug and isNewFrame then
         DebugPrint("Attempting to render", #propsToRender, "props in " .. (bDrawingSkybox and "skybox" or "world"))
     end
     
     -- Build or use cached render list
     if shouldUpdate then
+        -- Pre-compute PVS visibility for all clusters once (faster than per-prop checks)
+        local visibleClusters = {}
+        if pvs then
+            for cl, visible in pairs(pvs) do
+                if visible then
+                    visibleClusters[cl] = true
+                end
+            end
+        end
+        
+        -- Compute safety distance once
+        local safetyDist = convar_PVSSafetyDistance:GetFloat()
+        local safetyDistSqr = safetyDist * safetyDist
+        
         for _, prop in ipairs(propsToRender) do
             local meshData = prop.cachedMesh
             if not meshData or not meshData.meshes then
@@ -826,18 +840,17 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
             -- PVS culling for world props only (skip skybox props)
             if not bDrawingSkybox and pvs and prop.clusters and next(prop.clusters) then
                 -- Safety distance check: always render props very close to player
-                local safetyDist = convar_PVSSafetyDistance:GetFloat()
                 local withinSafetyDistance = false
                 if safetyDist > 0 and playerPos then
                     local distSqr = prop.origin:DistToSqr(playerPos)
-                    withinSafetyDistance = distSqr < (safetyDist * safetyDist)
+                    withinSafetyDistance = distSqr < safetyDistSqr
                 end
                 
                 if not withinSafetyDistance then
-                    -- Check if any cluster is visible
+                    -- Fast cluster visibility check using pre-computed visible set
                     local anyVisible = false
                     for cl in pairs(prop.clusters) do
-                        if pvs[cl] then
+                        if visibleClusters[cl] then
                             anyVisible = true
                             break
                         end
