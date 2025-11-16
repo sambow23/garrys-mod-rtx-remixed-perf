@@ -8,7 +8,9 @@ local CONVARS = {
     DEBUG = CreateClientConVar("rtx_dpr_debug", "0", true, false, "Debug prints for displacement renderer"),
     CHUNK_SIZE = CreateClientConVar("rtx_dpr_chunk_size", "65536", true, false, "Size of chunks for displacement grouping"),
     MAT_WHITELIST = CreateClientConVar("rtx_dpr_mat_whitelist", "", true, false, "Comma-separated material name substrings to include"),
-    MAT_BLACKLIST = CreateClientConVar("rtx_dpr_mat_blacklist", "toolsskybox,skybox/", true, false, "Comma-separated material name substrings to exclude")
+    MAT_BLACKLIST = CreateClientConVar("rtx_dpr_mat_blacklist", "toolsskybox,skybox/", true, false, "Comma-separated material name substrings to exclude"),
+    ALPHA_SCALE = CreateClientConVar("rtx_dpr_alpha_scale", "0", true, false, "Alpha scaling: 0=auto-normalize, >0=manual scale"),
+    SEAM_EPSILON = CreateClientConVar("rtx_dpr_seam_epsilon", "0.1", true, false, "Position tolerance for vertex matching (0.1 = good default, higher = more matching)")
 }
 
 local function DebugPrint(...)
@@ -223,15 +225,20 @@ local function BuildDisplacementMeshes(cancelToken)
         if not chunkSize or chunkSize <= 0 then chunkSize = 65536 end
         -- For seam-free blending, collect vertex alphas across all displacements and average by position
         local faceRecords = {}
-        local alphaSumByKey = {}
-        local alphaCountByKey = {}
+        local alphaMin = math.huge
+        local alphaMax = -math.huge
         -- Use epsilon-based position snapping for better seam matching
-        local POSITION_EPSILON = 0.01 -- 0.01 units
+        local POSITION_EPSILON = CONVARS.SEAM_EPSILON:GetFloat()
+        if POSITION_EPSILON <= 0 then POSITION_EPSILON = 0.1 end
+        
+        -- Use integer-based hashing for exact matching without floating point precision issues
         local function posKey(p)
-            local x = math.floor((p.x / POSITION_EPSILON) + 0.5) * POSITION_EPSILON
-            local y = math.floor((p.y / POSITION_EPSILON) + 0.5) * POSITION_EPSILON
-            local z = math.floor((p.z / POSITION_EPSILON) + 0.5) * POSITION_EPSILON
-            return string.format("%.2f,%.2f,%.2f", x, y, z)
+            local scale = 1.0 / POSITION_EPSILON
+            local ix = math.floor(p.x * scale + 0.5)
+            local iy = math.floor(p.y * scale + 0.5)
+            local iz = math.floor(p.z * scale + 0.5)
+            -- Simple hash combining three integers
+            return ix + iy * 100000 + iz * 10000000000
         end
 
         -- Iterate leafs and include displacements (may insert duplicates across leaves)
@@ -315,14 +322,20 @@ local function BuildDisplacementMeshes(cancelToken)
                             local vertEnd = vertStart + (w * w)
                             local dispVerts = NikNaks.CurrentMap:GetDispVerts()
                             local alphaKeys = {}
+                            local rawAlphas = {}  -- Store raw alpha values
                             for v = vertStart, vertEnd - 1 do
                                 local dv = dispVerts[v]
                                 local idx = (v - vertStart) + 1
-                                local a = math.Clamp((dv and dv.alpha) or 0, 0, 1)
+                                local rawAlpha = (dv and dv.alpha) or 0
+                                rawAlphas[idx] = rawAlpha
+                                
+                                -- Track min/max for auto-normalization
+                                if rawAlpha < alphaMin then alphaMin = rawAlpha end
+                                if rawAlpha > alphaMax then alphaMax = rawAlpha end
+                                
+                                -- Store position key for averaging
                                 local pk = posKey(grid[idx].pos)
                                 alphaKeys[idx] = pk
-                                alphaSumByKey[pk] = (alphaSumByKey[pk] or 0) + a
-                                alphaCountByKey[pk] = (alphaCountByKey[pk] or 0) + 1
                             end
 
                             -- Choose material now and record for pass 2
@@ -332,6 +345,7 @@ local function BuildDisplacementMeshes(cancelToken)
                             faceRecords[#faceRecords + 1] = {
                                 grid = grid,
                                 alphaKeys = alphaKeys,
+                                rawAlphas = rawAlphas,  -- Store raw values
                                 mat = useMat,
                                 matName = useName,
                                 chunkKey = chunkKey
@@ -372,21 +386,71 @@ local function BuildDisplacementMeshes(cancelToken)
             end
         end
 
-        -- Average alpha per shared vertex position across all faces
-        local alphaAvgByKey = {}
-        for k, sum in pairs(alphaSumByKey) do
-            local c = alphaCountByKey[k] or 1
-            alphaAvgByKey[k] = sum / c
+        -- Determine normalization scale
+        local alphaScale = CONVARS.ALPHA_SCALE:GetFloat()
+        if alphaScale <= 0 then
+            -- Clamp to reasonable range (Source displacement alphas are typically 0-255)
+            -- Negative or extreme values indicate data corruption or format issues
+            local clampedMin = math.max(alphaMin, 0)
+            local clampedMax = math.min(alphaMax, 255)
+            
+            -- If we have invalid range, use sensible defaults
+            if clampedMax <= clampedMin then
+                clampedMin = 0
+                clampedMax = 255
+            end
+            
+            alphaMin = clampedMin
+            alphaMax = clampedMax
+            alphaScale = math.max(alphaMax - alphaMin, 0.001)  -- Avoid division by zero
+            DebugPrint(string.format("Auto-detected alpha range: %.3f to %.3f (scale: %.3f)", alphaMin, alphaMax, alphaScale))
+        else
+            DebugPrint(string.format("Using manual alpha scale: %.3f", alphaScale))
         end
+        
+        -- Normalize raw alphas FIRST, then average in normalized space
+        -- This ensures cross-material blending works correctly
+        local normalizedSumByKey = {}
+        local normalizedCountByKey = {}
+        
+        for i = 1, #faceRecords do
+            local rec = faceRecords[i]
+            for gi = 1, #rec.rawAlphas do
+                local rawAlpha = rec.rawAlphas[gi]
+                local normalized = math.Clamp((rawAlpha - alphaMin) / alphaScale, 0, 1)
+                local k = rec.alphaKeys[gi]
+                if k then
+                    normalizedSumByKey[k] = (normalizedSumByKey[k] or 0) + normalized
+                    normalizedCountByKey[k] = (normalizedCountByKey[k] or 0) + 1
+                end
+            end
+        end
+        
+        -- Average normalized alphas per shared vertex position
+        local alphaAvgByKey = {}
+        local sharedVertices = 0
+        for k, sum in pairs(normalizedSumByKey) do
+            local c = normalizedCountByKey[k] or 1
+            alphaAvgByKey[k] = sum / c
+            if c > 1 then sharedVertices = sharedVertices + 1 end
+        end
+        DebugPrint(string.format("Averaged %d shared vertex positions (%.1f%% of total)", sharedVertices, (sharedVertices / math.max(1, table.Count(normalizedSumByKey))) * 100))
 
-        -- Pass 2: stream triangles using averaged alphas into chunk/material groups
+        -- Pass 2: stream triangles using averaged normalized alphas into chunk/material groups
         for i = 1, #faceRecords do
             local rec = faceRecords[i]
             local grid = rec.grid
             local alphas = {}
             for gi = 1, #grid do
                 local k = rec.alphaKeys[gi]
-                alphas[gi] = alphaAvgByKey[k] or 0
+                if k and alphaAvgByKey[k] then
+                    -- Use averaged normalized alpha
+                    alphas[gi] = alphaAvgByKey[k]
+                else
+                    -- Fallback: normalize raw alpha
+                    local rawAlpha = rec.rawAlphas[gi] or alphaMin
+                    alphas[gi] = math.Clamp((rawAlpha - alphaMin) / alphaScale, 0, 1)
+                end
             end
             local triangles = GridToTriangles(grid, alphas)
 
@@ -663,6 +727,8 @@ end
 DebounceRebuildOnCvar("rtx_dpr_chunk_size")
 DebounceRebuildOnCvar("rtx_dpr_mat_whitelist")
 DebounceRebuildOnCvar("rtx_dpr_mat_blacklist")
+DebounceRebuildOnCvar("rtx_dpr_alpha_scale")
+DebounceRebuildOnCvar("rtx_dpr_seam_epsilon")
 
 -- Console helper
 concommand.Add("rtx_rebuild_displacements", function()
