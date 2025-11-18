@@ -15,42 +15,69 @@ static remix::MaterialInfo LuaToMaterialInfo(ILuaBase* LUA, int index) {
         return info;
     }
     
-    // Get hash
+    // Get hash (CRITICAL: This must be set to non-zero value!)
+#ifdef _DEBUG
+    Msg("[MaterialInfo] Looking for hash field at stack index %d\n", index);
+    Msg("[MaterialInfo] Table check: %d\n", LUA->IsType(index, Type::Table));
+#endif
+    
     LUA->GetField(index, "hash");
+    
+#ifdef _DEBUG
+    Msg("[MaterialInfo] After GetField, type at -1: %d (Number=%d)\n", LUA->GetType(-1), Type::Number);
+#endif
+    
     if (LUA->IsType(-1, Type::Number)) {
-        info.hash = static_cast<uint64_t>(LUA->GetNumber(-1));
+        double hashValue = LUA->GetNumber(-1);
+        info.hash = static_cast<uint64_t>(hashValue);
+#ifdef _DEBUG
+        Msg("[MaterialInfo] Extracted hash from Lua: %.0f -> %llu\n", hashValue, info.hash);
+#endif
+    } else {
+#ifdef _DEBUG
+        Msg("[MaterialInfo] WARNING: No hash field found in material table!\n");
+        Msg("[MaterialInfo] Type at stack -1: %d\n", LUA->GetType(-1));
+#endif
     }
     LUA->Pop();
     
-    // Get albedo texture
+    // Get albedo texture (skip if empty string)
     LUA->GetField(index, "albedoTexture");
     if (LUA->IsType(-1, Type::String)) {
         std::string texture = LUA->GetString(-1);
-        info.set_albedoTexture(texture);
+        if (!texture.empty()) {
+            info.set_albedoTexture(texture);
+        }
     }
     LUA->Pop();
     
-    // Get normal texture
+    // Get normal texture (skip if empty string)
     LUA->GetField(index, "normalTexture");
     if (LUA->IsType(-1, Type::String)) {
         std::string texture = LUA->GetString(-1);
-        info.set_normalTexture(texture);
+        if (!texture.empty()) {
+            info.set_normalTexture(texture);
+        }
     }
     LUA->Pop();
     
-    // Get tangent texture
+    // Get tangent texture (skip if empty string)
     LUA->GetField(index, "tangentTexture");
     if (LUA->IsType(-1, Type::String)) {
         std::string texture = LUA->GetString(-1);
-        info.set_tangentTexture(texture);
+        if (!texture.empty()) {
+            info.set_tangentTexture(texture);
+        }
     }
     LUA->Pop();
     
-    // Get emissive texture
+    // Get emissive texture (skip if empty string)
     LUA->GetField(index, "emissiveTexture");
     if (LUA->IsType(-1, Type::String)) {
         std::string texture = LUA->GetString(-1);
-        info.set_emissiveTexture(texture);
+        if (!texture.empty()) {
+            info.set_emissiveTexture(texture);
+        }
     }
     LUA->Pop();
     
@@ -134,27 +161,33 @@ static remix::MaterialInfoOpaqueEXT LuaToMaterialInfoOpaqueEXT(ILuaBase* LUA, in
         return info;
     }
     
-    // Get roughness texture
+    // Get roughness texture (skip if empty string)
     LUA->GetField(index, "roughnessTexture");
     if (LUA->IsType(-1, Type::String)) {
         std::string texture = LUA->GetString(-1);
-        info.set_roughnessTexture(texture);
+        if (!texture.empty()) {
+            info.set_roughnessTexture(texture);
+        }
     }
     LUA->Pop();
     
-    // Get metallic texture
+    // Get metallic texture (skip if empty string)
     LUA->GetField(index, "metallicTexture");
     if (LUA->IsType(-1, Type::String)) {
         std::string texture = LUA->GetString(-1);
-        info.set_metallicTexture(texture);
+        if (!texture.empty()) {
+            info.set_metallicTexture(texture);
+        }
     }
     LUA->Pop();
     
-    // Get height texture
+    // Get height texture (skip if empty string)
     LUA->GetField(index, "heightTexture");
     if (LUA->IsType(-1, Type::String)) {
         std::string texture = LUA->GetString(-1);
-        info.set_heightTexture(texture);
+        if (!texture.empty()) {
+            info.set_heightTexture(texture);
+        }
     }
     LUA->Pop();
     

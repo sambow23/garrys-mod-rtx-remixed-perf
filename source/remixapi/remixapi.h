@@ -25,6 +25,7 @@ namespace RemixAPI {
     class ConfigManager;
     class ResourceManager;
     class LightManager;
+    class BSPGeometryManager;
 
     // Main RemixAPI class
     class RemixAPI {
@@ -43,6 +44,7 @@ namespace RemixAPI {
         ConfigManager& GetConfigManager() { return *m_configManager; }
         ResourceManager& GetResourceManager() { return *m_resourceManager; }
         LightManager& GetLightManager() { return *m_lightManager; }
+        BSPGeometryManager& GetBSPGeometryManager() { return *m_bspGeometryManager; }
         
         // Direct interface access
         remix::Interface* GetRemixInterface() { return m_remixInterface; }
@@ -66,6 +68,7 @@ namespace RemixAPI {
         std::unique_ptr<ConfigManager> m_configManager;
         std::unique_ptr<ResourceManager> m_resourceManager;
         std::unique_ptr<LightManager> m_lightManager;
+        std::unique_ptr<BSPGeometryManager> m_bspGeometryManager;
         
         bool m_initialized;
     };

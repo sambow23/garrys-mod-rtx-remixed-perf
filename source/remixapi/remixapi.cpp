@@ -1,5 +1,6 @@
 #ifdef _WIN64
 #include "remixapi.h"
+#include "bsp_geometry_manager.h"
 #include "rtx_option_defaults.h"
 #include <Windows.h>
 #include <remix/remix_c.h>
@@ -62,7 +63,7 @@ bool RemixAPI::Initialize(remix::Interface* remixInterface, GarrysMod::Lua::ILua
     }
 
     if (!remixInterface || !LUA) {
-        Error("[RemixAPI] Invalid parameters for initialization\n");
+        Warning("[RemixAPI] Invalid parameters for initialization\n");
         return false;
     }
 
@@ -77,6 +78,7 @@ bool RemixAPI::Initialize(remix::Interface* remixInterface, GarrysMod::Lua::ILua
         m_configManager = std::make_unique<ConfigManager>(remixInterface, LUA);
         m_resourceManager = std::make_unique<ResourceManager>(remixInterface, LUA);
         m_lightManager = std::make_unique<LightManager>(remixInterface, LUA);
+        m_bspGeometryManager = std::make_unique<BSPGeometryManager>(remixInterface, LUA, m_materialManager.get());
 
             // Initialize Lua bindings for all managers
         m_materialManager->InitializeLuaBindings();
@@ -86,6 +88,7 @@ bool RemixAPI::Initialize(remix::Interface* remixInterface, GarrysMod::Lua::ILua
         m_configManager->InitializeLuaBindings();
         m_resourceManager->InitializeLuaBindings();
         m_lightManager->InitializeLuaBindings();
+        m_bspGeometryManager->InitializeLuaBindings();
 
     m_initialized = true;
 #ifdef _DEBUG
@@ -97,6 +100,7 @@ bool RemixAPI::Initialize(remix::Interface* remixInterface, GarrysMod::Lua::ILua
 void RemixAPI::Shutdown() {
     if (!m_initialized) return;
 
+    m_bspGeometryManager.reset();
     m_resourceManager.reset();
     m_lightManager.reset();
     m_configManager.reset();
@@ -153,7 +157,7 @@ uint64_t LightManager::CreateSphereLight(const remix::LightInfo& base, const rem
     auto created = m_remixInterface->CreateLightBatched(info);
         
     if (!created) {
-        Error("[LightManager] Failed to create sphere light: %d\n", created.status());
+        Warning("[LightManager] Failed to create sphere light: %d\n", created.status());
         return 0;
     }
     
@@ -180,7 +184,7 @@ uint64_t LightManager::CreateRectLight(const remix::LightInfo& base, const remix
     auto created = m_remixInterface->CreateLightBatched(info);
         
     if (!created) {
-        Error("[LightManager] Failed to create rect light: %d\n", created.status());
+        Warning("[LightManager] Failed to create rect light: %d\n", created.status());
         return 0;
     }
     
@@ -207,7 +211,7 @@ uint64_t LightManager::CreateDiskLight(const remix::LightInfo& base, const remix
     auto created = m_remixInterface->CreateLightBatched(info);
         
     if (!created) {
-        Error("[LightManager] Failed to create disk light: %d\n", created.status());
+        Warning("[LightManager] Failed to create disk light: %d\n", created.status());
         return 0;
     }
     
@@ -234,7 +238,7 @@ uint64_t LightManager::CreateDistantLight(const remix::LightInfo& base, const re
     auto created = m_remixInterface->CreateLightBatched(info);
         
     if (!created) {
-        Error("[LightManager] Failed to create distant light: %d\n", created.status());
+        Warning("[LightManager] Failed to create distant light: %d\n", created.status());
         return 0;
     }
     
@@ -260,7 +264,7 @@ uint64_t LightManager::CreateCylinderLight(const remix::LightInfo& base, const r
     auto created = m_remixInterface->CreateLightBatched(info);
         
     if (!created) {
-        Error("[LightManager] Failed to create cylinder light: %d\n", created.status());
+        Warning("[LightManager] Failed to create cylinder light: %d\n", created.status());
         return 0;
     }
     
@@ -286,7 +290,7 @@ uint64_t LightManager::CreateDomeLight(const remix::LightInfo& base, const remix
     auto created = m_remixInterface->CreateLightBatched(info);
         
     if (!created) {
-        Error("[LightManager] Failed to create dome light: %d\n", created.status());
+        Warning("[LightManager] Failed to create dome light: %d\n", created.status());
         return 0;
     }
     
@@ -562,9 +566,18 @@ MaterialManager::~MaterialManager() {
 uint64_t MaterialManager::CreateMaterial(const std::string& name, const remix::MaterialInfo& info) {
     if (!m_remixInterface) return 0;
 
+#ifdef _DEBUG
+    Msg("[MaterialManager] Creating material '%s'\n", name.c_str());
+    Msg("  hash: %llu\n", info.hash);
+    Msg("  pNext: %p\n", info.pNext);
+    Msg("  albedoTexture: %ls\n", info.albedoTexture ? info.albedoTexture : L"<null>");
+#endif
+
     auto result = m_remixInterface->CreateMaterial(info);
     if (!result) {
-        Error("[MaterialManager] Failed to create material '%s': %d\n", name.c_str(), result.status());
+        Warning("[MaterialManager] Failed to create material '%s': %d\n", name.c_str(), result.status());
+        Warning("  This usually means invalid material parameters\n");
+        Warning("  Check that texture paths are valid or use empty paths\n");
         return 0;
     }
 
@@ -603,7 +616,7 @@ uint64_t MaterialManager::CreateTranslucentMaterial(const std::string& name, con
 bool MaterialManager::UpdateMaterial(uint64_t materialId, const remix::MaterialInfo& info) {
     auto it = m_materials.find(materialId);
     if (it == m_materials.end()) {
-        Error("[MaterialManager] Material ID %llu not found\n", materialId);
+        Warning("[MaterialManager] Material ID %llu not found\n", materialId);
         return false;
     }
 
@@ -612,7 +625,7 @@ bool MaterialManager::UpdateMaterial(uint64_t materialId, const remix::MaterialI
     auto oldHandle = it->second.handle;
     auto result = m_remixInterface->CreateMaterial(info);
     if (!result) {
-        Error("[MaterialManager] Failed to update material ID %llu: %d\n", materialId, result.status());
+        Warning("[MaterialManager] Failed to update material ID %llu: %d\n", materialId, result.status());
         return false;
     }
 
@@ -626,7 +639,7 @@ bool MaterialManager::UpdateMaterial(uint64_t materialId, const remix::MaterialI
 bool MaterialManager::DestroyMaterial(uint64_t materialId) {
     auto it = m_materials.find(materialId);
     if (it == m_materials.end()) {
-        Error("[MaterialManager] Material ID %llu not found\n", materialId);
+        Warning("[MaterialManager] Material ID %llu not found\n", materialId);
         return false;
     }
 
@@ -669,7 +682,7 @@ uint64_t MeshManager::CreateMesh(const std::string& name, const remix::MeshInfo&
 
     auto result = m_remixInterface->CreateMesh(info);
     if (!result) {
-        Error("[MeshManager] Failed to create mesh '%s': %d\n", name.c_str(), result.status());
+        Warning("[MeshManager] Failed to create mesh '%s': %d\n", name.c_str(), result.status());
         return 0;
     }
 
@@ -690,7 +703,7 @@ uint64_t MeshManager::CreateMesh(const std::string& name, const remix::MeshInfo&
 bool MeshManager::UpdateMesh(uint64_t meshId, const remix::MeshInfo& info) {
     auto it = m_meshes.find(meshId);
     if (it == m_meshes.end()) {
-        Error("[MeshManager] Mesh ID %llu not found\n", meshId);
+        Warning("[MeshManager] Mesh ID %llu not found\n", meshId);
         return false;
     }
 
@@ -699,7 +712,7 @@ bool MeshManager::UpdateMesh(uint64_t meshId, const remix::MeshInfo& info) {
     auto oldHandle = it->second.handle;
     auto result = m_remixInterface->CreateMesh(info);
         if (!result) {
-        Error("[MeshManager] Failed to update mesh ID %llu: %d\n", meshId, result.status());
+        Warning("[MeshManager] Failed to update mesh ID %llu: %d\n", meshId, result.status());
         return false;
     }
 
@@ -713,7 +726,7 @@ bool MeshManager::UpdateMesh(uint64_t meshId, const remix::MeshInfo& info) {
 bool MeshManager::DestroyMesh(uint64_t meshId) {
     auto it = m_meshes.find(meshId);
     if (it == m_meshes.end()) {
-        Error("[MeshManager] Mesh ID %llu not found\n", meshId);
+        Warning("[MeshManager] Mesh ID %llu not found\n", meshId);
         return false;
     }
 
@@ -748,7 +761,7 @@ bool CameraManager::SetupCamera(const remix::CameraInfo& info) {
 
     auto result = m_remixInterface->SetupCamera(info);
     if (!result) {
-        Error("[CameraManager] Failed to setup camera: %d\n", result.status());
+        Warning("[CameraManager] Failed to setup camera: %d\n", result.status());
         return false;
     }
     
@@ -782,7 +795,7 @@ bool InstanceManager::DrawInstance(const remix::InstanceInfo& info) {
 
     auto result = m_remixInterface->DrawInstance(info);
     if (!result) {
-        Error("[InstanceManager] Failed to draw instance: %d\n", result.status());
+        Warning("[InstanceManager] Failed to draw instance: %d\n", result.status());
         return false;
     }
     
@@ -838,7 +851,7 @@ bool ConfigManager::SetConfigVariable(const std::string& key, const std::string&
 
     auto result = m_remixInterface->SetConfigVariable(key.c_str(), value.c_str());
     if (!result) {
-        Error("[ConfigManager] Failed to set config variable '%s': %d\n", key.c_str(), result.status());
+        Warning("[ConfigManager] Failed to set config variable '%s': %d\n", key.c_str(), result.status());
         return false;
     }
     
@@ -868,7 +881,7 @@ remix::UIState ConfigManager::GetUIState() {
 
     auto result = m_remixInterface->GetUIState();
     if (!result) {
-        Error("[ConfigManager] Failed to get UI state: %d\n", result.status());
+        Warning("[ConfigManager] Failed to get UI state: %d\n", result.status());
         return remix::UIState::None;
     }
     
@@ -880,7 +893,7 @@ bool ConfigManager::SetUIState(remix::UIState state) {
 
     auto result = m_remixInterface->SetUIState(state);
     if (!result) {
-        Error("[ConfigManager] Failed to set UI state: %d\n", result.status());
+        Warning("[ConfigManager] Failed to set UI state: %d\n", result.status());
         return false;
     }
     
