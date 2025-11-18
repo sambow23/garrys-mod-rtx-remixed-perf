@@ -12,7 +12,7 @@ local convar_Blacklist = CreateClientConVar("rtx_spr_mat_blacklist", "", true, f
 local convar_UsePVS = CreateClientConVar("rtx_spr_use_pvs", "1", true, false, "Enable PVS culling for static props")
 local convar_PVSSafetyDistance = CreateClientConVar("rtx_spr_pvs_safety_distance", "0", true, false, "Distance within which PVS culling is disabled (prevents close-range culling bugs)")
 local convar_FrameSkip = CreateClientConVar("rtx_spr_frame_skip", "2", true, false, "Update prop visibility every N frames (2 = every other frame, 1 = every frame)")
-local convar_UseMeshCombining = CreateClientConVar("rtx_spr_mesh_combining", "1", true, false, "Combine props into single meshes per material to reduce draw calls")
+local convar_UseMeshCombining = CreateClientConVar("rtx_spr_mesh_combining", "0", true, false, "Combine props into single meshes per material to reduce draw calls")
 
 -- Per-map PVS safety distance persistence
 local PVS_SAFETY_FILE = "rtx_pvs_safety_distances.txt"
