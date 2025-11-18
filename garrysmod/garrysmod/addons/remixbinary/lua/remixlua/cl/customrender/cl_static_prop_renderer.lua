@@ -1,6 +1,5 @@
 if not CLIENT then return end
 local RenderCore = include("remixlua/cl/customrender/render_core.lua") or RemixRenderCore
-local PropInstancing = include("remixlua/cl/customrender/cl_prop_instancing.lua")
 -- Custom Static Prop Renderer -- disabled due to engine culling patches.
 -- Re-Renders all static props to bypass engine culling 
 -- Author: CR
@@ -768,11 +767,6 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
         return
     end
     
-    -- Clear instancing batches at start of frame
-    if PropInstancing and PropInstancing.ClearBatches then
-        PropInstancing.ClearBatches()
-    end
-    
     -- Choose which prop list to render based on skybox state
     local propsToRender = bDrawingSkybox and skyboxProps or worldProps
     
@@ -917,14 +911,6 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     else
         -- Fallback: render individual props
         for _, prop in ipairs(cachedRenderList) do
-        -- Try to batch with instancing system first
-        local batched = false
-        if PropInstancing and PropInstancing.AddPropInstance then
-            batched = PropInstancing.AddPropInstance(prop.model, prop.matrix, prop.cachedMesh, prop.color)
-        end
-        
-        -- Fallback: render directly if batch is full or instancing disabled
-        if not batched then
             for _, meshInfo in ipairs(prop.cachedMesh.meshes) do
                 if meshInfo.mesh and meshInfo.material then
                     RenderCore.Submit({
@@ -936,14 +922,8 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
                     })
                 end
             end
-        end
             renderedProps = renderedProps + 1
         end
-    end
-    
-    -- Render all batched instances at the end (only used in non-combining mode)
-    if not useMeshCombining and PropInstancing and PropInstancing.RenderInstancedProps then
-        PropInstancing.RenderInstancedProps()
     end
     
     sprStats.rendered = renderedProps
