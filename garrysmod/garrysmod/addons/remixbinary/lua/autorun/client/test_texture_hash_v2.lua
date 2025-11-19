@@ -19,10 +19,13 @@ concommand.Add("rtx_test_gethash_v2", function(ply, cmd, args)
     -- The hook captures textures as Source Engine binds them for rendering.
     
     -- Try to get the hash (will only work if material was recently rendered)
-    local hash = RemixMaterial.GetTextureHash(materialName)
+    local hash, hashStr = RemixMaterial.GetTextureHash(materialName)
     
     if hash and hash > 0 then
-        print(string.format("[Test V2] ✓ SUCCESS! Hash: 0x%X (decimal: %.0f)", hash, hash))
+        -- Use the string version if available for display to avoid precision loss
+        local displayHash = hashStr or string.format("0x%X", hash)
+        
+        print(string.format("[Test V2] ✓ SUCCESS! Hash: %s", displayHash))
         print(string.format("[Test V2]   This hash was captured from D3D9 SetTexture hook"))
         
         _G.LAST_TEXTURE_HASH = hash
@@ -54,9 +57,10 @@ concommand.Add("rtx_force_track", function(ply, cmd, args)
     
     -- Wait a frame, then try to get the hash
     timer.Simple(0.1, function()
-        local hash = RemixMaterial.GetTextureHash(materialName)
+        local hash, hashStr = RemixMaterial.GetTextureHash(materialName)
         if hash and hash > 0 then
-            print(string.format("[Test V2] ✓ Tracked! Hash: 0x%X", hash))
+            local displayHash = hashStr or string.format("0x%X", hash)
+            print(string.format("[Test V2] ✓ Tracked! Hash: %s", displayHash))
         else
             print("[Test V2] ✗ Still not in cache - material may need to be fully rendered")
             print("[Test V2]   Try looking at a surface with this material")

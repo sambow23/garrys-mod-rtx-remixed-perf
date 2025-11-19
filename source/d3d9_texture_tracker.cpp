@@ -3,6 +3,11 @@
 #include "d3d9_texture_tracker.h"
 #include <tier0/dbg.h>
 #include <Windows.h>
+#include <materialsystem/imaterialsystem.h>
+#include <materialsystem/imaterial.h>
+
+// Global material system pointer (from module.cpp)
+extern IMaterialSystem* materials;
 
 // Simple vtable hook implementation
 namespace VTableHook {
@@ -68,6 +73,26 @@ bool D3D9TextureTracker::Initialize(IDirect3DDevice9Ex* pDevice) {
         return false;
     }
 
+    // Hook IMatRenderContext::Bind (index 7)
+    if (materials) {
+        m_pRenderContext = materials->GetRenderContext();
+        if (m_pRenderContext) {
+            m_pOriginalBind = reinterpret_cast<Bind_t>(
+                VTableHook::HookVTableFunction(m_pRenderContext, 7, &Hook_Bind)
+            );
+            
+            if (!m_pOriginalBind) {
+                Warning("[D3D9TextureTracker] Failed to hook Bind!\n");
+            } else {
+                Msg("[D3D9TextureTracker] Hooked IMatRenderContext::Bind\n");
+            }
+        } else {
+            Warning("[D3D9TextureTracker] Failed to get RenderContext!\n");
+        }
+    } else {
+        Warning("[D3D9TextureTracker] Material system not available for Bind hook!\n");
+    }
+
     m_bInitialized = true;
     Msg("[D3D9TextureTracker] Initialized successfully\n");
     
@@ -79,15 +104,21 @@ void D3D9TextureTracker::Shutdown() {
         return;
     }
 
-    // Restore original function
+    // Restore original functions
     if (m_pDevice && m_pOriginalSetTexture) {
         VTableHook::HookVTableFunction(m_pDevice, 65, m_pOriginalSetTexture);
+    }
+
+    if (m_pRenderContext && m_pOriginalBind) {
+        VTableHook::HookVTableFunction(m_pRenderContext, 7, m_pOriginalBind);
     }
 
     m_textureCache.clear();
     m_currentMaterial.clear();
     m_pDevice = nullptr;
+    m_pRenderContext = nullptr;
     m_pOriginalSetTexture = nullptr;
+    m_pOriginalBind = nullptr;
     m_bInitialized = false;
 
     Msg("[D3D9TextureTracker] Shutdown complete\n");
@@ -95,7 +126,11 @@ void D3D9TextureTracker::Shutdown() {
 
 void D3D9TextureTracker::SetCurrentMaterial(const char* materialName) {
     if (materialName && materialName[0]) {
-        m_currentMaterial = materialName;
+        // Normalize to lowercase to handle case-insensitive Source Engine names
+        std::string lowerName = materialName;
+        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), 
+            [](unsigned char c){ return std::tolower(c); });
+        m_currentMaterial = lowerName;
     } else {
         m_currentMaterial.clear();
     }
@@ -106,7 +141,12 @@ IDirect3DTexture9* D3D9TextureTracker::GetTextureForMaterial(const char* materia
         return nullptr;
     }
 
-    auto it = m_textureCache.find(materialName);
+    // Normalize lookup key
+    std::string lowerName = materialName;
+    std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), 
+        [](unsigned char c){ return std::tolower(c); });
+
+    auto it = m_textureCache.find(lowerName);
     if (it != m_textureCache.end() && !it->second.empty()) {
         // Return the first texture variant
         // TODO: We might want to try all variants and see which one has a valid hash
@@ -121,7 +161,12 @@ const std::vector<IDirect3DTexture9*>* D3D9TextureTracker::GetTextureVariantsFor
         return nullptr;
     }
 
-    auto it = m_textureCache.find(materialName);
+    // Normalize lookup key
+    std::string lowerName = materialName;
+    std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), 
+        [](unsigned char c){ return std::tolower(c); });
+
+    auto it = m_textureCache.find(lowerName);
     if (it != m_textureCache.end()) {
         return &it->second;
     }
@@ -166,18 +211,14 @@ HRESULT STDMETHODCALLTYPE D3D9TextureTracker::Hook_SetTexture(
                 // Only log when we discover a NEW variant
                 if (!found) {
                     textures.push_back(p2DTexture);
+                    // Debug logging disabled to reduce console spam
+#ifdef _DEBUG_VERBOSE
                     Msg("[D3D9TextureTracker] NEW texture variant #%zu: 0x%p for '%s'\n", 
                         textures.size(), p2DTexture, tracker.m_currentMaterial.c_str());
+#endif
                 }
             }
-            else {
-                // DEBUG: Log that we're seeing textures but don't know their material
-                static int unknownCounter = 0;
-                if (unknownCounter++ == 0) {  // Only log once
-                    Msg("[D3D9TextureTracker] SetTexture called but no current material set (texture: 0x%p)\n", p2DTexture);
-                    Msg("[D3D9TextureTracker] This is normal - we need the material system to tell us which material is being rendered\n");
-                }
-            }
+            // No else block needed - we silently ignore untracked textures now
         }
     }
 
@@ -187,6 +228,22 @@ HRESULT STDMETHODCALLTYPE D3D9TextureTracker::Hook_SetTexture(
     }
 
     return D3D_OK;
+}
+
+// Hooked Bind function
+void D3D9TextureTracker::Hook_Bind(IMatRenderContext* pContext, IMaterial* pMaterial, void* proxyData) {
+    D3D9TextureTracker& tracker = Instance();
+    
+    if (pMaterial) {
+        const char* name = pMaterial->GetName();
+        tracker.SetCurrentMaterial(name);
+    } else {
+        tracker.SetCurrentMaterial(nullptr);
+    }
+    
+    if (tracker.m_pOriginalBind) {
+        tracker.m_pOriginalBind(pContext, pMaterial, proxyData);
+    }
 }
 
 #endif // _WIN64

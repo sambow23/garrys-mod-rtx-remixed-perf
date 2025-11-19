@@ -408,15 +408,19 @@ LUA_FUNCTION(RemixMaterial_TrackMaterial) {
     
     Msg("[RemixMaterial] TrackMaterial: Attempting to track '%s'\n", materialName);
     
-    // Set this as the current material for texture tracking
-    D3D9TextureTracker::Instance().SetCurrentMaterial(materialName);
-    
     // Try to find and "touch" the material to trigger loading
     if (materials) {
         IMaterial* pMaterial = materials->FindMaterial(materialName, TEXTURE_GROUP_MODEL);
         if (pMaterial && !pMaterial->IsErrorMaterial()) {
             Msg("[RemixMaterial] TrackMaterial: Found material, ensuring it's loaded...\n");
             
+            // Force bind the material to trigger our Bind hook
+            // This will update the D3D9TextureTracker with the correct material name
+            IMatRenderContext* pContext = materials->GetRenderContext();
+            if (pContext) {
+                pContext->Bind(pMaterial);
+            }
+
             // Get the base texture var
             bool bFound;
             IMaterialVar* pVar = pMaterial->FindVar("$basetexture", &bFound, false);
@@ -499,7 +503,68 @@ LUA_FUNCTION(RemixMaterial_GetTextureHash) {
     // Return the first valid hash (for now)
     // TODO: We might want to let Lua choose which variant to use
     Msg("[RemixMaterial] GetTextureHash: Returning hash 0x%llX for '%s'\n", firstValidHash, materialName);
+    
+    // Push the hash as a string to preserve precision (Lua numbers are doubles, which lose precision for large 64-bit integers)
+    // 0x2B35E18A60F3A52C is too large for double precision!
+    // But wait, the user's script expects a number.
+    // Let's check if we can push it as a double without losing too much info, or if we should push as string.
+    // Actually, the user's script does: string.format("0x%X", hash)
+    // If we push as double, 0x2B35E18A60F3A52C (3113666960980682028) becomes 3.1136669609807e18
+    // Double has 53 bits of significand. 64-bit hash has 64 bits. We WILL lose precision.
+    // The user reported: "Variant 0 and 1 have the hash that matches remix (0x2B35E18A60F3A52C), but the tracked one is 0x2B35E18A60F3A600"
+    // 0x...52C vs 0x...600 -> This is exactly a floating point precision error!
+    // 0x2B35E18A60F3A52C = 3113666960980682028
+    // 0x2B35E18A60F3A600 = 3113666960980682240
+    // Difference is 212.
+    
+    // We MUST push this as a string or split it into two 32-bit numbers if we want exact precision in Lua 5.1 (GMod).
+    // However, to fix the immediate issue without breaking the Lua script's type check (if it checks for number),
+    // we can't just change the type.
+    // BUT, the user's script uses string.format("%X", hash).
+    // If we change it to return a string, the script might break if it does math on it.
+    // But for hashes, usually they are just treated as IDs.
+    
+    // Let's try pushing as a double for now but warn about it, OR better:
+    // Since GMod Lua is LuaJIT, it might support 64-bit integers (cdata).
+    // But standard Lua API PushNumber uses double.
+    
+    // The best fix for GMod is to return the hash as a string if it's too big, OR return it as a double and accept the loss.
+    // BUT the user explicitly pointed out the mismatch.
+    // "Variant 0 and 1 have the hash that matches remix (0x2B35E18A60F3A52C), but the tracked one is 0x2B35E18A60F3A600"
+    // This confirms it IS a precision issue.
+    
+    // Let's return it as a double (standard behavior) BUT ALSO return the string version as a second return value.
+    // This allows updated scripts to use the string version for exact matching.
+    
     LUA->PushNumber(static_cast<double>(firstValidHash));
+    
+    // Push string version as second return value
+    char hashStr[32];
+    sprintf_s(hashStr, "0x%llX", firstValidHash);
+    LUA->PushString(hashStr);
+    
+    return 2; // Return 2 values
+}
+
+// Lua function: RemixMaterial.GetCachedMaterials()
+// Returns a table of all material names currently in the texture tracker cache
+LUA_FUNCTION(RemixMaterial_GetCachedMaterials) {
+    // Check Remix API is initialized
+    if (!g_remix) {
+        Warning("[RemixMaterial] GetCachedMaterials: Remix API not initialized\n");
+        LUA->CreateTable();
+        return 1;
+    }
+    
+    std::vector<std::string> materials = D3D9TextureTracker::Instance().GetCachedMaterials();
+    
+    LUA->CreateTable();
+    for (size_t i = 0; i < materials.size(); ++i) {
+        LUA->PushNumber(static_cast<double>(i + 1)); // Lua arrays are 1-indexed
+        LUA->PushString(materials[i].c_str());
+        LUA->SetTable(-3);
+    }
+    
     return 1;
 }
 
@@ -531,6 +596,9 @@ void MaterialManager::InitializeLuaBindings() {
     
     m_lua->PushCFunction(RemixMaterial_TrackMaterial);
     m_lua->SetField(-2, "TrackMaterial");
+
+    m_lua->PushCFunction(RemixMaterial_GetCachedMaterials);
+    m_lua->SetField(-2, "GetCachedMaterials");
     
     // Set the table as a global field
     m_lua->SetField(-2, "RemixMaterial");

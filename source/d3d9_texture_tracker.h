@@ -5,6 +5,11 @@
 #include <d3d9.h>
 #include <unordered_map>
 #include <string>
+#include <cstddef>
+
+// Forward declarations
+class IMaterial;
+class IMatRenderContext;
 
 // D3D9 Texture Tracker
 // Hooks IDirect3DDevice9::SetTexture to track which textures are used by which materials
@@ -33,6 +38,16 @@ public:
     // Get cache statistics
     size_t GetCacheSize() const { return m_textureCache.size(); }
 
+    // Get all cached materials
+    std::vector<std::string> GetCachedMaterials() const {
+        std::vector<std::string> materials;
+        materials.reserve(m_textureCache.size());
+        for (const auto& pair : m_textureCache) {
+            materials.push_back(pair.first);
+        }
+        return materials;
+    }
+
 private:
     D3D9TextureTracker() = default;
     ~D3D9TextureTracker();
@@ -47,14 +62,27 @@ private:
         DWORD Stage,
         IDirect3DBaseTexture9* pTexture);
 
+    static void Hook_Bind(
+        IMatRenderContext* pContext,
+        IMaterial* pMaterial,
+        void* proxyData);
+
     // Original function pointer
     typedef HRESULT (STDMETHODCALLTYPE *SetTexture_t)(
         IDirect3DDevice9* pDevice,
         DWORD Stage,
         IDirect3DBaseTexture9* pTexture);
     
+    typedef void (*Bind_t)(
+        IMatRenderContext* pContext,
+        IMaterial* pMaterial,
+        void* proxyData);
+
     SetTexture_t m_pOriginalSetTexture = nullptr;
+    Bind_t m_pOriginalBind = nullptr;
+    
     IDirect3DDevice9Ex* m_pDevice = nullptr;
+    IMatRenderContext* m_pRenderContext = nullptr;
     
     // Current material being rendered (set by Bind hooks)
     std::string m_currentMaterial;
