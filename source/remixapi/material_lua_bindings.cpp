@@ -1,8 +1,19 @@
 #ifdef _WIN64
 #include "remixapi.h"
 #include <tier0/dbg.h>
+#include <materialsystem/imaterialsystem.h>
+#include <materialsystem/imaterial.h>
+#include <materialsystem/imaterialvar.h>
+#include <materialsystem/itexture.h>
+#include <d3d9.h>
+#include <Windows.h>
+#include "../d3d9_texture_tracker.h"
 
 using namespace GarrysMod::Lua;
+
+// Forward declarations for global symbols (defined in module.cpp)
+extern IMaterialSystem* materials;
+extern remix::Interface* g_remix;
 
 namespace RemixAPI {
 
@@ -386,6 +397,112 @@ LUA_FUNCTION(RemixMaterial_HasMaterial) {
     return 1;
 }
 
+// Helper: Manually track a material (call this before rendering with a material)
+LUA_FUNCTION(RemixMaterial_TrackMaterial) {
+    if (!LUA->IsType(1, Type::String)) {
+        LUA->ThrowError("Expected string for material name");
+        return 0;
+    }
+    
+    const char* materialName = LUA->GetString(1);
+    
+    Msg("[RemixMaterial] TrackMaterial: Attempting to track '%s'\n", materialName);
+    
+    // Set this as the current material for texture tracking
+    D3D9TextureTracker::Instance().SetCurrentMaterial(materialName);
+    
+    // Try to find and "touch" the material to trigger loading
+    if (materials) {
+        IMaterial* pMaterial = materials->FindMaterial(materialName, TEXTURE_GROUP_MODEL);
+        if (pMaterial && !pMaterial->IsErrorMaterial()) {
+            Msg("[RemixMaterial] TrackMaterial: Found material, ensuring it's loaded...\n");
+            
+            // Get the base texture var
+            bool bFound;
+            IMaterialVar* pVar = pMaterial->FindVar("$basetexture", &bFound, false);
+            if (bFound && pVar) {
+                ITexture* pTex = pVar->GetTextureValue();
+                if (pTex) {
+                    // Force download to GPU (this should trigger SetTexture)
+                    pTex->Download();
+                    Msg("[RemixMaterial] TrackMaterial: Triggered texture download for '%s'\n", pTex->GetName());
+                } else {
+                    Warning("[RemixMaterial] TrackMaterial: Texture is null for '%s'\n", materialName);
+                }
+            } else {
+                Warning("[RemixMaterial] TrackMaterial: No $basetexture found for '%s'\n", materialName);
+            }
+        } else {
+            Warning("[RemixMaterial] TrackMaterial: Material '%s' not found or is error material\n", materialName);
+        }
+    }
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
+// Lua function: RemixMaterial.GetTextureHash(materialName)
+// Returns the Remix texture hash for a Source Engine material's base texture
+LUA_FUNCTION(RemixMaterial_GetTextureHash) {
+    if (!LUA->IsType(1, Type::String)) {
+        LUA->ThrowError("Expected string for material name");
+        return 0;
+    }
+    
+    const char* materialName = LUA->GetString(1);
+    
+    // Check Remix API is initialized
+    if (!g_remix) {
+        Warning("[RemixMaterial] GetTextureHash: Remix API not initialized\n");
+        LUA->PushNumber(0);
+        return 1;
+    }
+    
+    // Get all texture variants for this material
+    const std::vector<IDirect3DTexture9*>* variants = D3D9TextureTracker::Instance().GetTextureVariantsForMaterial(materialName);
+    
+    if (!variants || variants->empty()) {
+        Warning("[RemixMaterial] GetTextureHash: Material '%s' not found in texture cache\n", materialName);
+        Warning("[RemixMaterial]   The material may not have been rendered yet.\n");
+        Warning("[RemixMaterial]   Try looking at a surface with this material first, then call this function again.\n");
+        Warning("[RemixMaterial]   Cache size: %zu materials\n", D3D9TextureTracker::Instance().GetCacheSize());
+        LUA->PushNumber(0);
+        return 1;
+    }
+    
+    Msg("[RemixMaterial] GetTextureHash: Found %zu texture variant(s) for '%s'\n", variants->size(), materialName);
+    
+    // Try all variants and collect their hashes
+    uint64_t firstValidHash = 0;
+    for (size_t i = 0; i < variants->size(); ++i) {
+        IDirect3DTexture9* d3dTexture = (*variants)[i];
+        auto result = g_remix->dxvk_GetTextureHash(d3dTexture);
+        
+        if (result) {
+            uint64_t hash = result.value();
+            Msg("[RemixMaterial]   Variant %zu (0x%p): Hash = 0x%llX\n", i, d3dTexture, hash);
+            
+            if (firstValidHash == 0) {
+                firstValidHash = hash;
+            }
+        } else {
+            Warning("[RemixMaterial]   Variant %zu (0x%p): Failed to get hash (error %d)\n", i, d3dTexture, result.status());
+        }
+    }
+    
+    if (firstValidHash == 0) {
+        Warning("[RemixMaterial] GetTextureHash: No valid hashes found for '%s'\n", materialName);
+        LUA->PushNumber(0);
+        return 1;
+    }
+    
+    // Return the first valid hash (for now)
+    // TODO: We might want to let Lua choose which variant to use
+    Msg("[RemixMaterial] GetTextureHash: Returning hash 0x%llX for '%s'\n", firstValidHash, materialName);
+    LUA->PushNumber(static_cast<double>(firstValidHash));
+    return 1;
+}
+
 // Initialize Material Manager Lua bindings
 void MaterialManager::InitializeLuaBindings() {
     if (!m_lua) return;
@@ -408,6 +525,12 @@ void MaterialManager::InitializeLuaBindings() {
     
     m_lua->PushCFunction(RemixMaterial_HasMaterial);
     m_lua->SetField(-2, "HasMaterial");
+    
+    m_lua->PushCFunction(RemixMaterial_GetTextureHash);
+    m_lua->SetField(-2, "GetTextureHash");
+    
+    m_lua->PushCFunction(RemixMaterial_TrackMaterial);
+    m_lua->SetField(-2, "TrackMaterial");
     
     // Set the table as a global field
     m_lua->SetField(-2, "RemixMaterial");

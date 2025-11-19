@@ -14,12 +14,14 @@
 #include "e_utils.h"
 #include <Windows.h>
 #include <d3d9.h>
+#include "GarrysMod/FactoryLoader.hpp"
 
 // Only include Remix API headers in 64-bit builds
 #ifdef _WIN64
 #include <remix/remix.h>
 #include <remix/remix_c.h>
 #include "remixapi/remixapi.h"
+#include "d3d9_texture_tracker.h"
 #endif // _WIN64
 
 #ifdef GMOD_MAIN
@@ -27,7 +29,8 @@ extern IMaterialSystem* materials = NULL;
 #endif
 
 #ifdef _WIN64
-// extern IShaderAPI* g_pShaderAPI = NULL;
+// Global pointers for Remix and Source Engine interfaces
+IMaterialSystem* materials = nullptr;
 remix::Interface* g_remix = nullptr;
 IDirect3DDevice9Ex* g_d3dDevice = nullptr;
 
@@ -50,6 +53,19 @@ GMOD_MODULE_OPEN() {
 
         // Remix initialization is only available in 64-bit builds for now
 #ifdef _WIN64
+        // Load the Material System interface
+        SourceSDK::FactoryLoader materialSystemLoader("materialsystem");
+        if (materialSystemLoader.IsValid()) {
+            materials = materialSystemLoader.GetInterface<IMaterialSystem>(MATERIAL_SYSTEM_INTERFACE_VERSION);
+            if (materials) {
+                Msg("[gmRTX - Binary Module] Material system loaded: %s\n", MATERIAL_SYSTEM_INTERFACE_VERSION);
+            } else {
+                Warning("[gmRTX - Binary Module] Failed to get IMaterialSystem interface\n");
+            }
+        } else {
+            Warning("[gmRTX - Binary Module] Failed to load materialsystem.dll\n");
+        }
+
         // Find Source's D3D9 device
         auto sourceDevice = static_cast<IDirect3DDevice9Ex*>(FindD3D9Device());
         if (!sourceDevice) {
@@ -59,6 +75,11 @@ GMOD_MODULE_OPEN() {
         
         // Store the device globally for RemixAPI use
         g_d3dDevice = sourceDevice;
+
+        // Initialize D3D9 texture tracker
+        if (!D3D9TextureTracker::Instance().Initialize(sourceDevice)) {
+            Warning("[gmRTX - Binary Module] Failed to initialize D3D9 texture tracker\n");
+        }
 
         // Initialize Remix
         if (auto interf = remix::lib::loadRemixDllAndInitialize(L"d3d9.dll")) {
