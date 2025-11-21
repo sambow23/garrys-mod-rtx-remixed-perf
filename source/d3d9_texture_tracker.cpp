@@ -251,5 +251,42 @@ void D3D9TextureTracker::Hook_Bind(IMatRenderContext* pContext, IMaterial* pMate
     }
 }
 
+// Hash-to-Category mapping implementation
+void D3D9TextureTracker::SetHashCategoryFlags(uint64_t textureHash, uint32_t categoryFlags) {
+    m_hashToCategoryFlags[textureHash] = categoryFlags;
+    Msg("[D3D9TextureTracker] Set category flags 0x%X for hash 0x%llX\n", categoryFlags, textureHash);
+}
+
+void D3D9TextureTracker::RemoveHashCategoryFlags(uint64_t textureHash) {
+    auto it = m_hashToCategoryFlags.find(textureHash);
+    if (it != m_hashToCategoryFlags.end()) {
+        m_hashToCategoryFlags.erase(it);
+        Msg("[D3D9TextureTracker] Removed category mapping for hash 0x%llX\n", textureHash);
+    }
+}
+
+void D3D9TextureTracker::ClearHashCategoryMappings() {
+    size_t count = m_hashToCategoryFlags.size();
+    m_hashToCategoryFlags.clear();
+    Msg("[D3D9TextureTracker] Cleared %zu hash-to-category mappings\n", count);
+}
+
+bool D3D9TextureTracker::GetHashCategoryFlags(uint64_t textureHash, uint32_t* outCategoryFlags) const {
+    auto it = m_hashToCategoryFlags.find(textureHash);
+    if (it != m_hashToCategoryFlags.end()) {
+        if (outCategoryFlags) {
+            *outCategoryFlags = it->second;
+        }
+        return true;
+    }
+    return false;
+}
+
+bool D3D9TextureTracker::GetMaterialCategoryFlags(const char* materialName, uint32_t* outCategoryFlags) const {
+    // This requires the Remix API to get the hash from the material
+    // For now, return false - this will be called from Lua with the hash
+    return false;
+}
+
 #endif // _WIN64
 

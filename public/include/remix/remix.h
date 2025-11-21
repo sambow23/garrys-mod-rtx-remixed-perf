@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2023-2024, NVIDIA CORPORATION. All rights reserved.
+ * Copyright (c) 2023-2025, NVIDIA CORPORATION. All rights reserved.
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -182,6 +182,8 @@ namespace remix {
     // Deferred update of an analytical light definition. Applied on render thread.
     Result< void >                    UpdateLightDefinition(remixapi_LightHandle handle, const remixapi_LightInfo& info);
     Result< void >                    SetConfigVariable(const char* key, const char* value);
+    Result< void >                    AddTextureHash(const char* textureCategory, const char* textureHash);
+    Result< void >                    RemoveTextureHash(const char* textureCategory, const char* textureHash);
 
     // DXVK interoperability
     Result< IDirect3D9Ex* >                  dxvk_CreateD3D9(bool editorModeEnabled = false);
@@ -220,7 +222,7 @@ namespace remix {
         return status;
       }
 
-      static_assert(sizeof(remixapi_Interface) == 224,
+      static_assert(sizeof(remixapi_Interface) == 240,
                     "Change version, update C++ wrapper when adding new functions");
 
       remix::Interface interfaceInCpp = {};
@@ -261,6 +263,20 @@ namespace remix {
       return REMIXAPI_ERROR_CODE_NOT_INITIALIZED;
     }
     return m_CInterface.SetConfigVariable(key, value);
+  }
+
+  inline Result< void > Interface::AddTextureHash(const char* textureCategory, const char* textureHash) {
+    if (!m_CInterface.AddTextureHash) {
+      return REMIXAPI_ERROR_CODE_NOT_INITIALIZED;
+    }
+    return m_CInterface.AddTextureHash(textureCategory, textureHash);
+  }
+
+  inline Result< void > Interface::RemoveTextureHash(const char* textureCategory, const char* textureHash) {
+    if (!m_CInterface.RemoveTextureHash) {
+      return REMIXAPI_ERROR_CODE_NOT_INITIALIZED;
+    }
+    return m_CInterface.RemoveTextureHash(textureCategory, textureHash);
   }
 
   inline Result< void > Interface::Present(const remixapi_PresentInfo* info) {

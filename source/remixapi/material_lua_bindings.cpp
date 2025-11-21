@@ -569,6 +569,172 @@ LUA_FUNCTION(RemixMaterial_GetCachedMaterials) {
     return 1;
 }
 
+// Helper: Convert category flags to Remix option names
+static std::vector<const char*> GetRemixCategoryOptions(uint32_t categoryFlags) {
+    std::vector<const char*> options;
+    
+    // Based on remixapi_InstanceCategoryBit enum  
+    if (categoryFlags & (1 << 12)) options.push_back("rtx.decalTextures");  // DECAL_STATIC
+    if (categoryFlags & (1 << 9))  options.push_back("rtx.hideInstanceTextures");  // HIDDEN
+    if (categoryFlags & (1 << 10)) options.push_back("rtx.particleTextures");  // PARTICLE
+    if (categoryFlags & (1 << 11)) options.push_back("rtx.beamTextures");  // BEAM
+    if (categoryFlags & (1 << 2))  options.push_back("rtx.worldSpaceUiTextures");  // WORLD_UI
+    if (categoryFlags & (1 << 3))  options.push_back("rtx.worldSpaceUiBackgroundTextures");  // WORLD_UI_BACKGROUND
+    if (categoryFlags & (1 << 4))  options.push_back("rtx.ignoreTextures");  // IGNORE
+    if (categoryFlags & (1 << 17)) options.push_back("rtx.terrainTextures");  // TERRAIN
+    if (categoryFlags & (1 << 18)) options.push_back("rtx.animatedWaterTextures");  // ANIMATED_WATER
+    
+    return options;
+}
+
+// Lua function: RemixMaterial.SetHashCategory(textureHash, categoryFlags)
+LUA_FUNCTION(RemixMaterial_SetHashCategory) {
+    if (!g_remix) {
+        LUA->ThrowError("RemixMaterial.SetHashCategory: Remix API not initialized");
+        return 0;
+    }
+    
+    if (!LUA->IsType(1, Type::Number) && !LUA->IsType(1, Type::String)) {
+        LUA->ThrowError("RemixMaterial.SetHashCategory: Expected number or string for texture hash");
+        return 0;
+    }
+    
+    if (!LUA->IsType(2, Type::Number)) {
+        LUA->ThrowError("RemixMaterial.SetHashCategory: Expected number for category flags");
+        return 0;
+    }
+    
+    uint64_t textureHash;
+    if (LUA->IsType(1, Type::String)) {
+        const char* hashStr = LUA->GetString(1);
+        textureHash = std::strtoull(hashStr, nullptr, 16);
+    } else {
+        textureHash = static_cast<uint64_t>(LUA->GetNumber(1));
+    }
+    
+    uint32_t categoryFlags = static_cast<uint32_t>(LUA->GetNumber(2));
+    
+    // Convert hash to string for Remix API
+    char hashStr[32];
+    sprintf_s(hashStr, "0x%llX", textureHash);
+    
+    // Get the Remix category option names from the flags
+    auto options = GetRemixCategoryOptions(categoryFlags);
+    
+    // Add hash to each relevant Remix category
+    bool success = true;
+    for (const char* option : options) {
+        auto result = g_remix->AddTextureHash(option, hashStr);
+        if (result != REMIXAPI_ERROR_CODE_SUCCESS) {
+            Warning("[RemixMaterial] Failed to add hash %s to category %s: error code %d\n", 
+                    hashStr, option, static_cast<int>(result));
+            success = false;
+        }
+    }
+    
+    // Also store locally for querying
+    if (success) {
+        D3D9TextureTracker::Instance().SetHashCategoryFlags(textureHash, categoryFlags);
+    }
+    
+    LUA->PushBool(success);
+    return 1;
+}
+
+// Lua function: RemixMaterial.RemoveHashCategory(textureHash)
+// Removes the category mapping for a texture hash
+LUA_FUNCTION(RemixMaterial_RemoveHashCategory) {
+    if (!g_remix) {
+        LUA->ThrowError("RemixMaterial.RemoveHashCategory: Remix API not initialized");
+        return 0;
+    }
+    
+    if (!LUA->IsType(1, Type::Number) && !LUA->IsType(1, Type::String)) {
+        LUA->ThrowError("Expected number or string for texture hash");
+        return 0;
+    }
+    
+    uint64_t textureHash = 0;
+    if (LUA->IsType(1, Type::String)) {
+        const char* hashStr = LUA->GetString(1);
+        if (hashStr) {
+            if (hashStr[0] == '0' && (hashStr[1] == 'x' || hashStr[1] == 'X')) {
+                textureHash = std::strtoull(hashStr, nullptr, 16);
+            } else {
+                textureHash = std::strtoull(hashStr, nullptr, 10);
+            }
+        }
+    } else {
+        textureHash = static_cast<uint64_t>(LUA->GetNumber(1));
+    }
+    
+    // Get current category flags to know which Remix options to remove from
+    uint32_t categoryFlags = 0;
+    bool hadCategories = D3D9TextureTracker::Instance().GetHashCategoryFlags(textureHash, &categoryFlags);
+    
+    // Convert hash to string for Remix API
+    char hashStr[32];
+    sprintf_s(hashStr, "0x%llX", textureHash);
+    
+    // Remove from Remix categories if we had any
+    if (hadCategories && categoryFlags != 0) {
+        auto options = GetRemixCategoryOptions(categoryFlags);
+        
+        for (const char* option : options) {
+            auto result = g_remix->RemoveTextureHash(option, hashStr);
+            if (result != REMIXAPI_ERROR_CODE_SUCCESS) {
+                Warning("[RemixMaterial] Failed to remove hash %s from category %s: error code %d\n", 
+                        hashStr, option, static_cast<int>(result));
+            }
+        }
+    }
+    
+    // Remove from local tracking
+    D3D9TextureTracker::Instance().RemoveHashCategoryFlags(textureHash);
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
+// Lua function: RemixMaterial.ClearHashCategories()
+// Clears all hash-to-category mappings
+LUA_FUNCTION(RemixMaterial_ClearHashCategories) {
+    D3D9TextureTracker::Instance().ClearHashCategoryMappings();
+    LUA->PushBool(true);
+    return 1;
+}
+
+// Lua function: RemixMaterial.GetHashCategory(textureHash)
+// Gets the category flags for a texture hash (returns nil if not found)
+LUA_FUNCTION(RemixMaterial_GetHashCategory) {
+    if (!LUA->IsType(1, Type::Number) && !LUA->IsType(1, Type::String)) {
+        LUA->ThrowError("Expected number or string for texture hash");
+        return 0;
+    }
+    
+    uint64_t textureHash = 0;
+    if (LUA->IsType(1, Type::String)) {
+        const char* hashStr = LUA->GetString(1);
+        if (hashStr) {
+            if (hashStr[0] == '0' && (hashStr[1] == 'x' || hashStr[1] == 'X')) {
+                textureHash = std::strtoull(hashStr, nullptr, 16);
+            } else {
+                textureHash = std::strtoull(hashStr, nullptr, 10);
+            }
+        }
+    } else {
+        textureHash = static_cast<uint64_t>(LUA->GetNumber(1));
+    }
+    
+    uint32_t categoryFlags = 0;
+    if (D3D9TextureTracker::Instance().GetHashCategoryFlags(textureHash, &categoryFlags)) {
+        LUA->PushNumber(static_cast<double>(categoryFlags));
+        return 1;
+    }
+    
+    return 0; // nil
+}
+
 // Initialize Material Manager Lua bindings
 void MaterialManager::InitializeLuaBindings() {
     if (!m_lua) return;
@@ -600,6 +766,18 @@ void MaterialManager::InitializeLuaBindings() {
 
     m_lua->PushCFunction(RemixMaterial_GetCachedMaterials);
     m_lua->SetField(-2, "GetCachedMaterials");
+    
+    m_lua->PushCFunction(RemixMaterial_SetHashCategory);
+    m_lua->SetField(-2, "SetHashCategory");
+    
+    m_lua->PushCFunction(RemixMaterial_RemoveHashCategory);
+    m_lua->SetField(-2, "RemoveHashCategory");
+    
+    m_lua->PushCFunction(RemixMaterial_ClearHashCategories);
+    m_lua->SetField(-2, "ClearHashCategories");
+    
+    m_lua->PushCFunction(RemixMaterial_GetHashCategory);
+    m_lua->SetField(-2, "GetHashCategory");
     
     // Set the table as a global field
     m_lua->SetField(-2, "RemixMaterial");

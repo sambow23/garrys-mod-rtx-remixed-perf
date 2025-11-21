@@ -48,6 +48,15 @@ public:
         return materials;
     }
 
+    // Hash-to-Category mapping system
+    void SetHashCategoryFlags(uint64_t textureHash, uint32_t categoryFlags);
+    void RemoveHashCategoryFlags(uint64_t textureHash);
+    void ClearHashCategoryMappings();
+    bool GetHashCategoryFlags(uint64_t textureHash, uint32_t* outCategoryFlags) const;
+    
+    // Get category flags for a material based on its texture hash
+    bool GetMaterialCategoryFlags(const char* materialName, uint32_t* outCategoryFlags) const;
+
 private:
     D3D9TextureTracker() = default;
     ~D3D9TextureTracker();
@@ -89,6 +98,9 @@ private:
     
     // Cache: material name -> set of D3D9 textures (materials can have multiple texture variants)
     std::unordered_map<std::string, std::vector<IDirect3DTexture9*>> m_textureCache;
+    
+    // Hash to category flags mapping
+    std::unordered_map<uint64_t, uint32_t> m_hashToCategoryFlags;
     
     // Track whether we're initialized
     bool m_bInitialized = false;
