@@ -5,6 +5,8 @@
 #include <Windows.h>
 #include <materialsystem/imaterialsystem.h>
 #include <materialsystem/imaterial.h>
+#include <algorithm>
+#include <functional>
 
 // Global material system pointer (from module.cpp)
 extern IMaterialSystem* materials;
@@ -286,6 +288,28 @@ bool D3D9TextureTracker::GetMaterialCategoryFlags(const char* materialName, uint
     // This requires the Remix API to get the hash from the material
     // For now, return false - this will be called from Lua with the hash
     return false;
+}
+
+std::vector<std::pair<std::string, uint64_t>> D3D9TextureTracker::FindTexturesByName(const std::string& searchName) const {
+    std::vector<std::pair<std::string, uint64_t>> results;
+    
+    // Search through all tracked materials
+    for (const auto& entry : m_textureCache) {
+        const std::string& materialName = entry.first;
+        std::string materialLower = materialName;
+        std::transform(materialLower.begin(), materialLower.end(), materialLower.begin(), ::tolower);
+        
+        // Check if the search term is in the material name
+        if (materialLower.find(searchName) != std::string::npos) {
+            // Calculate hash for this material/texture
+            // Use std::hash for now - we just need to identify textures
+            std::hash<std::string> hasher;
+            uint64_t hash = hasher(materialName);
+            results.push_back({materialName, hash});
+        }
+    }
+    
+    return results;
 }
 
 #endif // _WIN64

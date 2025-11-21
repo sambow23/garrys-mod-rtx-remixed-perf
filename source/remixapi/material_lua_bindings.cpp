@@ -625,9 +625,9 @@ LUA_FUNCTION(RemixMaterial_SetHashCategory) {
     bool success = true;
     for (const char* option : options) {
         auto result = g_remix->AddTextureHash(option, hashStr);
-        if (result != REMIXAPI_ERROR_CODE_SUCCESS) {
+        if (!result) {
             Warning("[RemixMaterial] Failed to add hash %s to category %s: error code %d\n", 
-                    hashStr, option, static_cast<int>(result));
+                    hashStr, option, static_cast<int>(result.status()));
             success = false;
         }
     }
@@ -682,9 +682,9 @@ LUA_FUNCTION(RemixMaterial_RemoveHashCategory) {
         
         for (const char* option : options) {
             auto result = g_remix->RemoveTextureHash(option, hashStr);
-            if (result != REMIXAPI_ERROR_CODE_SUCCESS) {
+            if (!result) {
                 Warning("[RemixMaterial] Failed to remove hash %s from category %s: error code %d\n", 
-                        hashStr, option, static_cast<int>(result));
+                        hashStr, option, static_cast<int>(result.status()));
             }
         }
     }
@@ -735,6 +735,44 @@ LUA_FUNCTION(RemixMaterial_GetHashCategory) {
     return 0; // nil
 }
 
+// Lua function: RemixMaterial.FindTexturesByName(searchName)
+LUA_FUNCTION(RemixMaterial_FindTexturesByName) {
+    if (!LUA->IsType(1, Type::String)) {
+        LUA->ThrowError("RemixMaterial.FindTexturesByName: Expected string for search name");
+        return 0;
+    }
+    
+    const char* searchName = LUA->GetString(1);
+    std::string searchLower = searchName;
+    std::transform(searchLower.begin(), searchLower.end(), searchLower.begin(), ::tolower);
+    
+    // Search D3D9TextureTracker for matching textures
+    auto& tracker = D3D9TextureTracker::Instance();
+    auto results = tracker.FindTexturesByName(searchLower);
+    
+    // Create Lua table with results
+    LUA->CreateTable();
+    int idx = 1;
+    
+    for (const auto& result : results) {
+        LUA->PushNumber(idx);
+        LUA->CreateTable();
+        
+        LUA->PushString("name");
+        LUA->PushString(result.first.c_str());
+        LUA->SetTable(-3);
+        
+        LUA->PushString("hash");
+        LUA->PushNumber(static_cast<double>(result.second));
+        LUA->SetTable(-3);
+        
+        LUA->SetTable(-3);
+        idx++;
+    }
+    
+    return 1;
+}
+
 // Initialize Material Manager Lua bindings
 void MaterialManager::InitializeLuaBindings() {
     if (!m_lua) return;
@@ -778,6 +816,9 @@ void MaterialManager::InitializeLuaBindings() {
     
     m_lua->PushCFunction(RemixMaterial_GetHashCategory);
     m_lua->SetField(-2, "GetHashCategory");
+    
+    m_lua->PushCFunction(RemixMaterial_FindTexturesByName);
+    m_lua->SetField(-2, "FindTexturesByName");
     
     // Set the table as a global field
     m_lua->SetField(-2, "RemixMaterial");

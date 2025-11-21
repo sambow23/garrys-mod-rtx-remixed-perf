@@ -16,6 +16,10 @@ end
 
 RemixCategoryManager = RemixCategoryManager or {}
 
+-- ConVars for configuration
+CreateClientConVar("remix_auto_categorize", "1", true, false, "Automatically categorize world textures when a map loads (1 = enabled, 0 = disabled)")
+CreateClientConVar("remix_auto_categorize_delay", "5", true, false, "Delay in seconds before auto-categorization runs (default: 5)")
+
 -- Remix Instance Category Flags (from remix_c.h - corrected enum order from PR #90)
 RemixCategoryManager.CATEGORY = {
     WORLD_UI                  = bit.lshift(1, 0),  -- 0x1
@@ -48,22 +52,19 @@ RemixCategoryManager.CATEGORY = {
 -- Common category flag combinations
 RemixCategoryManager.PRESET = {
     -- For opaque world geometry (walls, floors, etc.) - needs Decal for proper blending
-    WORLD_GEOMETRY = RemixCategoryManager.CATEGORY.DECAL_STATIC,
+    WORLD_GEOMETRY = RemixCategoryManager.CATEGORY.DECAL_STATIC,  -- 0x1000
     
-    -- For transparent world geometry (windows, fences, etc.)
-    WORLD_GEOMETRY_TRANSPARENT = bit.bor(
-        RemixCategoryManager.CATEGORY.DECAL_STATIC,
-        RemixCategoryManager.CATEGORY.ALPHA_BLEND_TO_CUTOUT
-    ),
+    -- For transparent world geometry (glass, windows, fences)
+    WORLD_GEOMETRY_TRANSPARENT = RemixCategoryManager.CATEGORY.DECAL_STATIC,  -- 0x1000
     
-    -- For terrain textures
-    TERRAIN = RemixCategoryManager.CATEGORY.TERRAIN,
+    -- For sky textures
+    SKY = RemixCategoryManager.CATEGORY.SKY,  -- 0x4
     
-    -- For water surfaces
-    WATER = RemixCategoryManager.CATEGORY.ANIMATED_WATER,
+    -- For water
+    WATER = RemixCategoryManager.CATEGORY.ANIMATED_WATER,  -- 0x40000
     
-    -- For skybox textures
-    SKY = RemixCategoryManager.CATEGORY.SKY,
+    -- For terrain (displacement surfaces) - mark as DECAL for proper blending
+    TERRAIN = RemixCategoryManager.CATEGORY.DECAL_STATIC,  -- 0x1000
 }
 
 -- Local cache of material name -> hash mappings
@@ -71,6 +72,47 @@ local materialHashCache = {}
 
 -- Local cache of texture names that have been processed
 local processedTextures = {}
+
+--[[
+    Force a texture to be tracked by rendering it off-screen
+    This is needed for displacement base textures (grass1, construct_sand, etc.)
+]]--
+function RemixCategoryManager.ForceTrackTexture(textureName)
+    -- Create a simple material that uses this texture
+    local matName = "rtx_force_track_" .. textureName:gsub("[^%w]", "_")
+    
+    local mat = Material(textureName)
+    if not mat or mat:IsError() then
+        -- Try creating a material wrapper
+        local ok, result = pcall(function()
+            return CreateMaterial(matName, "UnlitGeneric", {
+                ["$basetexture"] = textureName,
+                ["$vertexcolor"] = 1,
+                ["$vertexalpha"] = 1,
+            })
+        end)
+        
+        if not ok or not result then
+            return false
+        end
+        mat = result
+    end
+    
+    -- Set as current material for tracking
+    RemixMaterial.TrackMaterial(matName)
+    
+    -- Render it to a tiny off-screen surface to force D3D9 to bind it
+    render.PushRenderTarget(render.GetScreenEffectTexture(0))
+    cam.Start2D()
+        surface.SetDrawColor(255, 255, 255, 255)
+        surface.SetMaterial(mat)
+        surface.DrawTexturedRect(0, 0, 1, 1)
+    cam.End2D()
+    render.PopRenderTarget()
+    
+    -- The created material name is what will be tracked, not the texture name
+    return matName
+end
 
 --[[
     Set category flags for a texture hash
@@ -258,6 +300,109 @@ function RemixCategoryManager.MarkWorldTextures(categoryFlags)
         end
     end
     
+    -- Also get displacement textures (terrain surfaces)
+    MsgC(Color(200, 200, 200), "[RemixCategoryManager] Checking for displacements...\n")
+    MsgC(Color(255, 255, 0), "[RemixCategoryManager] DEBUG: Displacement code version 2.0\n")
+    
+    local okLeafs, allLeafs = pcall(function() return bsp:GetLeafs() end)
+    MsgC(Color(255, 255, 0), string.format("[RemixCategoryManager] GetLeafs result: ok=%s, leafs=%s\n", 
+        tostring(okLeafs), allLeafs and table.Count(allLeafs) or "nil"))
+    
+    if okLeafs and allLeafs then
+        textures = textures or {}
+        local dispCount = 0
+        local seenDisplacements = {}
+        local leafCount = 0
+        local faceCount = 0
+        local dispFaceCount = 0
+        
+        for _, leaf in pairs(allLeafs) do
+            leafCount = leafCount + 1
+            if leaf then
+                local okFaces, leafFaces = pcall(function() return leaf:GetFaces(true) end) -- include displacements
+                if okFaces and leafFaces then
+                    for _, face in pairs(leafFaces) do
+                        faceCount = faceCount + 1
+                        if face and face.IsDisplacement and face:IsDisplacement() then
+                            dispFaceCount = dispFaceCount + 1
+                            -- Get material from this displacement face
+                            local ok_mat, material = pcall(function() return face:GetMaterial() end)
+                            if dispFaceCount <= 3 then  -- Only log first 3 to avoid spam
+                                MsgC(Color(255, 255, 0), string.format("[RemixCategoryManager] Disp face %d: GetMaterial ok=%s, material=%s\n",
+                                    dispFaceCount, tostring(ok_mat), tostring(material)))
+                            end
+                            if ok_mat and material then
+                                -- Displacement materials often have two base textures ($basetexture and $basetexture2)
+                                -- We need to extract and categorize both
+                                local texturesToAdd = {}
+                                
+                                -- Try to get $basetexture
+                                local baseTex = material:GetTexture("$basetexture")
+                                if baseTex and baseTex.GetName then
+                                    local texName = baseTex:GetName()
+                                    if texName and texName ~= "" then
+                                        table.insert(texturesToAdd, texName)
+                                    end
+                                end
+                                
+                                -- Try to get $basetexture2
+                                local baseTex2 = material:GetTexture("$basetexture2")
+                                if baseTex2 and baseTex2.GetName then
+                                    local texName2 = baseTex2:GetName()
+                                    if texName2 and texName2 ~= "" then
+                                        table.insert(texturesToAdd, texName2)
+                                    end
+                                end
+                                
+                                if dispFaceCount <= 3 then
+                                    MsgC(Color(255, 255, 0), string.format("[RemixCategoryManager] Displacement textures: %s\n", 
+                                        table.concat(texturesToAdd, ", ")))
+                                end
+                                
+                                -- Force-track and add all found textures
+                                for _, texName in ipairs(texturesToAdd) do
+                                    if not seenDisplacements[texName] then
+                                        seenDisplacements[texName] = true
+                                        dispCount = dispCount + 1
+                                        
+                                        -- Force the texture to be tracked by D3D9
+                                        local trackedMatName = RemixCategoryManager.ForceTrackTexture(texName)
+                                        
+                                        if trackedMatName then
+                                            -- Check if not already in main texture list
+                                            local found = false
+                                            for _, existingTex in ipairs(textures) do
+                                                if existingTex == trackedMatName then
+                                                    found = true
+                                                    break
+                                                end
+                                            end
+                                            
+                                            if not found then
+                                                table.insert(textures, trackedMatName)
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        MsgC(Color(255, 255, 0), string.format("[RemixCategoryManager] Traversed %d leafs, %d faces, found %d displacement faces\n", 
+            leafCount, faceCount, dispFaceCount))
+        
+        if dispCount > 0 then
+            MsgC(Color(100, 255, 100), string.format("[RemixCategoryManager] Added %d displacement textures\n", dispCount))
+        else
+            MsgC(Color(200, 200, 200), "[RemixCategoryManager] No displacement textures found\n")
+        end
+    else
+        MsgC(Color(255, 200, 100), "[RemixCategoryManager] Could not get leafs from BSP\n")
+    end
+    
     local count = 0
     local marked = 0
     
@@ -378,6 +523,101 @@ function RemixCategoryManager.SmartMarkWorldTextures()
         end
     end
     
+    -- Also get displacement textures (terrain surfaces)
+    local displacementTextures = {}  -- Track which textures are from displacements
+    MsgC(Color(200, 200, 200), "[RemixCategoryManager] Checking for displacements...\n")
+    
+    local okLeafs, allLeafs = pcall(function() return bsp:GetLeafs() end)
+    MsgC(Color(200, 200, 200), string.format("[RemixCategoryManager] GetLeafs result: ok=%s, leafs=%s\n", 
+        tostring(okLeafs), allLeafs and table.Count(allLeafs) or "nil"))
+    
+    if okLeafs and allLeafs then
+        textures = textures or {}
+        local dispCount = 0
+        local leafCount = 0
+        local faceCount = 0
+        local dispFaceCount = 0
+        
+        for _, leaf in pairs(allLeafs) do
+            leafCount = leafCount + 1
+            if leaf then
+                local okFaces, leafFaces = pcall(function() return leaf:GetFaces(true) end) -- include displacements
+                if okFaces and leafFaces then
+                    for _, face in pairs(leafFaces) do
+                        faceCount = faceCount + 1
+                        if face and face.IsDisplacement and face:IsDisplacement() then
+                            dispFaceCount = dispFaceCount + 1
+                            -- Get material from this displacement face
+                            local ok_mat, material = pcall(function() return face:GetMaterial() end)
+                            if ok_mat and material then
+                                -- Displacement materials often have two base textures ($basetexture and $basetexture2)
+                                local texturesToAdd = {}
+                                
+                                -- Try to get $basetexture
+                                local baseTex = material:GetTexture("$basetexture")
+                                if baseTex and baseTex.GetName then
+                                    local texName = baseTex:GetName()
+                                    if texName and texName ~= "" then
+                                        table.insert(texturesToAdd, texName)
+                                    end
+                                end
+                                
+                                -- Try to get $basetexture2
+                                local baseTex2 = material:GetTexture("$basetexture2")
+                                if baseTex2 and baseTex2.GetName then
+                                    local texName2 = baseTex2:GetName()
+                                    if texName2 and texName2 ~= "" then
+                                        table.insert(texturesToAdd, texName2)
+                                    end
+                                end
+                                
+                                -- Force-track and add all found textures
+                                for _, texName in ipairs(texturesToAdd) do
+                                    if not displacementTextures[texName] then
+                                        displacementTextures[texName] = true  -- Mark as displacement
+                                        dispCount = dispCount + 1
+                                        
+                                        -- Force the texture to be tracked by D3D9
+                                        local trackedMatName = RemixCategoryManager.ForceTrackTexture(texName)
+                                        
+                                        if trackedMatName then
+                                            -- Also mark the tracked material name as displacement
+                                            displacementTextures[trackedMatName] = true
+                                            
+                                            -- Check if not already in main texture list
+                                            local found = false
+                                            for _, existingTex in ipairs(textures) do
+                                                if existingTex == trackedMatName then
+                                                    found = true
+                                                    break
+                                                end
+                                            end
+                                            
+                                            if not found then
+                                                table.insert(textures, trackedMatName)
+                                            end
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        MsgC(Color(200, 200, 200), string.format("[RemixCategoryManager] Traversed %d leafs, %d faces, found %d displacement faces\n", 
+            leafCount, faceCount, dispFaceCount))
+        
+        if dispCount > 0 then
+            MsgC(Color(100, 255, 100), string.format("[RemixCategoryManager] Added %d displacement textures\n", dispCount))
+        else
+            MsgC(Color(200, 200, 200), "[RemixCategoryManager] No displacement textures found\n")
+        end
+    else
+        MsgC(Color(255, 200, 100), "[RemixCategoryManager] Could not get leafs from BSP\n")
+    end
+    
     local stats = {
         total = 0,
         solid = 0,
@@ -385,6 +625,7 @@ function RemixCategoryManager.SmartMarkWorldTextures()
         water = 0,
         sky = 0,
         terrain = 0,
+        displacements = 0,
         skipped = 0
     }
     
@@ -410,8 +651,13 @@ function RemixCategoryManager.SmartMarkWorldTextures()
                 -- Determine category based on texture name patterns (use lowercase for matching)
                 local category = nil
                 
+                -- Displacement textures (terrain) - check this first
+                if displacementTextures[texName] then
+                    category = RemixCategoryManager.PRESET.TERRAIN
+                    stats.displacements = stats.displacements + 1
+                
                 -- Sky textures
-                if string.find(lowerName, "sky") or string.find(lowerName, "skybox") then
+                elseif string.find(lowerName, "sky") or string.find(lowerName, "skybox") then
                     category = RemixCategoryManager.PRESET.SKY
                     stats.sky = stats.sky + 1
                     
@@ -492,6 +738,35 @@ concommand.Add("remix_clear_categories", function(ply, cmd, args)
 end, nil, "Clear all hash-to-category mappings")
 
 --[[
+    Console command to search for texture hashes by name
+]]--
+concommand.Add("remix_find_texture_hash", function(ply, cmd, args)
+    if not args[1] then
+        MsgC(Color(255, 200, 100), "Usage: remix_find_texture_hash <texture_name>\n")
+        MsgC(Color(255, 200, 100), "Example: remix_find_texture_hash grass1\n")
+        return
+    end
+    
+    local searchName = string.lower(args[1])
+    local found = RemixMaterial.FindTexturesByName(searchName)
+    
+    if found and #found > 0 then
+        MsgC(Color(100, 255, 100), string.format("Found %d materials matching '%s':\n", #found, searchName))
+        for _, entry in ipairs(found) do
+            -- Get the actual hash from D3D9 tracker (if material was rendered)
+            local hash, hashStr = RemixMaterial.GetTextureHash(entry.name)
+            if hash and hash > 0 then
+                MsgC(Color(200, 200, 200), string.format("  %s -> %s\n", entry.name, hashStr or string.format("0x%X", hash)))
+            else
+                MsgC(Color(150, 150, 150), string.format("  %s -> NOT RENDERED YET\n", entry.name))
+            end
+        end
+    else
+        MsgC(Color(255, 100, 100), string.format("No materials found matching '%s'\n", searchName))
+    end
+end, nil, "Search for texture hashes by partial name match")
+
+--[[
     Console command to set category for a specific material
 ]]--
 concommand.Add("remix_set_material_category", function(ply, cmd, args)
@@ -514,8 +789,18 @@ end, nil, "Set category for a specific material")
 
 -- Auto-initialize on map load
 hook.Add("InitPostEntity", "RemixCategoryManager_AutoInit", function()
+    -- Check if auto-categorization is enabled
+    if not GetConVar("remix_auto_categorize"):GetBool() then
+        MsgC(Color(200, 200, 200), "[RemixCategoryManager] Auto-categorization disabled (remix_auto_categorize = 0)\n")
+        MsgC(Color(255, 200, 100), "[RemixCategoryManager] Tip: Use 'remix_smart_mark_world' to manually categorize textures\n")
+        return
+    end
+    
+    -- Get delay from ConVar
+    local delay = GetConVar("remix_auto_categorize_delay"):GetFloat()
+    
     -- Wait for map to fully load and some materials to render
-    timer.Simple(5, function()
+    timer.Simple(delay, function()
         MsgC(Color(100, 200, 255), "[RemixCategoryManager] Auto-marking world textures...\n")
         MsgC(Color(255, 200, 100), "[RemixCategoryManager] Note: Materials are tracked as they render. More will be categorized as you explore.\n")
         MsgC(Color(255, 200, 100), "[RemixCategoryManager] Tip: Use 'remix_smart_mark_world' to manually trigger categorization\n")
@@ -526,5 +811,6 @@ end)
 
 MsgC(Color(100, 255, 100), "[RemixCategoryManager] Loaded successfully!\n")
 MsgC(Color(200, 200, 200), "[RemixCategoryManager] Commands: remix_mark_world_textures, remix_smart_mark_world, remix_clear_categories\n")
+MsgC(Color(200, 200, 200), "[RemixCategoryManager] ConVars: remix_auto_categorize (0/1), remix_auto_categorize_delay (seconds)\n")
 
 return RemixCategoryManager

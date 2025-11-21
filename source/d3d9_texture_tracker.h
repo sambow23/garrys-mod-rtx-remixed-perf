@@ -56,6 +56,9 @@ public:
     
     // Get category flags for a material based on its texture hash
     bool GetMaterialCategoryFlags(const char* materialName, uint32_t* outCategoryFlags) const;
+    
+    // Find textures by partial name match (returns name->hash pairs)
+    std::vector<std::pair<std::string, uint64_t>> FindTexturesByName(const std::string& searchName) const;
 
 private:
     D3D9TextureTracker() = default;
