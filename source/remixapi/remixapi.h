@@ -148,6 +148,7 @@ namespace RemixAPI {
         bool UpdateMaterial(uint64_t materialId, const remix::MaterialInfo& info);
         bool DestroyMaterial(uint64_t materialId);
         bool HasMaterial(uint64_t materialId) const;
+        remixapi_MaterialHandle GetMaterialHandle(uint64_t materialId) const;
         
         // Lua bindings
         void InitializeLuaBindings();

@@ -156,7 +156,7 @@ static BSPGeometryManager::InstanceTransform ExtractTransform(ILuaBase* LUA, int
     
     LUA->Pop();  // Pop the matrix
     
-#ifdef _DEBUG
+#ifdef _DEBUG_VERBOSE
     // Debug log the extracted matrix (first 10 calls only)
     static int callCount = 0;
     if (callCount < 10) {

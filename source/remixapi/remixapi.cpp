@@ -658,6 +658,14 @@ bool MaterialManager::HasMaterial(uint64_t materialId) const {
     return m_materials.find(materialId) != m_materials.end();
 }
 
+remixapi_MaterialHandle MaterialManager::GetMaterialHandle(uint64_t materialId) const {
+    auto it = m_materials.find(materialId);
+    if (it != m_materials.end()) {
+        return it->second.handle;
+    }
+    return nullptr;
+}
+
 //=============================================================================
 // MeshManager
 //=============================================================================

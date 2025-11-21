@@ -74,6 +74,11 @@ namespace RemixAPI {
 
         void DrawInstanceBatch(const std::vector<DrawInstanceData>& instances);
 
+        // Map Instance Management (Persistent instances for world geometry)
+        void AddMapInstance(uint64_t meshId, const InstanceTransform& transform);
+        void DrawMapInstances();
+        void ClearMapInstances();
+
         // Resource management
         bool DestroyMesh(uint64_t meshId);
         void ClearAllMeshes();
@@ -117,11 +122,19 @@ namespace RemixAPI {
         // Statistics
         mutable Statistics m_stats;
 
+        // Persistent map instances
+        struct MapInstance {
+            uint64_t meshId;
+            InstanceTransform transform;
+        };
+        std::vector<MapInstance> m_mapInstances;
+
         // Helper functions
         remixapi_MeshHandle CreateRemixMesh(
             const std::vector<remixapi_HardcodedVertex>& vertices,
             const std::vector<uint32_t>& indices,
-            remixapi_MaterialHandle materialHandle
+            remixapi_MaterialHandle materialHandle,
+            uint64_t hash
         );
 
         bool ValidateVertexData(const std::vector<remixapi_HardcodedVertex>& vertices) const;

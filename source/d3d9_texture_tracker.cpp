@@ -187,6 +187,13 @@ HRESULT STDMETHODCALLTYPE D3D9TextureTracker::Hook_SetTexture(
 {
     D3D9TextureTracker& tracker = Instance();
 
+    // Always log if we have a current material to help debug
+#ifdef _DEBUG
+    if (Stage == 0 && pTexture && !tracker.m_currentMaterial.empty()) {
+        // Msg("[D3D9TextureTracker] SetTexture(0, %p) for '%s'\n", pTexture, tracker.m_currentMaterial.c_str());
+    }
+#endif
+
     // For now, let's just track ALL textures at stage 0 with a generic key
     // We'll use the texture pointer itself as a way to identify it
     if (Stage == 0 && pTexture) {
@@ -211,11 +218,9 @@ HRESULT STDMETHODCALLTYPE D3D9TextureTracker::Hook_SetTexture(
                 // Only log when we discover a NEW variant
                 if (!found) {
                     textures.push_back(p2DTexture);
-                    // Debug logging disabled to reduce console spam
-#ifdef _DEBUG_VERBOSE
+                    // Re-enable logging for debugging texture capture issues
                     Msg("[D3D9TextureTracker] NEW texture variant #%zu: 0x%p for '%s'\n", 
                         textures.size(), p2DTexture, tracker.m_currentMaterial.c_str());
-#endif
                 }
             }
             // No else block needed - we silently ignore untracked textures now

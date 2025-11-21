@@ -116,10 +116,16 @@ hook.Add("HUDPaint", "RTXDebugHashHUD", function()
             local h1 = Draw3DText(tr.HitPos, displayText, Color(255, 255, 255), 0)
             Draw3DText(tr.HitPos, "Hash: " .. displayHash, color, h1)
             
-            -- If not cached, show hint
+            -- If not cached, show hint and auto-track (throttled)
             if not hash or hash == 0 then
-                -- Auto-track if looking at it?
-                -- RemixMaterial.TrackMaterial(materialName) -- Uncomment to auto-track on look
+                local now = SysTime()
+                if not hashCache[materialName] or (now - (hashCache[materialName].lastTrack or 0) > 1.0) then
+                    -- Auto-track if looking at it
+                    RemixMaterial.TrackMaterial(materialName)
+                    -- Update cache to prevent spamming track
+                    hashCache[materialName] = hashCache[materialName] or {}
+                    hashCache[materialName].lastTrack = now
+                end
             end
         end
     end

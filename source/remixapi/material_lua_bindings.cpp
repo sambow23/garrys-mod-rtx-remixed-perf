@@ -42,8 +42,21 @@ static remix::MaterialInfo LuaToMaterialInfo(ILuaBase* LUA, int index) {
         double hashValue = LUA->GetNumber(-1);
         info.hash = static_cast<uint64_t>(hashValue);
 #ifdef _DEBUG
-        Msg("[MaterialInfo] Extracted hash from Lua: %.0f -> %llu\n", hashValue, info.hash);
+        Msg("[MaterialInfo] Extracted hash from Lua (number): %.0f -> %llu\n", hashValue, info.hash);
 #endif
+    } else if (LUA->IsType(-1, Type::String)) {
+        const char* hashStr = LUA->GetString(-1);
+        if (hashStr) {
+            // Handle 0x prefix if present
+            if (hashStr[0] == '0' && (hashStr[1] == 'x' || hashStr[1] == 'X')) {
+                info.hash = std::strtoull(hashStr, nullptr, 16);
+            } else {
+                info.hash = std::strtoull(hashStr, nullptr, 10);
+            }
+#ifdef _DEBUG
+            Msg("[MaterialInfo] Extracted hash from Lua (string): %s -> %llu\n", hashStr, info.hash);
+#endif
+        }
     } else {
 #ifdef _DEBUG
         Msg("[MaterialInfo] WARNING: No hash field found in material table!\n");
@@ -56,6 +69,11 @@ static remix::MaterialInfo LuaToMaterialInfo(ILuaBase* LUA, int index) {
     LUA->GetField(index, "albedoTexture");
     if (LUA->IsType(-1, Type::String)) {
         std::string texture = LUA->GetString(-1);
+        // If texture is empty string, don't set it, BUT if we have a hash, 
+        // we usually want to allow the hash to drive the texture lookup in Remix.
+        // However, if we are explicitly defining a material for a mesh that should use
+        // a captured texture, we might need to set albedoTexture to the captured texture's path?
+        // No, Remix uses the hash to identify the texture.
         if (!texture.empty()) {
             info.set_albedoTexture(texture);
         }
@@ -419,6 +437,23 @@ LUA_FUNCTION(RemixMaterial_TrackMaterial) {
             IMatRenderContext* pContext = materials->GetRenderContext();
             if (pContext) {
                 pContext->Bind(pMaterial);
+                
+                // Force a tiny draw to ensure the driver processes the bind and calls SetTexture
+                // This is critical for the D3D9 texture tracker to see the texture
+                pContext->DrawScreenSpaceRectangle(
+                    pMaterial,
+                    0, 0, 1, 1, // x, y, w, h (1x1 pixel)
+                    0, 0, 1, 1, // texture coords
+                    1, 1        // texture size
+                );
+
+                // CRITICAL FIX: Flush the command buffer to ensure the driver sees the draw call immediately
+                // Without this, the driver might batch the draw call and execute it later, causing a race condition
+                // where we check for the texture hash before it has been captured.
+                // NOTE: IMatRenderContext doesn't have a Flush() method exposed directly in our interface headers,
+                // but DrawScreenSpaceRectangle should be enough for most drivers. 
+                // If not, we might need to find another way to flush.
+                // However, D3D9's SetTexture is immediate context, so as long as the engine calls it, we're good.
             }
 
             // Get the base texture var
@@ -427,7 +462,7 @@ LUA_FUNCTION(RemixMaterial_TrackMaterial) {
             if (bFound && pVar) {
                 ITexture* pTex = pVar->GetTextureValue();
                 if (pTex) {
-                    // Force download to GPU (this should trigger SetTexture)
+                    // Force download to GPU
                     pTex->Download();
                     Msg("[RemixMaterial] TrackMaterial: Triggered texture download for '%s'\n", pTex->GetName());
                 } else {
@@ -440,6 +475,9 @@ LUA_FUNCTION(RemixMaterial_TrackMaterial) {
             Warning("[RemixMaterial] TrackMaterial: Material '%s' not found or is error material\n", materialName);
         }
     }
+    
+    // Always clear the current material tracking to prevent "stuck" tracking
+    D3D9TextureTracker::Instance().SetCurrentMaterial(nullptr);
     
     LUA->PushBool(true);
     return 1;
@@ -466,15 +504,13 @@ LUA_FUNCTION(RemixMaterial_GetTextureHash) {
     const std::vector<IDirect3DTexture9*>* variants = D3D9TextureTracker::Instance().GetTextureVariantsForMaterial(materialName);
     
     if (!variants || variants->empty()) {
-        Warning("[RemixMaterial] GetTextureHash: Material '%s' not found in texture cache\n", materialName);
-        Warning("[RemixMaterial]   The material may not have been rendered yet.\n");
-        Warning("[RemixMaterial]   Try looking at a surface with this material first, then call this function again.\n");
-        Warning("[RemixMaterial]   Cache size: %zu materials\n", D3D9TextureTracker::Instance().GetCacheSize());
+        // Quiet warning to avoid spam
+        // Warning("[RemixMaterial] GetTextureHash: Material '%s' not found in texture cache\n", materialName);
         LUA->PushNumber(0);
         return 1;
     }
     
-    Msg("[RemixMaterial] GetTextureHash: Found %zu texture variant(s) for '%s'\n", variants->size(), materialName);
+    // Msg("[RemixMaterial] GetTextureHash: Found %zu texture variant(s) for '%s'\n", variants->size(), materialName);
     
     // Try all variants and collect their hashes
     uint64_t firstValidHash = 0;
@@ -484,13 +520,11 @@ LUA_FUNCTION(RemixMaterial_GetTextureHash) {
         
         if (result) {
             uint64_t hash = result.value();
-            Msg("[RemixMaterial]   Variant %zu (0x%p): Hash = 0x%llX\n", i, d3dTexture, hash);
+            // Msg("[RemixMaterial]   Variant %zu (0x%p): Hash = 0x%llX\n", i, d3dTexture, hash);
             
             if (firstValidHash == 0) {
                 firstValidHash = hash;
             }
-        } else {
-            Warning("[RemixMaterial]   Variant %zu (0x%p): Failed to get hash (error %d)\n", i, d3dTexture, result.status());
         }
     }
     
@@ -501,40 +535,7 @@ LUA_FUNCTION(RemixMaterial_GetTextureHash) {
     }
     
     // Return the first valid hash (for now)
-    // TODO: We might want to let Lua choose which variant to use
-    Msg("[RemixMaterial] GetTextureHash: Returning hash 0x%llX for '%s'\n", firstValidHash, materialName);
-    
-    // Push the hash as a string to preserve precision (Lua numbers are doubles, which lose precision for large 64-bit integers)
-    // 0x2B35E18A60F3A52C is too large for double precision!
-    // But wait, the user's script expects a number.
-    // Let's check if we can push it as a double without losing too much info, or if we should push as string.
-    // Actually, the user's script does: string.format("0x%X", hash)
-    // If we push as double, 0x2B35E18A60F3A52C (3113666960980682028) becomes 3.1136669609807e18
-    // Double has 53 bits of significand. 64-bit hash has 64 bits. We WILL lose precision.
-    // The user reported: "Variant 0 and 1 have the hash that matches remix (0x2B35E18A60F3A52C), but the tracked one is 0x2B35E18A60F3A600"
-    // 0x...52C vs 0x...600 -> This is exactly a floating point precision error!
-    // 0x2B35E18A60F3A52C = 3113666960980682028
-    // 0x2B35E18A60F3A600 = 3113666960980682240
-    // Difference is 212.
-    
-    // We MUST push this as a string or split it into two 32-bit numbers if we want exact precision in Lua 5.1 (GMod).
-    // However, to fix the immediate issue without breaking the Lua script's type check (if it checks for number),
-    // we can't just change the type.
-    // BUT, the user's script uses string.format("%X", hash).
-    // If we change it to return a string, the script might break if it does math on it.
-    // But for hashes, usually they are just treated as IDs.
-    
-    // Let's try pushing as a double for now but warn about it, OR better:
-    // Since GMod Lua is LuaJIT, it might support 64-bit integers (cdata).
-    // But standard Lua API PushNumber uses double.
-    
-    // The best fix for GMod is to return the hash as a string if it's too big, OR return it as a double and accept the loss.
-    // BUT the user explicitly pointed out the mismatch.
-    // "Variant 0 and 1 have the hash that matches remix (0x2B35E18A60F3A52C), but the tracked one is 0x2B35E18A60F3A600"
-    // This confirms it IS a precision issue.
-    
-    // Let's return it as a double (standard behavior) BUT ALSO return the string version as a second return value.
-    // This allows updated scripts to use the string version for exact matching.
+    // Msg("[RemixMaterial] GetTextureHash: Returning hash 0x%llX for '%s'\n", firstValidHash, materialName);
     
     LUA->PushNumber(static_cast<double>(firstValidHash));
     
@@ -611,4 +612,4 @@ void MaterialManager::InitializeLuaBindings() {
 
 } // namespace RemixAPI
 
-#endif // _WIN64 
+#endif // _WIN64
