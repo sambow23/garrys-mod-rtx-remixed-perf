@@ -65,6 +65,9 @@ RemixCategoryManager.PRESET = {
     
     -- For terrain (displacement surfaces) - mark as DECAL for proper blending
     TERRAIN = RemixCategoryManager.CATEGORY.DECAL_STATIC,  -- 0x1000
+    
+    -- For player model textures (pseudoplayer, third-person view)
+    PLAYER_MODEL = RemixCategoryManager.CATEGORY.THIRD_PERSON_PLAYER_MODEL,  -- 0x80000
 }
 
 -- Local cache of material name -> hash mappings

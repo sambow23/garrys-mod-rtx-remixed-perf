@@ -583,6 +583,7 @@ static std::vector<const char*> GetRemixCategoryOptions(uint32_t categoryFlags) 
     if (categoryFlags & (1 << 4))  options.push_back("rtx.ignoreTextures");  // IGNORE
     if (categoryFlags & (1 << 17)) options.push_back("rtx.terrainTextures");  // TERRAIN
     if (categoryFlags & (1 << 18)) options.push_back("rtx.animatedWaterTextures");  // ANIMATED_WATER
+    if (categoryFlags & (1 << 19)) options.push_back("rtx.playerModelTextures");  // THIRD_PERSON_PLAYER_MODEL
     
     return options;
 }
@@ -735,6 +736,14 @@ LUA_FUNCTION(RemixMaterial_GetHashCategory) {
     return 0; // nil
 }
 
+// Lua function: RemixMaterial.ClearTextureCache()
+// Clears the D3D9 texture tracker cache
+LUA_FUNCTION(RemixMaterial_ClearTextureCache) {
+    D3D9TextureTracker::Instance().ClearCache();
+    LUA->PushBool(true);
+    return 1;
+}
+
 // Lua function: RemixMaterial.FindTexturesByName(searchName)
 LUA_FUNCTION(RemixMaterial_FindTexturesByName) {
     if (!LUA->IsType(1, Type::String)) {
@@ -819,6 +828,9 @@ void MaterialManager::InitializeLuaBindings() {
     
     m_lua->PushCFunction(RemixMaterial_FindTexturesByName);
     m_lua->SetField(-2, "FindTexturesByName");
+    
+    m_lua->PushCFunction(RemixMaterial_ClearTextureCache);
+    m_lua->SetField(-2, "ClearTextureCache");
     
     // Set the table as a global field
     m_lua->SetField(-2, "RemixMaterial");
