@@ -115,8 +115,12 @@ void D3D9TextureTracker::Shutdown() {
         VTableHook::HookVTableFunction(m_pRenderContext, 7, m_pOriginalBind);
     }
 
-    m_textureCache.clear();
-    m_currentMaterial.clear();
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_textureCache.clear();
+        m_currentMaterial.clear();
+    }
+    
     m_pDevice = nullptr;
     m_pRenderContext = nullptr;
     m_pOriginalSetTexture = nullptr;
@@ -127,6 +131,7 @@ void D3D9TextureTracker::Shutdown() {
 }
 
 void D3D9TextureTracker::SetCurrentMaterial(const char* materialName) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (materialName && materialName[0]) {
         // Normalize to lowercase to handle case-insensitive Source Engine names
         std::string lowerName = materialName;
@@ -139,6 +144,7 @@ void D3D9TextureTracker::SetCurrentMaterial(const char* materialName) {
 }
 
 IDirect3DTexture9* D3D9TextureTracker::GetTextureForMaterial(const char* materialName) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (!materialName || !materialName[0]) {
         return nullptr;
     }
@@ -159,6 +165,7 @@ IDirect3DTexture9* D3D9TextureTracker::GetTextureForMaterial(const char* materia
 }
 
 const std::vector<IDirect3DTexture9*>* D3D9TextureTracker::GetTextureVariantsForMaterial(const char* materialName) {
+    std::lock_guard<std::mutex> lock(m_mutex);
     if (!materialName || !materialName[0]) {
         return nullptr;
     }
@@ -177,6 +184,7 @@ const std::vector<IDirect3DTexture9*>* D3D9TextureTracker::GetTextureVariantsFor
 }
 
 void D3D9TextureTracker::ClearCache() {
+    std::lock_guard<std::mutex> lock(m_mutex);
     m_textureCache.clear();
     Msg("[D3D9TextureTracker] Cache cleared\n");
 }
@@ -189,43 +197,47 @@ HRESULT STDMETHODCALLTYPE D3D9TextureTracker::Hook_SetTexture(
 {
     D3D9TextureTracker& tracker = Instance();
 
-    // Always log if we have a current material to help debug
+    {
+        std::lock_guard<std::mutex> lock(tracker.m_mutex);
+
+        // Always log if we have a current material to help debug
 #ifdef _DEBUG
-    if (Stage == 0 && pTexture && !tracker.m_currentMaterial.empty()) {
-        // Msg("[D3D9TextureTracker] SetTexture(0, %p) for '%s'\n", pTexture, tracker.m_currentMaterial.c_str());
-    }
+        if (Stage == 0 && pTexture && !tracker.m_currentMaterial.empty()) {
+            // Msg("[D3D9TextureTracker] SetTexture(0, %p) for '%s'\n", pTexture, tracker.m_currentMaterial.c_str());
+        }
 #endif
 
-    // For now, let's just track ALL textures at stage 0 with a generic key
-    // We'll use the texture pointer itself as a way to identify it
-    if (Stage == 0 && pTexture) {
-        // Check if this is a 2D texture (not cube/volume)
-        D3DRESOURCETYPE resType = pTexture->GetType();
-        if (resType == D3DRTYPE_TEXTURE) {
-            IDirect3DTexture9* p2DTexture = static_cast<IDirect3DTexture9*>(pTexture);
-            
-            // If we have a current material name, use it
-            if (!tracker.m_currentMaterial.empty()) {
-                auto& textures = tracker.m_textureCache[tracker.m_currentMaterial];
+        // For now, let's just track ALL textures at stage 0 with a generic key
+        // We'll use the texture pointer itself as a way to identify it
+        if (Stage == 0 && pTexture) {
+            // Check if this is a 2D texture (not cube/volume)
+            D3DRESOURCETYPE resType = pTexture->GetType();
+            if (resType == D3DRTYPE_TEXTURE) {
+                IDirect3DTexture9* p2DTexture = static_cast<IDirect3DTexture9*>(pTexture);
                 
-                // Check if we've seen this texture before
-                bool found = false;
-                for (auto* tex : textures) {
-                    if (tex == p2DTexture) {
-                        found = true;
-                        break;
+                // If we have a current material name, use it
+                if (!tracker.m_currentMaterial.empty()) {
+                    auto& textures = tracker.m_textureCache[tracker.m_currentMaterial];
+                    
+                    // Check if we've seen this texture before
+                    bool found = false;
+                    for (auto* tex : textures) {
+                        if (tex == p2DTexture) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    
+                    // Only log when we discover a NEW variant
+                    if (!found) {
+                        textures.push_back(p2DTexture);
+                        // Re-enable logging for debugging texture capture issues
+                        Msg("[D3D9TextureTracker] NEW texture variant #%zu: 0x%p for '%s'\n", 
+                            textures.size(), p2DTexture, tracker.m_currentMaterial.c_str());
                     }
                 }
-                
-                // Only log when we discover a NEW variant
-                if (!found) {
-                    textures.push_back(p2DTexture);
-                    // Re-enable logging for debugging texture capture issues
-                    Msg("[D3D9TextureTracker] NEW texture variant #%zu: 0x%p for '%s'\n", 
-                        textures.size(), p2DTexture, tracker.m_currentMaterial.c_str());
-                }
+                // No else block needed - we silently ignore untracked textures now
             }
-            // No else block needed - we silently ignore untracked textures now
         }
     }
 
@@ -291,6 +303,7 @@ bool D3D9TextureTracker::GetMaterialCategoryFlags(const char* materialName, uint
 }
 
 std::vector<std::pair<std::string, uint64_t>> D3D9TextureTracker::FindTexturesByName(const std::string& searchName) const {
+    std::lock_guard<std::mutex> lock(m_mutex);
     std::vector<std::pair<std::string, uint64_t>> results;
     
     // Search through all tracked materials

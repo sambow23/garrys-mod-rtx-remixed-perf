@@ -5,6 +5,8 @@
 #include <d3d9.h>
 #include <unordered_map>
 #include <string>
+#include <vector>
+#include <mutex>
 #include <cstddef>
 
 // Forward declarations
@@ -107,6 +109,9 @@ private:
     
     // Track whether we're initialized
     bool m_bInitialized = false;
+    
+    // Mutex for thread safety
+    mutable std::mutex m_mutex;
 };
 
 #endif // _WIN64
