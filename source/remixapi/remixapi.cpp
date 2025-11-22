@@ -688,7 +688,14 @@ MeshManager::~MeshManager() {
 uint64_t MeshManager::CreateMesh(const std::string& name, const remix::MeshInfo& info) {
     if (!m_remixInterface) return 0;
 
-    auto result = m_remixInterface->CreateMesh(info);
+    // Try batched API if available to fix stability issues
+    auto result = [&]() {
+        if (m_remixInterface->m_CInterface.CreateMeshBatched) {
+            return m_remixInterface->CreateMeshBatched(info);
+        }
+        return m_remixInterface->CreateMesh(info);
+    }();
+
     if (!result) {
         Warning("[MeshManager] Failed to create mesh '%s': %d\n", name.c_str(), result.status());
         return 0;
@@ -751,6 +758,14 @@ bool MeshManager::DestroyMesh(uint64_t meshId) {
 
 bool MeshManager::HasMesh(uint64_t meshId) const {
     return m_meshes.find(meshId) != m_meshes.end();
+}
+
+remixapi_MeshHandle MeshManager::GetMeshHandle(uint64_t meshId) const {
+    auto it = m_meshes.find(meshId);
+    if (it != m_meshes.end()) {
+        return it->second.handle;
+    }
+    return nullptr;
 }
 
 //=============================================================================
@@ -1075,18 +1090,9 @@ void ResourceManager::SetMemoryLimits(size_t maxCacheSize, size_t maxVRAM) {
 // - config_lua_bindings.cpp  
 // - resource_lua_bindings.cpp
 // - light_lua_bindings.cpp
-
-void MeshManager::InitializeLuaBindings() {
-    // TODO: Implement mesh Lua bindings
-}
-
-void CameraManager::InitializeLuaBindings() {
-    // TODO: Implement camera Lua bindings
-}
-
-void InstanceManager::InitializeLuaBindings() {
-    // TODO: Implement instance Lua bindings
-}
+// - mesh_lua_bindings.cpp
+// - instance_lua_bindings.cpp
+// - bsp_geometry_lua_bindings.cpp
 
 //=============================================================================
 // Legacy Functions for Backwards Compatibility

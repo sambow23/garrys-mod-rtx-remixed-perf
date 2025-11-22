@@ -177,6 +177,7 @@ namespace RemixAPI {
         bool UpdateMesh(uint64_t meshId, const remix::MeshInfo& info);
         bool DestroyMesh(uint64_t meshId);
         bool HasMesh(uint64_t meshId) const;
+        remixapi_MeshHandle GetMeshHandle(uint64_t meshId) const;
         
         // Lua bindings
         void InitializeLuaBindings();
