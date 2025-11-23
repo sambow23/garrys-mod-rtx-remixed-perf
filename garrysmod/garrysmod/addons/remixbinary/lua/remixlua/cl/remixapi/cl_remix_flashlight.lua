@@ -513,4 +513,5 @@ cvars.AddChangeCallback("rtx_flashlight_color_r", SendColorUpdate, "rtx_flashlig
 cvars.AddChangeCallback("rtx_flashlight_color_g", SendColorUpdate, "rtx_flashlight_color_update")
 cvars.AddChangeCallback("rtx_flashlight_color_b", SendColorUpdate, "rtx_flashlight_color_update")
 
-print("[RTX Flashlight] Loaded! Bind 'rtx_flashlight_toggle' to a key (e.g., bind f rtx_flashlight_toggle)")
+print("[RTX Flashlight] Loaded! Press 'F' (your flashlight key) to toggle the RTX flashlight")
+print("[RTX Flashlight] Or bind manually: bind f rtx_flashlight_toggle")

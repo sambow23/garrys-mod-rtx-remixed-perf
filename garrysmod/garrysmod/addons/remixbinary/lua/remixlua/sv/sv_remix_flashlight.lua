@@ -120,4 +120,55 @@ hook.Add("PlayerDeath", "RTXFlashlight_Death", function(victim, inflictor, attac
     end
 end)
 
+-- Set flashlight state (not toggle) for a player
+local function SetPlayerFlashlight(ply, state, r, g, b)
+    if not IsValid(ply) then return end
+    
+    -- Initialize if needed
+    if not playerFlashlightStates[ply] then
+        playerFlashlightStates[ply] = { active = false, color = Color(255, 240, 200) }
+    end
+    
+    -- Update color if provided
+    if r and g and b then
+        playerFlashlightStates[ply].color = Color(r, g, b)
+    end
+    
+    -- Only broadcast if state actually changed
+    if playerFlashlightStates[ply].active ~= state then
+        playerFlashlightStates[ply].active = state
+        
+        -- Broadcast to all clients
+        net.Start("rtx_flashlight_state")
+        net.WriteEntity(ply)
+        net.WriteBool(state)
+        net.WriteUInt(playerFlashlightStates[ply].color.r, 8)
+        net.WriteUInt(playerFlashlightStates[ply].color.g, 8)
+        net.WriteUInt(playerFlashlightStates[ply].color.b, 8)
+        net.Broadcast()
+    end
+end
+
+-- Intercept Source engine flashlight toggle and use RTX flashlight instead
+local cv_override = CreateConVar("rtx_flashlight_override_default", "1", FCVAR_ARCHIVE, "Override default flashlight with RTX flashlight")
+
+hook.Add("PlayerSwitchFlashlight", "RTXFlashlight_Override", function(ply, enabled)
+    -- If override is disabled, allow default behavior
+    if not cv_override:GetBool() then return end
+    
+    -- Initialize state if needed
+    if not playerFlashlightStates[ply] then
+        playerFlashlightStates[ply] = { active = false, color = Color(255, 240, 200) }
+    end
+    
+    -- Set RTX flashlight to match the desired state
+    local col = playerFlashlightStates[ply].color
+    SetPlayerFlashlight(ply, enabled, col.r, col.g, col.b)
+    
+    -- Allow the engine to track flashlight state normally (for the hook to work correctly)
+    -- but the visual effect won't appear because RTX will override it
+    return true
+end)
+
 print("[RTX Flashlight] Server component loaded - multiplayer support enabled")
+print("[RTX Flashlight] Default flashlight override: " .. (cv_override:GetBool() and "ENABLED" or "DISABLED"))
