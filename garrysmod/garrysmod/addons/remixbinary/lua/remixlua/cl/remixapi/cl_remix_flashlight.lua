@@ -62,7 +62,7 @@ local function CreateFlashlight(ply, colorOverride)
     
     -- Get color and brightness
     -- Use color override if provided (from network), otherwise use ConVars for local player
-    local brightness = math.Clamp(cv_brightness:GetFloat(), 0, 100)
+    local brightness = cv_brightness:GetFloat()
     local scale = brightness / 1000.0
     local r, g, b
     if colorOverride then
@@ -147,7 +147,7 @@ local function UpdateCachedSettings()
     local currentTime = CurTime()
     if currentTime - cachedSettings.lastUpdate < SETTINGS_CACHE_TIME then return end
     
-    cachedSettings.brightness = math.Clamp(cv_brightness:GetFloat(), 0, 1000)
+    cachedSettings.brightness = cv_brightness:GetFloat()
     cachedSettings.radius = cv_radius:GetFloat()
     cachedSettings.coneAngle = cv_cone_angle:GetFloat()
     cachedSettings.coneSoftness = cv_cone_softness:GetFloat()
@@ -409,7 +409,7 @@ hook.Add("PopulateToolMenu", "RTXFlashlight_Menu", function()
         panel:ClearControls()
         
         panel:Help("Light Properties")
-        panel:NumSlider("Brightness", "rtx_flashlight_brightness", 0, 1000, 1)
+        panel:NumSlider("Brightness", "rtx_flashlight_brightness", 0, 100000, 1)
         panel:NumSlider("Radius", "rtx_flashlight_radius", 1, 200, 0)
         panel:NumSlider("Cone Angle", "rtx_flashlight_cone_angle", 5, 90, 0)
         panel:NumSlider("Cone Softness", "rtx_flashlight_cone_softness", 0, 1, 2)
