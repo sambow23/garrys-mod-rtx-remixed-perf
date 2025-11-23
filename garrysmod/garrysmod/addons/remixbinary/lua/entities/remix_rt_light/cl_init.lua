@@ -12,6 +12,24 @@ local cv_vis_scale = CreateClientConVar("remix_rt_light_visualize_scale", "1.0",
 local cv_vis_fill_opacity = CreateClientConVar("remix_rt_light_visualize_fill_opacity", "135", true, false, "Fill opacity for shape visualization (0-255)")
 local cv_debug_updates = CreateClientConVar("remix_rt_light_debug_updates", "0", true, false, "Print debug info when lights update")
 
+-- Reusable tables to reduce GC pressure during frequent updates
+local _vec_pos = { x = 0, y = 0, z = 0 }
+local _vec_rad = { x = 0, y = 0, z = 0 }
+local _vec_dir = { x = 0, y = 0, z = 0 }
+local _vec_axis = { x = 0, y = 0, z = 0 }
+local _vec_xaxis = { x = 0, y = 0, z = 0 }
+local _vec_yaxis = { x = 0, y = 0, z = 0 }
+
+local _base_info = { hash = 0, radiance = _vec_rad, isDynamic = false }
+
+local _shaping = { direction = _vec_dir, coneAngleDegrees = 0, coneSoftness = 0, focusExponent = 0 }
+local _sphere_info = { position = _vec_pos, radius = 0, volumetricRadianceScale = 0 } 
+
+local _cylinder_info = { position = _vec_pos, radius = 0, axis = _vec_axis, axisLength = 0, volumetricRadianceScale = 0 }
+local _disk_info = { position = _vec_pos, xAxis = _vec_xaxis, yAxis = _vec_yaxis, xRadius = 0, yRadius = 0, direction = _vec_dir, volumetricRadianceScale = 0 }
+local _rect_info = { position = _vec_pos, xAxis = _vec_xaxis, yAxis = _vec_yaxis, xSize = 0, ySize = 0, direction = _vec_dir, volumetricRadianceScale = 0 }
+local _distant_info = { direction = _vec_dir, angularDiameterDegrees = 0, volumetricRadianceScale = 0 }
+
 local function vec_to_table(v) return { x = v.x, y = v.y, z = v.z } end
 
 -- Helper function to determine outline color based on luminance
@@ -674,61 +692,82 @@ local function updateLight(self)
     -- Perform the actual light update
     local dir = ang:Forward()
 
-    -- Check if physics object is awake (being moved/interacted with)
-    local phys = self:GetPhysicsObject()
-    local isMoving = IsValid(phys) and not phys:IsAsleep()
+    -- Update reusable vectors
+    _vec_pos.x, _vec_pos.y, _vec_pos.z = pos.x, pos.y, pos.z
+    _vec_dir.x, _vec_dir.y, _vec_dir.z = dir.x, dir.y, dir.z
+    _vec_rad.x, _vec_rad.y, _vec_rad.z = col.x, col.y, col.z
 
-    -- Update the light directly (bypass queue for responsiveness)
-    local base = {
-        hash = tonumber(util.CRC("ent_light_" .. self:EntIndex())) or 1,
-        radiance = { x = col.x, y = col.y, z = col.z },
-        isDynamic = isMoving,  -- Dynamic when moving, static when at rest for temporal accumulation
-    }
-    
+    -- Cache hash if not present
+    if not self.LightHash then
+        self.LightHash = tonumber(util.CRC("ent_light_" .. self:EntIndex())) or 1
+    end
+
+    _base_info.hash = self.LightHash
+    -- _base_info.radiance is already _vec_rad
+    _base_info.isDynamic = false -- Keep false for temporal stability
+
     if lt == "sphere" and RemixLight.UpdateSphere then
-        local sphere = {
-            position = vec_to_table(pos),
-            radius = radius,
-            volumetricRadianceScale = volScale,
-        }
+        _sphere_info.radius = radius
+        _sphere_info.volumetricRadianceScale = volScale
+        -- _sphere_info.position is already _vec_pos
+        
         if shapingEnabled then
-            sphere.shaping = { direction = { x = dir.x, y = dir.y, z = dir.z }, coneAngleDegrees = cone, coneSoftness = softness, focusExponent = focus }
+            _shaping.coneAngleDegrees = cone
+            _shaping.coneSoftness = softness
+            _shaping.focusExponent = focus
+            -- _shaping.direction is already _vec_dir
+            _sphere_info.shaping = _shaping
+        else
+            _sphere_info.shaping = nil
         end
-        RemixLight.UpdateSphere(base, sphere, self.LightId)
+        RemixLight.UpdateSphere(_base_info, _sphere_info, self.LightId)
+        
     elseif lt == "cylinder" and RemixLight.UpdateCylinder then
-        local cyl = {
-            position = vec_to_table(pos),
-            radius = radius,
-            axis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z },
-            axisLength = axislen,
-            volumetricRadianceScale = volScale,
-        }
-        RemixLight.UpdateCylinder(base, cyl, self.LightId)
+        local up = ang:Up()
+        _vec_axis.x, _vec_axis.y, _vec_axis.z = up.x, up.y, up.z
+        
+        _cylinder_info.radius = radius
+        _cylinder_info.axisLength = axislen
+        _cylinder_info.volumetricRadianceScale = volScale
+        -- _cylinder_info.position is already _vec_pos
+        -- _cylinder_info.axis is already _vec_axis
+        
+        RemixLight.UpdateCylinder(_base_info, _cylinder_info, self.LightId)
+        
     elseif lt == "disk" and RemixLight.UpdateDisk then
-        local disk = {
-            position = vec_to_table(pos),
-            xAxis = { x = ang:Right().x, y = ang:Right().y, z = ang:Right().z }, xRadius = xradius,
-            yAxis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z }, yRadius = yradius,
-            direction = { x = dir.x, y = dir.y, z = dir.z },
-            volumetricRadianceScale = volScale,
-        }
-        RemixLight.UpdateDisk(base, disk, self.LightId)
+        local right = ang:Right()
+        local up = ang:Up()
+        _vec_xaxis.x, _vec_xaxis.y, _vec_xaxis.z = right.x, right.y, right.z
+        _vec_yaxis.x, _vec_yaxis.y, _vec_yaxis.z = up.x, up.y, up.z
+        
+        _disk_info.xRadius = xradius
+        _disk_info.yRadius = yradius
+        _disk_info.volumetricRadianceScale = volScale
+        -- _disk_info.position is already _vec_pos
+        -- _disk_info.direction is already _vec_dir
+        
+        RemixLight.UpdateDisk(_base_info, _disk_info, self.LightId)
+        
     elseif lt == "rect" and RemixLight.UpdateRect then
-        local rect = {
-            position = vec_to_table(pos),
-            xAxis = { x = ang:Right().x, y = ang:Right().y, z = ang:Right().z }, xSize = xsize,
-            yAxis = { x = ang:Up().x, y = ang:Up().y, z = ang:Up().z }, ySize = ysize,
-            direction = { x = dir.x, y = dir.y, z = dir.z },
-            volumetricRadianceScale = volScale,
-        }
-        RemixLight.UpdateRect(base, rect, self.LightId)
+        local right = ang:Right()
+        local up = ang:Up()
+        _vec_xaxis.x, _vec_xaxis.y, _vec_xaxis.z = right.x, right.y, right.z
+        _vec_yaxis.x, _vec_yaxis.y, _vec_yaxis.z = up.x, up.y, up.z
+        
+        _rect_info.xSize = xsize
+        _rect_info.ySize = ysize
+        _rect_info.volumetricRadianceScale = volScale
+        -- _rect_info.position is already _vec_pos
+        -- _rect_info.direction is already _vec_dir
+        
+        RemixLight.UpdateRect(_base_info, _rect_info, self.LightId)
+        
     elseif lt == "distant" and RemixLight.UpdateDistant then
-        local distant = { 
-            direction = { x = dir.x, y = dir.y, z = dir.z }, 
-            angularDiameterDegrees = distantang, 
-            volumetricRadianceScale = volScale 
-        }
-        RemixLight.UpdateDistant(base, distant, self.LightId)
+        _distant_info.angularDiameterDegrees = distantang
+        _distant_info.volumetricRadianceScale = volScale
+        -- _distant_info.direction is already _vec_dir
+        
+        RemixLight.UpdateDistant(_base_info, _distant_info, self.LightId)
     end
 end
 

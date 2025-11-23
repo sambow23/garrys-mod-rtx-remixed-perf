@@ -32,6 +32,14 @@ local function DebugPrint(...)
     end
 end
 
+-- Reusable tables to avoid GC stutter
+local _vec_pos = { x = 0, y = 0, z = 0 }
+local _vec_dir = { x = 0, y = 0, z = 0 }
+local _vec_rad = { x = 0, y = 0, z = 0 }
+local _shaping = { direction = _vec_dir, coneAngleDegrees = 0, coneSoftness = 0, focusExponent = 1.0 }
+local _sphere = { position = _vec_pos, radius = 0, shaping = _shaping, volumetricRadianceScale = 0 }
+local _base = { hash = 0, radiance = _vec_rad, isDynamic = true, ignoreViewModel = true }
+
 local function vec3(x, y, z)
     return { x = x, y = y, z = z }
 end
@@ -76,9 +84,12 @@ local function CreateFlashlight(ply, colorOverride)
     end
     
     -- Create light definition
+    local hash = tonumber(util.CRC("rtx_flashlight_" .. ply:EntIndex())) or 99999
     local base = {
-        hash = tonumber(util.CRC("rtx_flashlight_" .. ply:EntIndex())) or 99999,
+        hash = hash,
         radiance = vec3(r, g, b),
+        isDynamic = true,
+        ignoreViewModel = true,  -- Don't light view models
     }
     
     local sphere = {
@@ -117,7 +128,8 @@ local function CreateFlashlight(ply, colorOverride)
         playerFlashlights[ply] = {
             active = true,
             lightId = lightId,
-            color = storedColor
+            color = storedColor,
+            hash = hash
         }
         
         DebugPrint("Flashlight created for player", ply:Nick(), "with ID:", lightId)
@@ -159,7 +171,7 @@ local function UpdateCachedSettings()
 end
 
 -- Update the RTX flashlight position and direction for a specific player
-local function UpdateFlashlight(ply)
+local function UpdateFlashlight(ply, posOverride, angOverride)
     ply = ply or LocalPlayer()
     
     local flashData = playerFlashlights[ply]
@@ -172,8 +184,16 @@ local function UpdateFlashlight(ply)
     end
     
     -- Get current position and direction
-    local eyePos = ply:EyePos()
-    local eyeAngles = ply:EyeAngles()
+    -- Use overrides if provided (for local player camera lock), otherwise calculate from entity
+    local eyePos, eyeAngles
+    if posOverride and angOverride then
+        eyePos = posOverride
+        eyeAngles = angOverride
+    else
+        eyePos = ply:EyePos()
+        eyeAngles = ply:EyeAngles()
+    end
+
     local forward = eyeAngles:Forward()
     local right = eyeAngles:Right()
     local up = eyeAngles:Up()
@@ -192,26 +212,35 @@ local function UpdateFlashlight(ply)
     local g = playerColor.g * scale
     local b = playerColor.b * scale
     
-    local base = {
-        hash = tonumber(util.CRC("rtx_flashlight_" .. ply:EntIndex())) or 99999,
-        radiance = vec3(r, g, b),
-    }
+    -- Update reusable tables
+    _vec_rad.x = r
+    _vec_rad.y = g
+    _vec_rad.z = b
     
-    local sphere = {
-        position = vec3(offsetPos.x, offsetPos.y, offsetPos.z),
-        radius = cachedSettings.radius,
-        shaping = {
-            direction = vec3(forward.x, forward.y, forward.z),
-            coneAngleDegrees = cachedSettings.coneAngle,
-            coneSoftness = cachedSettings.coneSoftness,
-            focusExponent = 1.0,
-        },
-        volumetricRadianceScale = cachedSettings.volumetric,
-    }
+    _base.hash = flashData.hash or (tonumber(util.CRC("rtx_flashlight_" .. ply:EntIndex())) or 99999)
+    -- _base.radiance is already _vec_rad
+    _base.isDynamic = true -- Flashlight moves every frame, must be dynamic to avoid cache thrashing/ghosting
+    
+    _vec_pos.x = offsetPos.x
+    _vec_pos.y = offsetPos.y
+    _vec_pos.z = offsetPos.z
+    
+    _vec_dir.x = forward.x
+    _vec_dir.y = forward.y
+    _vec_dir.z = forward.z
+    
+    _shaping.coneAngleDegrees = cachedSettings.coneAngle
+    _shaping.coneSoftness = cachedSettings.coneSoftness
+    -- _shaping.direction is already _vec_dir
+    
+    _sphere.radius = cachedSettings.radius
+    _sphere.volumetricRadianceScale = cachedSettings.volumetric
+    -- _sphere.position is already _vec_pos
+    -- _sphere.shaping is already _shaping
     
     -- Update directly
     if RemixLight.UpdateSphere then
-        RemixLight.UpdateSphere(base, sphere, flashData.lightId)
+        RemixLight.UpdateSphere(_base, _sphere, flashData.lightId)
     end
 end
 
@@ -262,14 +291,22 @@ local function ToggleFlashlight()
 end
 
 -- RenderScene hook for low-latency updates (runs every frame during rendering)
-hook.Add("RenderScene", "RTXFlashlight_Update", function()
+hook.Add("Think", "RTXFlashlight_Update", function(origin, angles, fov)
     -- Update cached settings periodically
     UpdateCachedSettings()
     
+    local localPly = LocalPlayer()
+    local useCamera = IsValid(localPly) and not localPly:ShouldDrawLocalPlayer()
+
     -- Update all active player flashlights
     for ply, flashData in pairs(playerFlashlights) do
         if IsValid(ply) and flashData.active then
-            UpdateFlashlight(ply)
+            -- For local player in first person, use exact camera transform to prevent jitter
+            if ply == localPly and useCamera then
+                UpdateFlashlight(ply, origin, angles)
+            else
+                UpdateFlashlight(ply)
+            end
         else
             -- Clean up invalid players
             if not IsValid(ply) then

@@ -86,6 +86,13 @@ static remix::LightInfo LuaToLightInfo(ILuaBase* LUA, int index) {
     }
     LUA->Pop();
     
+    // Get ignoreViewModel flag (optional, defaults to false)
+    LUA->GetField(index, "ignoreViewModel");
+    if (LUA->IsType(-1, Type::Bool)) {
+        info.ignoreViewModel = LUA->GetBool(-1);
+    }
+    LUA->Pop();
+    
     return info;
 }
 
