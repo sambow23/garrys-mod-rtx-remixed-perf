@@ -144,6 +144,16 @@ local function ShouldRenderEntity(ent)
     
     -- Filter mode: dynamic_only (only render dynamic entities: players, NPCs, physics props, vehicles)
     if REARVIEW.filterMode == "dynamic_only" then
+        -- Exclude particles and effects
+        if class:find("particle") or 
+           class:find("^env_sprite") or 
+           class:find("^env_steam") or 
+           class:find("^env_fire") or 
+           class:find("^env_smokestack") or 
+           class:find("^info_particle") then
+            return false
+        end
+        
         -- Players
         if ent:IsPlayer() then return true end
         
@@ -288,10 +298,16 @@ local function UpdateRearRT()
         -- Hide filtered entities before rendering
         HideFilteredEntities()
 
+        -- Set flag to suppress particles (checked by hook below)
+        REARVIEW._suppressParticles = (REARVIEW.filterMode == "dynamic_only")
+
         -- Render scene into our RT (flag as offscreen so other systems like skybox skip per-frame logic)
         if RenderCore and RenderCore.PushOffscreen then RenderCore.PushOffscreen() end
         render.RenderView(view)
         if RenderCore and RenderCore.PopOffscreen then RenderCore.PopOffscreen() end
+
+        -- Clear suppression flag
+        REARVIEW._suppressParticles = false
 
         -- Restore filtered entities after rendering
         RestoreFilteredEntities()
@@ -301,6 +317,7 @@ local function UpdateRearRT()
 
     -- Always reset rendering flag and restore entities, even if error occurred
     REARVIEW._rendering = false
+    REARVIEW._suppressParticles = false -- Safety: clear suppression flag
     RestoreFilteredEntities() -- Safety: ensure entities are restored even on error
 
     if not success then
@@ -312,6 +329,13 @@ end
 hook.Add("PreRender", "RearView_UpdateRT", function()
     if not REARVIEW.enabled then return end
     UpdateRearRT()
+end)
+
+-- Suppress translucent renderables (including particles) during RT render
+hook.Add("PreDrawTranslucentRenderables", "RearView_SuppressTranslucent", function(bDrawingDepth, bDrawingSkybox)
+    if REARVIEW._suppressParticles and not bDrawingDepth and not bDrawingSkybox then
+        return true -- Skip translucent renderables (particles, beams, etc.)
+    end
 end)
 
 -- Capture from CalcView so we follow custom camera logic provided by the gamemode/addons
