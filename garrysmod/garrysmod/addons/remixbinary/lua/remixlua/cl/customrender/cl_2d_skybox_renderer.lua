@@ -21,17 +21,6 @@ local cv_camFar  = CreateClientConVar("rtx_sky2d_cam_zfar", "65536", true, false
 local cv_disableCull = CreateClientConVar("rtx_sky2d_disable_cull", "0", true, false, "Disable backface culling when drawing sky quads")
 local cv_swapUD = CreateClientConVar("rtx_sky2d_swap_ud", "0", true, false, "Swap up/down sky faces to match Source orientation")
 local cv_swapLR = CreateClientConVar("rtx_sky2d_swap_lr", "1", true, false, "Swap left/right sky faces to match Source orientation")
--- Default all faces to 180 as per pictured working setup
-local cv_rot_rt = CreateClientConVar("rtx_sky2d_rot_rt", "180", true, false, "Rotation deg for right face")
-local cv_rot_lf = CreateClientConVar("rtx_sky2d_rot_lf", "180", true, false, "Rotation deg for left face")
-local cv_rot_bk = CreateClientConVar("rtx_sky2d_rot_bk", "180", true, false, "Rotation deg for back face")
-local cv_rot_ft = CreateClientConVar("rtx_sky2d_rot_ft", "180", true, false, "Rotation deg for front face")
-local cv_rot_up = CreateClientConVar("rtx_sky2d_rot_up", "180", true, false, "Rotation deg for up face")
-local cv_rot_dn = CreateClientConVar("rtx_sky2d_rot_dn", "180", true, false, "Rotation deg for down face")
--- Global rotation (rotates the entire cube orientation)
-local cv_rot_yaw   = CreateClientConVar("rtx_sky2d_rot_yaw", "0", true, false, "Rotate entire skybox around Z (yaw) degrees")
-local cv_rot_pitch = CreateClientConVar("rtx_sky2d_rot_pitch", "0", true, false, "Rotate entire skybox around Y (pitch) degrees")
-local cv_rot_roll  = CreateClientConVar("rtx_sky2d_rot_roll", "0", true, false, "Rotate entire skybox around X (roll) degrees")
 local cv_debug = CreateClientConVar("rtx_sky2d_debug", "0", true, false, "Debug prints for 2D skybox renderer")
 
 local function DebugPrint(...)
@@ -55,15 +44,6 @@ local cachedConVars = {
     useDepthRange = false,
     depthNear = 0.999,
     depthFar = 1.0,
-    rot_pitch = 0,
-    rot_yaw = 0,
-    rot_roll = 0,
-    rot_rt = 0,
-    rot_lf = 0,
-    rot_bk = 0,
-    rot_ft = 0,
-    rot_up = 0,
-    rot_dn = 0,
     swapLR = false,
     swapUD = false
 }
@@ -82,15 +62,6 @@ local function UpdateConVarCache()
     if cachedConVars.depthFar < cachedConVars.depthNear then
         cachedConVars.depthFar = cachedConVars.depthNear
     end
-    cachedConVars.rot_pitch = cv_rot_pitch:GetFloat() or 0
-    cachedConVars.rot_yaw = cv_rot_yaw:GetFloat() or 0
-    cachedConVars.rot_roll = cv_rot_roll:GetFloat() or 0
-    cachedConVars.rot_rt = cv_rot_rt:GetFloat()
-    cachedConVars.rot_lf = cv_rot_lf:GetFloat()
-    cachedConVars.rot_bk = cv_rot_bk:GetFloat()
-    cachedConVars.rot_ft = cv_rot_ft:GetFloat()
-    cachedConVars.rot_up = cv_rot_up:GetFloat()
-    cachedConVars.rot_dn = cv_rot_dn:GetFloat()
     cachedConVars.swapLR = cv_swapLR:GetBool()
     cachedConVars.swapUD = cv_swapUD:GetBool()
 end
@@ -100,26 +71,17 @@ UpdateConVarCache()
 
 -- Register change callbacks to invalidate cache
 for name, _ in pairs({
-    rtx_2dskybox_size = true,
-    rtx_2dskybox_brightness = true,
-    rtx_2dskybox_disable_cull = true,
-    rtx_2dskybox_clear_depth = true,
-    rtx_2dskybox_ztest = true,
-    rtx_2dskybox_zwrite = true,
-    rtx_2dskybox_use_depth_range = true,
-    rtx_2dskybox_depth_near = true,
-    rtx_2dskybox_depth_far = true,
-    rtx_2dskybox_rot_pitch = true,
-    rtx_2dskybox_rot_yaw = true,
-    rtx_2dskybox_rot_roll = true,
-    rtx_2dskybox_rot_rt = true,
-    rtx_2dskybox_rot_lf = true,
-    rtx_2dskybox_rot_bk = true,
-    rtx_2dskybox_rot_ft = true,
-    rtx_2dskybox_rot_up = true,
-    rtx_2dskybox_rot_dn = true,
-    rtx_2dskybox_swap_lr = true,
-    rtx_2dskybox_swap_ud = true
+    rtx_sky2d_size = true,
+    rtx_sky2d_brightness = true,
+    rtx_sky2d_disable_cull = true,
+    rtx_sky2d_clear_depth = true,
+    rtx_sky2d_ztest = true,
+    rtx_sky2d_zwrites = true,
+    rtx_sky2d_use_depthrange = true,
+    rtx_sky2d_depthnear = true,
+    rtx_sky2d_depthfar = true,
+    rtx_sky2d_swap_lr = true,
+    rtx_sky2d_swap_ud = true
 }) do
     cvars.AddChangeCallback(name, UpdateConVarCache, "RTX2DSky_CacheUpdate")
 end
@@ -203,40 +165,36 @@ local function Draw2DSky()
     end
     render.SetColorModulation(br, br, br)
 
-    -- Global rotation basis
-    local ang = Angle(cachedConVars.rot_pitch, cachedConVars.rot_yaw, cachedConVars.rot_roll)
+    -- Hardcoded rotation: entire skybox rotated 180° around Z axis (horizontal flip)
     local axisX = Vector(1, 0, 0)
     local axisY = Vector(0, 1, 0)
     local axisZ = Vector(0, 0, 1)
-    axisX:Rotate(ang)
-    axisY:Rotate(ang)
-    axisZ:Rotate(ang)
 
-    -- Sides
+    -- Sides (180° rotation swaps front<->back and right<->left)
     -- Right/Left with optional swap
     local rtMat = mats["rt"]
     local lfMat = mats["lf"]
     if cachedConVars.swapLR then
         rtMat, lfMat = lfMat, rtMat
     end
-    -- Right (rt): plane at +X, facing inward (-X)
-    drawFace(rtMat, origin + axisX * size, -axisX, size, cachedConVars.rot_rt)
-    -- Left (lf): plane at -X, facing inward (+X)
-    drawFace(lfMat, origin - axisX * size,  axisX, size, cachedConVars.rot_lf)
-    -- Back (bk): plane at -Y, facing inward (+Y)
-    drawFace(mats["bk"], origin - axisY * size,  axisY, size, cachedConVars.rot_bk)
-    -- Front (ft): plane at +Y, facing inward (-Y)
-    drawFace(mats["ft"], origin + axisY * size, -axisY, size, cachedConVars.rot_ft)
-    -- Up/Down with optional swap
+    -- Right material now on left position: plane at -X, facing inward (+X)
+    drawFace(rtMat, origin - axisX * size,  axisX, size, 180)
+    -- Left material now on right position: plane at +X, facing inward (-X)
+    drawFace(lfMat, origin + axisX * size, -axisX, size, 180)
+    -- Back material now on front position: plane at +Y, facing inward (-Y)
+    drawFace(mats["bk"], origin + axisY * size, -axisY, size, 180)
+    -- Front material now on back position: plane at -Y, facing inward (+Y)
+    drawFace(mats["ft"], origin - axisY * size,  axisY, size, 180)
+    -- Up/Down with optional swap (also rotated 180° to match horizontal rotation)
     local upMat = mats["up"]
     local dnMat = mats["dn"]
     if cachedConVars.swapUD then
         upMat, dnMat = dnMat, upMat
     end
-    -- Up (up): plane at +Z, facing inward (-Z)
-    drawFace(upMat, origin + axisZ * size, -axisZ, size, cachedConVars.rot_up - cachedConVars.rot_yaw)
-    -- Down (dn): plane at -Z, facing inward (+Z)
-    drawFace(dnMat, origin - axisZ * size,  axisZ, size, cachedConVars.rot_dn - cachedConVars.rot_yaw)
+    -- Up (up): plane at +Z, facing inward (-Z), rotated 360° (180° base + 180° global)
+    drawFace(upMat, origin + axisZ * size, -axisZ, size, 0)
+    -- Down (dn): plane at -Z, facing inward (+Z), rotated 360° (180° base + 180° global)
+    drawFace(dnMat, origin - axisZ * size,  axisZ, size, 0)
 
     -- Restore render state
     render.SetColorModulation(1, 1, 1)
