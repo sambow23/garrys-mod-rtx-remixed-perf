@@ -10,13 +10,70 @@ do
     local statsFns = RemixRenderCore._stats or {}
     local tokens = RemixRenderCore._tokens or {}
     local rebuildSinks = RemixRenderCore._rebuildSinks or {}
+    local sortedCache = RemixRenderCore._sortedCache or {}
+    local cacheDirty = RemixRenderCore._cacheDirty or {}
     -- Render queues and frame/job state
     local queues = RemixRenderCore._queues or { opaque = { buckets = {}, order = {} }, translucent = { buckets = {}, order = {} } }
-    local frameState = RemixRenderCore._frame or { began = false, skybox = false }
+    local frameState = RemixRenderCore._frame or { began = false, skybox = false, lastJobFrame = -1, cachedEyePos = nil }
     local jobs = RemixRenderCore._jobs or {}
     local offscreenCount = RemixRenderCore._offscreenCount or 0
     local frameBudgetHistory = RemixRenderCore._frameBudgetHistory or {}
     local FRAME_BUDGET_SAMPLES = 10
+    local renderState = RemixRenderCore._renderState or { lastColorR = 1, lastColorG = 1, lastColorB = 1 }
+    local translucentItemsCache = RemixRenderCore._translucentItems or {}
+    local WHITE_COLOR_NORMALIZED = { r = 1, g = 1, b = 1 }
+    
+    -- Performance profiler
+    local debugEnabled = CreateClientConVar("rtx_debug_profiling", "0", true, false, "Enable performance profiling and allocation tracking (0 = off, 1 = on)")
+    local perfHistory = RemixRenderCore._perfHistory or {}
+    local perfThreshold = 1.0 / 1000  -- Report operations taking >1ms
+    local lastGCCount = collectgarbage("count")
+    local gcCycleCount = 0
+    local lastGCStepTime = 0
+    
+    -- Detailed allocation tracking per component
+    local allocTracking = RemixRenderCore._allocTracking or {
+        enabled = false,
+        components = {},
+        frameStart = 0,
+        lastFrame = -1
+    }
+    
+    -- Object pooling to reduce GC pressure
+    local vectorPool = RemixRenderCore._vectorPool or {}
+    local vectorPoolIndex = 0
+    local MAX_VECTOR_POOL = 10
+    
+    local function getPooledVector(x, y, z)
+        vectorPoolIndex = (vectorPoolIndex % MAX_VECTOR_POOL) + 1
+        local v = vectorPool[vectorPoolIndex]
+        if not v then
+            v = Vector()
+            vectorPool[vectorPoolIndex] = v
+        end
+        v.x = x
+        v.y = y
+        v.z = z
+        return v
+    end
+    
+    -- Color table pool for normalized colors
+    local colorPool = RemixRenderCore._colorPool or {}
+    local colorPoolIndex = 0
+    local MAX_COLOR_POOL = 20
+    
+    local function getPooledColor(r, g, b)
+        colorPoolIndex = (colorPoolIndex % MAX_COLOR_POOL) + 1
+        local c = colorPool[colorPoolIndex]
+        if not c then
+            c = {}
+            colorPool[colorPoolIndex] = c
+        end
+        c.r = r
+        c.g = g
+        c.b = b
+        return c
+    end
 
     local function safeCall(id, fn, ...)
         local ok, a, b, c, d = pcall(fn, ...)
@@ -27,30 +84,131 @@ do
         return a, b, c, d
     end
 
+    -- Allocation tracking helpers (defined early so they can be used everywhere)
+    local function trackAllocStart(componentName)
+        if not debugEnabled:GetBool() or not allocTracking.enabled then return end
+        local mem = collectgarbage("count")
+        if not allocTracking.components[componentName] then
+            allocTracking.components[componentName] = { total = 0, calls = 0, last = 0 }
+        end
+        allocTracking.components[componentName].last = mem
+    end
+    
+    local function trackAllocEnd(componentName)
+        if not debugEnabled:GetBool() or not allocTracking.enabled then return end
+        local mem = collectgarbage("count")
+        local comp = allocTracking.components[componentName]
+        if comp and comp.last then
+            local delta = mem - comp.last
+            comp.total = comp.total + delta
+            comp.calls = comp.calls + 1
+            comp.last = nil
+        end
+    end
+
     -- ============================
     -- Frame Orchestration + Render Queue
     -- ============================
     function RemixRenderCore.BeginFrame(_, bSkybox)
-        -- Clear queues once per opaque frame begin
-        queues.opaque = { buckets = {}, order = {} }
-        queues.translucent = { buckets = {}, order = {} }
+        trackAllocStart("BeginFrame_Total")
+        local startTime = SysTime()
+        
+        -- Track frame start for allocation tracking
+        if allocTracking.enabled then
+            local frame = FrameNumber()
+            if allocTracking.lastFrame ~= frame then
+                allocTracking.lastFrame = frame
+                allocTracking.frameStart = collectgarbage("count")
+            end
+        end
+        
+        -- Clear queues by emptying bucket arrays instead of destroying tables
+        trackAllocStart("Queue_Clearing")
+        local oq = queues.opaque
+        local tq = queues.translucent
+        table.Empty(oq.order)
+        table.Empty(tq.order)
+        -- Reuse bucket tables instead of destroying them
+        for mat, bucket in pairs(oq.buckets) do 
+            if bucket then table.Empty(bucket) end
+        end
+        for mat, bucket in pairs(tq.buckets) do 
+            if bucket then table.Empty(bucket) end
+        end
+        trackAllocEnd("Queue_Clearing")
+        
         frameState.began = true
         frameState.skybox = bSkybox or false
-        -- Advance scheduled jobs conservatively
-        RemixRenderCore.StepJobs(0.0015)
+        
+        -- Cache EyePos for this frame to avoid multiple engine calls
+        frameState.cachedEyePos = EyePos()
+        
+        -- Advance scheduled jobs only once per real frame
+        local currentFrame = FrameNumber()
+        if frameState.lastJobFrame ~= currentFrame then
+            frameState.lastJobFrame = currentFrame
+            if debugEnabled:GetBool() then
+                local jobStart = SysTime()
+                RemixRenderCore.StepJobs(0.0015)
+                local jobTime = SysTime() - jobStart
+                if jobTime > perfThreshold then
+                    RemixRenderCore.RecordPerf("StepJobs", jobTime)
+                end
+            else
+                RemixRenderCore.StepJobs(0.0015)
+            end
+        end
+        
+        -- Track GC activity with timing (only if debug enabled)
+        if debugEnabled:GetBool() then
+            local currentGC = collectgarbage("count")
+            local gcDelta = currentGC - lastGCCount
+            if math.abs(gcDelta) > 500 then  -- >500KB change
+                gcCycleCount = gcCycleCount + 1
+            end
+            lastGCCount = currentGC
+        end
+        
+        -- Run MORE AGGRESSIVE incremental GC
+        local gcStepStart = SysTime()
+        collectgarbage("step", 20)  -- Much larger step size
+        local gcStepTime = SysTime() - gcStepStart
+        lastGCStepTime = gcStepTime
+        
+        -- Only track if really slow
+        -- if gcStepTime > 0.005 then  -- >5ms for GC step
+        --     RemixRenderCore.RecordPerf("GC_Step_Slow", gcStepTime)
+        -- end
+        
+        if debugEnabled:GetBool() then
+            local elapsed = SysTime() - startTime
+            if elapsed > perfThreshold then
+                RemixRenderCore.RecordPerf("BeginFrame", elapsed)
+            end
+        end
+        trackAllocEnd("BeginFrame_Total")
     end
 
     local function normalizeColor(col)
         if not col then return nil end
         if istable(col) and col.r then
-            return { r = (col.r or 255) / 255, g = (col.g or 255) / 255, b = (col.b or 255) / 255 }
+            -- Fast path for white (most common)
+            if col.r == 255 and col.g == 255 and col.b == 255 then
+                return WHITE_COLOR_NORMALIZED
+            end
+            -- Use pooled table to avoid allocation
+            return getPooledColor((col.r or 255) / 255, (col.g or 255) / 255, (col.b or 255) / 255)
         end
         return nil
     end
 
     function RemixRenderCore.Submit(item)
+        trackAllocStart("Submit_QueueAdd")
         -- item = { material=IMaterial, mesh=IMesh, matrix=Matrix|nil, translucent=bool|nil, color=Color|{r,g,b}|nil }
-        if not item or not item.material or not item.mesh then return end
+        if not item or not item.material or not item.mesh then 
+            trackAllocEnd("Submit_QueueAdd")
+            return 
+        end
         local q = item.translucent and queues.translucent or queues.opaque
         -- store normalized color for fast modulation
         if item.color then item._ncolor = normalizeColor(item.color) end
@@ -62,62 +220,108 @@ do
         if not bucket then
             bucket = {}
             buckets[mat] = bucket
+        end
+        -- Check if bucket is empty (first item this frame)
+        if #bucket == 0 then
             order[#order + 1] = mat
         end
         bucket[#bucket + 1] = item
+        trackAllocEnd("Submit_QueueAdd")
     end
 
-    -- Depth sort helper for translucent meshes
-    local function getItemDepth(item, camPos)
-        if not item.matrix then return 0 end
+    -- Depth sort helper for translucent meshes (caches depth in item)
+    local function cacheItemDepth(item, camPos)
+        if not item.matrix then 
+            item._cachedDepth = 0
+            return 0 
+        end
         local pos = item.matrix:GetTranslation()
-        return pos:DistToSqr(camPos)
+        local depth = pos:DistToSqr(camPos)
+        item._cachedDepth = depth
+        return depth
+    end
+    
+    -- Pre-defined sort comparator to avoid creating function every frame
+    local function depthSortComparator(a, b)
+        return (a._cachedDepth or 0) > (b._cachedDepth or 0)
     end
 
     local function flushQueue(queue, translucent)
         if not queue or not queue.order then return end
+        trackAllocStart(translucent and "FlushQueue_Translucent_Inner" or "FlushQueue_Opaque_Inner")
         local lastMat = nil
         local order = queue.order
         local buckets = queue.buckets
         
+        -- Early out if empty
+        if #order == 0 then 
+            trackAllocEnd(translucent and "FlushQueue_Translucent_Inner" or "FlushQueue_Opaque_Inner")
+            return 
+        end
+        
+        -- Reset color modulation state at start of flush
+        renderState.lastColorR = 1
+        renderState.lastColorG = 1
+        renderState.lastColorB = 1
+        
         -- For translucent, we need depth sorting
         if translucent then
-            local camPos = EyePos()
-            local allItems = {}
+            trackAllocStart("Translucent_Sorting")
+            local camPos = frameState.cachedEyePos or EyePos()
             
-            -- Collect all items from all buckets
+            -- Reuse array instead of allocating new one
+            table.Empty(translucentItemsCache)
+            
+            -- Collect all items from all buckets and pre-calculate depths
             for i = 1, #order do
                 local mat = order[i]
                 local bucket = buckets[mat]
                 if bucket and #bucket > 0 then
                     for j = 1, #bucket do
-                        allItems[#allItems + 1] = bucket[j]
+                        local item = bucket[j]
+                        cacheItemDepth(item, camPos)
+                        translucentItemsCache[#translucentItemsCache + 1] = item
                     end
                 end
             end
             
-            -- Sort back-to-front by distance
-            table.sort(allItems, function(a, b)
-                return getItemDepth(a, camPos) > getItemDepth(b, camPos)
-            end)
+            -- Sort back-to-front by cached distance (using pre-defined comparator)
+            table.sort(translucentItemsCache, depthSortComparator)
+            trackAllocEnd("Translucent_Sorting")
             
-            -- Render sorted items
-            for i = 1, #allItems do
-                local it = allItems[i]
+            -- Render sorted items with state tracking
+            trackAllocStart("Translucent_Drawing")
+            for i = 1, #translucentItemsCache do
+                local it = translucentItemsCache[i]
                 if it.material ~= lastMat then
                     render.SetMaterial(it.material)
                     lastMat = it.material
                 end
+                
+                -- Only set color modulation if changed
                 if it._ncolor then
-                    render.SetColorModulation(it._ncolor.r, it._ncolor.g, it._ncolor.b)
+                    local nc = it._ncolor
+                    if nc.r ~= renderState.lastColorR or nc.g ~= renderState.lastColorG or nc.b ~= renderState.lastColorB then
+                        render.SetColorModulation(nc.r, nc.g, nc.b)
+                        renderState.lastColorR = nc.r
+                        renderState.lastColorG = nc.g
+                        renderState.lastColorB = nc.b
+                    end
+                elseif renderState.lastColorR ~= 1 or renderState.lastColorG ~= 1 or renderState.lastColorB ~= 1 then
+                    render.SetColorModulation(1, 1, 1)
+                    renderState.lastColorR = 1
+                    renderState.lastColorG = 1
+                    renderState.lastColorB = 1
                 end
+                
                 if it.matrix then cam.PushModelMatrix(it.matrix) end
                 it.mesh:Draw()
                 if it.matrix then cam.PopModelMatrix() end
-                if it._ncolor then render.SetColorModulation(1, 1, 1) end
             end
+            trackAllocEnd("Translucent_Drawing")
         else
             -- Opaque: bucket by material (no sorting needed)
+            trackAllocStart("Opaque_Drawing")
             for i = 1, #order do
                 local mat = order[i]
                 local bucket = buckets[mat]
@@ -128,29 +332,69 @@ do
                     end
                     for j = 1, #bucket do
                         local it = bucket[j]
+                        
+                        -- Only set color modulation if changed
                         if it._ncolor then
-                            render.SetColorModulation(it._ncolor.r, it._ncolor.g, it._ncolor.b)
+                            local nc = it._ncolor
+                            if nc.r ~= renderState.lastColorR or nc.g ~= renderState.lastColorG or nc.b ~= renderState.lastColorB then
+                                render.SetColorModulation(nc.r, nc.g, nc.b)
+                                renderState.lastColorR = nc.r
+                                renderState.lastColorG = nc.g
+                                renderState.lastColorB = nc.b
+                            end
+                        elseif renderState.lastColorR ~= 1 or renderState.lastColorG ~= 1 or renderState.lastColorB ~= 1 then
+                            render.SetColorModulation(1, 1, 1)
+                            renderState.lastColorR = 1
+                            renderState.lastColorG = 1
+                            renderState.lastColorB = 1
                         end
+                        
                         if it.matrix then cam.PushModelMatrix(it.matrix) end
                         it.mesh:Draw()
                         if it.matrix then cam.PopModelMatrix() end
-                        if it._ncolor then render.SetColorModulation(1, 1, 1) end
                     end
                 end
             end
+            trackAllocEnd("Opaque_Drawing")
         end
+        
+        -- Reset color modulation state at end of flush
+        if renderState.lastColorR ~= 1 or renderState.lastColorG ~= 1 or renderState.lastColorB ~= 1 then
+            render.SetColorModulation(1, 1, 1)
+            renderState.lastColorR = 1
+            renderState.lastColorG = 1
+            renderState.lastColorB = 1
+        end
+        trackAllocEnd(translucent and "FlushQueue_Translucent_Inner" or "FlushQueue_Opaque_Inner")
     end
 
     function RemixRenderCore.FlushPass(translucent)
         if not frameState.began then return end
-        if translucent then
-            flushQueue(queues.translucent, true)
+        if debugEnabled:GetBool() then
+            trackAllocStart(translucent and "FlushPass_Translucent" or "FlushPass_Opaque")
+            local startTime = SysTime()
+            if translucent then
+                flushQueue(queues.translucent, true)
+            else
+                flushQueue(queues.opaque, false)
+            end
+            local elapsed = SysTime() - startTime
+            if elapsed > perfThreshold then
+                RemixRenderCore.RecordPerf(translucent and "FlushTranslucent" or "FlushOpaque", elapsed)
+            end
+            trackAllocEnd(translucent and "FlushPass_Translucent" or "FlushPass_Opaque")
         else
-            flushQueue(queues.opaque, false)
+            if translucent then
+                flushQueue(queues.translucent, true)
+            else
+                flushQueue(queues.opaque, false)
+            end
         end
-        -- Do not reset began flag; multiple flushes per frame are okay
     end
 
+    -- ============================
+    -- Hook Aggregation System
+    -- ============================
     local function installAggregator(hookName)
         if attached[hookName] then return end
         attached[hookName] = true
@@ -159,19 +403,28 @@ do
             local list = handlers[hookName]
             if not list then return end
 
-            -- Build ordered call list by priority (ascending), then id
-            local ordered = {}
-            for id, entry in pairs(list) do
-                if isfunction(entry) then
-                    ordered[#ordered + 1] = { id = id, fn = entry, prio = 100 }
-                elseif istable(entry) and isfunction(entry.fn) then
-                    ordered[#ordered + 1] = { id = id, fn = entry.fn, prio = tonumber(entry.prio) or 100 }
+            -- Use cached sorted list if available and not dirty
+            local ordered
+            if not cacheDirty[hookName] and sortedCache[hookName] then
+                ordered = sortedCache[hookName]
+            else
+                -- Build and cache sorted list
+                ordered = {}
+                for id, entry in pairs(list) do
+                    if isfunction(entry) then
+                        ordered[#ordered + 1] = { id = id, fn = entry, prio = 100 }
+                    elseif istable(entry) and isfunction(entry.fn) then
+                        ordered[#ordered + 1] = { id = id, fn = entry.fn, prio = tonumber(entry.prio) or 100 }
+                    end
                 end
+                table.sort(ordered, function(a, b)
+                    if a.prio == b.prio then return tostring(a.id) < tostring(b.id) end
+                    return a.prio < b.prio
+                end)
+                
+                sortedCache[hookName] = ordered
+                cacheDirty[hookName] = false
             end
-            table.sort(ordered, function(a, b)
-                if a.prio == b.prio then return tostring(a.id) < tostring(b.id) end
-                return a.prio < b.prio
-            end)
 
             local aggregatedReturn = nil
             for i = 1, #ordered do
@@ -195,6 +448,7 @@ do
         else
             return
         end
+        cacheDirty[hookName] = true
         installAggregator(hookName)
     end
 
@@ -202,11 +456,14 @@ do
         local list = handlers[hookName]
         if not list then return end
         list[id] = nil
+        cacheDirty[hookName] = true
         -- Optional: remove aggregator if empty
         local hasAny = false
         for _, _ in pairs(list) do hasAny = true break end
         if not hasAny then
             handlers[hookName] = nil
+            sortedCache[hookName] = nil
+            cacheDirty[hookName] = nil
             if attached[hookName] then
                 hook.Remove(hookName, "RemixRenderCore-" .. hookName)
                 attached[hookName] = nil
@@ -226,6 +483,59 @@ do
     RemixRenderCore._jobs = jobs
     RemixRenderCore._offscreenCount = offscreenCount
     RemixRenderCore._frameBudgetHistory = frameBudgetHistory
+    RemixRenderCore._renderState = renderState
+    RemixRenderCore._sortedCache = sortedCache
+    RemixRenderCore._cacheDirty = cacheDirty
+    RemixRenderCore._translucentItems = translucentItemsCache
+    RemixRenderCore._perfHistory = perfHistory
+    RemixRenderCore._vectorPool = vectorPool
+    RemixRenderCore._colorPool = colorPool
+    RemixRenderCore._allocTracking = allocTracking
+    
+    -- Expose tracking functions for external use
+    RemixRenderCore.TrackAllocStart = trackAllocStart
+    RemixRenderCore.TrackAllocEnd = trackAllocEnd
+    
+    -- Performance tracking (optimized to reduce allocations)
+    local perfEntryPool = {}
+    for i = 1, 100 do
+        perfEntryPool[i] = { name = "", time = 0, when = 0, extra = nil }
+    end
+    
+    function RemixRenderCore.RecordPerf(name, time, extra)
+        local now = SysTime()
+        
+        -- Reuse pooled entry instead of allocating
+        local idx = (#perfHistory % 100) + 1
+        local entry = perfEntryPool[idx]
+        entry.name = name
+        entry.time = time or 0
+        entry.when = now
+        entry.extra = extra
+        
+        perfHistory[#perfHistory + 1] = entry
+        
+        -- Keep only last 100 entries
+        if #perfHistory > 100 then
+            table.remove(perfHistory, 1)
+        end
+        
+        -- Log significant events (only print, don't format unless needed)
+        -- DISABLED to reduce allocation spam from string.format
+        -- if time and time > 0.002 then  -- >2ms
+        --     print(string.format("[PERF] %s: %.2fms%s", name, time * 1000, extra and (" (" .. extra .. ")") or ""))
+        -- elseif extra then
+        --     print(string.format("[PERF] %s: %s", name, extra))
+        -- end
+    end
+    
+    function RemixRenderCore.GetPerfHistory()
+        return perfHistory
+    end
+    
+    function RemixRenderCore.ClearPerfHistory()
+        table.Empty(perfHistory)
+    end
 
     -- ============================
     -- Offscreen RT Tracking
@@ -271,14 +581,15 @@ do
     local _pvsCache = nil
     local _pvsFrame = -1
     local _pvsLastLeaf = nil
+    local _pvsLastPos = nil
     local _pvsUnavailable = false
+    local PVS_UPDATE_DISTANCE_SQR = 64 * 64  -- Only recalc if moved 64 units
     
     function RemixRenderCore.IsPVSValid(pvs)
         if not pvs then return false end
-        for _, v in pairs(pvs) do
-            if v then return true end
-        end
-        return false
+        -- Fast check: if table has any entries, check first one with next()
+        local k, v = next(pvs)
+        return k ~= nil
     end
     
     function RemixRenderCore.GetPVS(eyePos)
@@ -291,20 +602,45 @@ do
             return _pvsCache
         end
         
+        -- Hysteresis: only recalc if moved significantly (reduces thrashing at leaf boundaries)
+        if _pvsLastPos and _pvsCache then
+            local distSqr = eyePos:DistToSqr(_pvsLastPos)
+            if distSqr < PVS_UPDATE_DISTANCE_SQR then
+                _pvsFrame = frame
+                return _pvsCache
+            end
+        end
+        
         -- Try cached leaf lookup first
         if NikNaks.CurrentMap.PointInLeafCache then
             local leaf, changed = NikNaks.CurrentMap:PointInLeafCache(0, eyePos, _pvsLastLeaf)
             if not changed and RemixRenderCore.IsPVSValid(_pvsCache) then
+                _pvsFrame = frame
                 return _pvsCache
             end
             _pvsLastLeaf = leaf
         end
         
-        -- Calculate new PVS
-        local ok, newPVS = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
+        -- Calculate new PVS (this can be expensive) - TRACK ALLOCATION
+        local ok, newPVS, pvsTime
+        if debugEnabled:GetBool() then
+            trackAllocStart("PVS_Calculation")
+            local pvsStart = SysTime()
+            ok, newPVS = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
+            pvsTime = SysTime() - pvsStart
+            trackAllocEnd("PVS_Calculation")
+            if pvsTime > perfThreshold then
+                RemixRenderCore.RecordPerf("PVS_Calc", pvsTime)
+            end
+        else
+            ok, newPVS = pcall(function() return NikNaks.CurrentMap:PVSForOrigin(eyePos) end)
+        end
+        
         if ok and RemixRenderCore.IsPVSValid(newPVS) then
             _pvsCache = newPVS
             _pvsFrame = frame
+            -- Use pooled vector instead of allocating new one
+            _pvsLastPos = getPooledVector(eyePos.x, eyePos.y, eyePos.z)
             return _pvsCache
         elseif not ok then
             -- PVS is broken for this map, disable permanently
@@ -320,7 +656,13 @@ do
         _pvsCache = nil
         _pvsFrame = -1
         _pvsLastLeaf = nil
+        _pvsLastPos = nil
         _pvsUnavailable = false
+    end
+    
+    -- Expose cached EyePos for this frame to avoid redundant engine calls
+    function RemixRenderCore.GetCachedEyePos()
+        return frameState.cachedEyePos
     end
     
     function RemixRenderCore.GetLowerCase(str)
@@ -452,40 +794,38 @@ do
     end
 
     local matCacheOrder = RemixRenderCore._matCacheOrder or {}
-    local matCacheAccess = RemixRenderCore._matCacheAccess or {}
+    local matCacheIndex = RemixRenderCore._matCacheIndex or {}
     local MAX_MATERIAL_CACHE = 500
     RemixRenderCore._matCacheOrder = matCacheOrder
-    RemixRenderCore._matCacheAccess = matCacheAccess
+    RemixRenderCore._matCacheIndex = matCacheIndex
     
     function RemixRenderCore.GetMaterial(name)
         if not name or name == "" then name = "debug/debugwhite" end
         local mat = matCache[name]
         if mat ~= nil then
-            -- Update access time for LRU
-            matCacheAccess[name] = SysTime()
+            -- Move to end of LRU queue for frequently accessed materials
+            local idx = matCacheIndex[name]
+            if idx and idx ~= #matCacheOrder then
+                table.remove(matCacheOrder, idx)
+                matCacheOrder[#matCacheOrder + 1] = name
+                -- Update indices for shifted items
+                for i = idx, #matCacheOrder do
+                    matCacheIndex[matCacheOrder[i]] = i
+                end
+            end
             return mat
         end
         
-        -- LRU eviction if cache is full - evict least recently used
+        -- LRU eviction if cache is full - evict oldest (index 1)
         if #matCacheOrder >= MAX_MATERIAL_CACHE then
-            local oldestName = nil
-            local oldestTime = math.huge
-            for i = 1, #matCacheOrder do
-                local n = matCacheOrder[i]
-                local t = matCacheAccess[n] or 0
-                if t < oldestTime then
-                    oldestTime = t
-                    oldestName = n
-                end
-            end
+            local oldestName = matCacheOrder[1]
             if oldestName then
                 matCache[oldestName] = nil
-                matCacheAccess[oldestName] = nil
+                matCacheIndex[oldestName] = nil
+                table.remove(matCacheOrder, 1)
+                -- Update indices for shifted items
                 for i = 1, #matCacheOrder do
-                    if matCacheOrder[i] == oldestName then
-                        table.remove(matCacheOrder, i)
-                        break
-                    end
+                    matCacheIndex[matCacheOrder[i]] = i
                 end
             end
         end
@@ -493,7 +833,7 @@ do
         mat = Material(name)
         matCache[name] = mat
         matCacheOrder[#matCacheOrder + 1] = name
-        matCacheAccess[name] = SysTime()
+        matCacheIndex[name] = #matCacheOrder
         return mat
     end
 
@@ -720,6 +1060,204 @@ do
         RemixRenderCore.DestroyTrackedMeshes()
         for k in pairs(matCache) do matCache[k] = nil end
         print("[RemixRenderCore] Cleared mesh/material caches.")
+    end)
+    
+    concommand.Add("rtx_perf_history", function()
+        local history = RemixRenderCore.GetPerfHistory()
+        if #history == 0 then
+            print("[PERF] No performance events recorded.")
+            return
+        end
+        print(string.format("[PERF] Last %d performance events:", #history))
+        for i = math.max(1, #history - 20), #history do
+            local entry = history[i]
+            if entry.time and entry.time > 0 then
+                print(string.format("  %.2fs ago: %s took %.2fms%s", 
+                    SysTime() - entry.when, 
+                    entry.name, 
+                    entry.time * 1000,
+                    entry.extra and (" - " .. entry.extra) or ""))
+            else
+                print(string.format("  %.2fs ago: %s%s", 
+                    SysTime() - entry.when, 
+                    entry.name,
+                    entry.extra and (" - " .. entry.extra) or ""))
+            end
+        end
+    end)
+    
+    concommand.Add("rtx_perf_clear", function()
+        RemixRenderCore.ClearPerfHistory()
+        print("[PERF] Performance history cleared.")
+    end)
+    
+    concommand.Add("rtx_gc_info", function()
+        local mem = collectgarbage("count")
+        print(string.format("[GC] Current memory: %.2f MB", mem / 1024))
+        print(string.format("[GC] GC cycles tracked: %d", gcCycleCount))
+        print(string.format("[GC] Last GC step time: %.3fms", lastGCStepTime * 1000))
+        print("[GC] Running full collection...")
+        local before = collectgarbage("count")
+        local gcStart = SysTime()
+        collectgarbage("collect")
+        local gcTime = SysTime() - gcStart
+        local after = collectgarbage("count")
+        print(string.format("[GC] Freed %.2f MB (%.2f -> %.2f MB) in %.2fms", (before - after) / 1024, before / 1024, after / 1024, gcTime * 1000))
+    end)
+    
+    -- Add allocation rate tracking
+    local allocationTracker = { startMem = 0, startTime = 0, samples = {} }
+    
+    concommand.Add("rtx_gc_track_start", function()
+        allocationTracker.startMem = collectgarbage("count")
+        allocationTracker.startTime = SysTime()
+        allocationTracker.samples = {}
+        print("[GC] Started allocation tracking. Use rtx_gc_track_stop to view results.")
+        
+        local trackHook
+        trackHook = hook.Add("Think", "RemixGCAllocationTracker", function()
+            local elapsed = SysTime() - allocationTracker.startTime
+            if elapsed >= 10 then
+                hook.Remove("Think", "RemixGCAllocationTracker")
+                local finalMem = collectgarbage("count")
+                local allocated = finalMem - allocationTracker.startMem
+                print(string.format("[GC] Auto-stopped after 10s: Allocated %.2f MB (%.2f KB/s)", 
+                    allocated / 1024, 
+                    allocated / elapsed))
+                return
+            end
+            
+            if #allocationTracker.samples < 100 then
+                allocationTracker.samples[#allocationTracker.samples + 1] = {
+                    time = elapsed,
+                    mem = collectgarbage("count")
+                }
+            end
+        end)
+    end)
+    
+    concommand.Add("rtx_gc_track_stop", function()
+        hook.Remove("Think", "RemixGCAllocationTracker")
+        local finalMem = collectgarbage("count")
+        local elapsed = SysTime() - allocationTracker.startTime
+        if elapsed == 0 then
+            print("[GC] No tracking data. Use rtx_gc_track_start first.")
+            return
+        end
+        
+        local allocated = finalMem - allocationTracker.startMem
+        print(string.format("[GC] Allocation tracking stopped after %.1fs", elapsed))
+        print(string.format("[GC] Total allocated: %.2f MB (%.2f KB/s)", allocated / 1024, allocated / elapsed))
+        
+        if #allocationTracker.samples >= 2 then
+            print("[GC] Allocation rate over time:")
+            for i = 2, math.min(10, #allocationTracker.samples) do
+                local prev = allocationTracker.samples[i-1]
+                local curr = allocationTracker.samples[i]
+                local dt = curr.time - prev.time
+                local dm = curr.mem - prev.mem
+                if dt > 0 then
+                    print(string.format("  %.1fs: %.1f KB/s", curr.time, dm / dt))
+                end
+            end
+        end
+    end)
+    
+    -- Component-level allocation tracking
+    concommand.Add("rtx_alloc_track_enable", function()
+        if not debugEnabled:GetBool() then
+            print("[ALLOC] ERROR: Debug profiling is disabled. Set rtx_debug_profiling 1 first.")
+            return
+        end
+        allocTracking.enabled = true
+        allocTracking.components = {}
+        allocTracking.frameStart = collectgarbage("count")
+        allocTracking.lastFrame = FrameNumber()
+        print("[ALLOC] Component-level allocation tracking enabled.")
+        print("[ALLOC] Use rtx_alloc_track_report to view results.")
+    end)
+    
+    concommand.Add("rtx_alloc_track_disable", function()
+        allocTracking.enabled = false
+        print("[ALLOC] Component-level allocation tracking disabled.")
+    end)
+    
+    concommand.Add("rtx_alloc_track_report", function()
+        if not allocTracking.enabled and table.Count(allocTracking.components) == 0 then
+            print("[ALLOC] No tracking data. Use rtx_alloc_track_enable first.")
+            return
+        end
+        
+        print("[ALLOC] Component allocation report:")
+        print(string.format("[ALLOC] %-30s %12s %12s %12s", "Component", "Total (KB)", "Calls", "Avg (KB)"))
+        print(string.rep("-", 75))
+        
+        -- Sort by total allocation
+        local sorted = {}
+        for name, data in pairs(allocTracking.components) do
+            table.insert(sorted, {name = name, data = data})
+        end
+        table.sort(sorted, function(a, b) return a.data.total > b.data.total end)
+        
+        for _, entry in ipairs(sorted) do
+            local avg = entry.data.calls > 0 and (entry.data.total / entry.data.calls) or 0
+            print(string.format("[ALLOC] %-30s %12.2f %12d %12.2f", 
+                entry.name, 
+                entry.data.total, 
+                entry.data.calls, 
+                avg))
+        end
+        
+        print(string.rep("-", 75))
+        print("[ALLOC] Use rtx_alloc_track_clear to reset counters.")
+    end)
+    
+    concommand.Add("rtx_alloc_track_clear", function()
+        allocTracking.components = {}
+        allocTracking.frameStart = collectgarbage("count")
+        print("[ALLOC] Allocation tracking counters cleared.")
+    end)
+    
+    -- Add GC mode toggle (defined before debug status command)
+    local gcMode = CreateClientConVar("rtx_gc_mode", "incremental", true, false, "GC mode: incremental, step, manual, or auto")
+    
+    -- Debug status command
+    concommand.Add("rtx_debug_status", function()
+        print("=== RTX Render Core Debug Status ===")
+        print(string.format("Debug Profiling: %s", debugEnabled:GetBool() and "ENABLED" or "DISABLED"))
+        print(string.format("Allocation Tracking: %s", allocTracking.enabled and "ENABLED" or "DISABLED"))
+        print(string.format("GC Mode: %s", gcMode:GetString()))
+        print(string.format("Current Memory: %.2f MB", collectgarbage("count") / 1024))
+        print(string.format("GC Cycles Tracked: %d", gcCycleCount))
+        print("")
+        print("Commands:")
+        print("  rtx_debug_profiling 1  - Enable debug overhead")
+        print("  rtx_debug_profiling 0  - Disable debug overhead (production)")
+        print("  rtx_gc_mode <mode>     - Set GC mode (incremental/step/manual/auto)")
+    end)
+    
+    local lastGCMode = ""
+    hook.Add("Think", "RemixGCTuning", function()
+        local mode = gcMode:GetString()
+        if mode ~= lastGCMode then
+            lastGCMode = mode
+            if mode == "incremental" then
+                collectgarbage("setpause", 100)  -- Start GC at 100% memory (more aggressive)
+                collectgarbage("setstepmul", 300)  -- Run GC faster
+                print("[GC] Mode: Incremental (pause=100, stepmul=300)")
+            elseif mode == "step" then
+                collectgarbage("setpause", 100)  -- More aggressive
+                collectgarbage("setstepmul", 500)  -- Very aggressive
+                print("[GC] Mode: Step (pause=100, stepmul=500)")
+            elseif mode == "manual" then
+                collectgarbage("stop")  -- Disable automatic GC
+                print("[GC] Mode: Manual (automatic GC disabled, manual steps only)")
+            else
+                collectgarbage("setpause", 200)  -- Lua default
+                collectgarbage("setstepmul", 200)  -- Lua default
+                print("[GC] Mode: Auto (pause=200, stepmul=200)")
+            end
+        end
     end)
 
     -- Centralized flush hooks: begin frame on PreDrawOpaque, flush on PostDraw* passes

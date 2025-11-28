@@ -92,9 +92,9 @@ local sprBuildStats = { startTime = 0, endTime = 0, built = 0, active = false }
 -- Expose build state for progress tracking
 if RemixRenderCore then RemixRenderCore._sprBuildState = sprBuildStats end
 
--- Frame skipping cache
-local cachedRenderList = {}
-local lastUpdateFrame = -1
+-- Frame skipping cache (separate for skybox and world)
+local cachedRenderList = { world = {}, skybox = {} }
+local lastUpdateFrame = { world = -1, skybox = -1 }
 
 -- Combined mesh cache (per material) - built once during initialization
 local combinedMeshes = {} -- [materialName] = { material = IMaterial, mesh = IMesh, propCount = N, props = {prop indices} }
@@ -769,16 +769,17 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     
     -- Choose which prop list to render based on skybox state
     local propsToRender = bDrawingSkybox and skyboxProps or worldProps
+    local cacheKey = bDrawingSkybox and "skybox" or "world"
     
     -- Frame skip optimization: only rebuild visibility list every N frames
     local currentFrame = FrameNumber()
     local frameSkip = math.max(1, convar_FrameSkip:GetInt())
-    local shouldUpdate = (currentFrame - lastUpdateFrame) >= frameSkip
+    local shouldUpdate = (currentFrame - lastUpdateFrame[cacheKey]) >= frameSkip
     
     -- Update visibility list if needed
     if shouldUpdate then
-        lastUpdateFrame = currentFrame
-        cachedRenderList = {}
+        lastUpdateFrame[cacheKey] = currentFrame
+        table.Empty(cachedRenderList[cacheKey])
     end
     
     if #propsToRender == 0 then
@@ -794,9 +795,8 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
     local renderedProps = 0
     local skippedProps = 0
     
-    -- Get player eye position for PVS checks (more stable while jumping)
-    local ply = LocalPlayer and LocalPlayer() or nil
-    local playerPos = ply and ((ply.EyePos and ply:EyePos()) or (ply.GetPos and ply:GetPos())) or nil
+    -- Use cached EyePos from RenderCore to avoid redundant engine calls
+    local playerPos = (RenderCore and RenderCore.GetCachedEyePos and RenderCore.GetCachedEyePos()) or EyePos()
     -- Use centralized PVS from RenderCore
     local usePVS = convar_UsePVS:GetBool()
     local pvs = (usePVS and RenderCore and RenderCore.GetPVS) and RenderCore.GetPVS(playerPos) or nil
@@ -859,7 +859,8 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
             end
             
             -- Add to render list
-            cachedRenderList[#cachedRenderList + 1] = prop
+            local list = cachedRenderList[cacheKey]
+            list[#list + 1] = prop
         end
     end
     
@@ -910,7 +911,7 @@ RenderCore.Register("PreDrawOpaqueRenderables", "CustomStaticRender_DrawProps", 
         end
     else
         -- Fallback: render individual props
-        for _, prop in ipairs(cachedRenderList) do
+        for _, prop in ipairs(cachedRenderList[cacheKey]) do
             for _, meshInfo in ipairs(prop.cachedMesh.meshes) do
                 if meshInfo.mesh and meshInfo.material then
                     RenderCore.Submit({

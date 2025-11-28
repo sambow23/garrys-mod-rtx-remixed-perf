@@ -609,16 +609,6 @@ end)
 local function EnableCustomRendering()
     if isEnabled then return end
     isEnabled = true
-
-    -- Disable world rendering using render.OverrideDepthEnable
-    RenderCore.Register("PreDrawWorld", "RTXHideWorld", function()
-        render.OverrideDepthEnable(true, false)
-        return true
-    end)
-    
-    RenderCore.Register("PostDrawWorld", "RTXHideWorld", function()
-        render.OverrideDepthEnable(false)
-    end)
     
     RenderCore.Register("PreDrawOpaqueRenderables", "RTXCustomWorldOpaque", function()
         RenderCustomWorld(false)
@@ -633,8 +623,6 @@ local function DisableCustomRendering()
     if not isEnabled then return end
     isEnabled = false
 
-    RenderCore.Unregister("PreDrawWorld", "RTXHideWorld")
-    RenderCore.Unregister("PostDrawWorld", "RTXHideWorld")
     RenderCore.Unregister("PreDrawOpaqueRenderables", "RTXCustomWorldOpaque")
     RenderCore.Unregister("PreDrawTranslucentRenderables", "RTXCustomWorldTranslucent")
 end
@@ -664,10 +652,6 @@ RenderCore.Register("InitPostEntity", "RTXMeshInit", Initialize)
 
 RenderCore.Register("PostCleanupMap", "RTXMeshRebuild", function()
     RenderCore.RequestRebuild("PostCleanupMap")
-end)
-
-RenderCore.Register("PreDrawParticles", "ParticleSkipper", function()
-    return true
 end)
 
 RenderCore.Register("ShutDown", "RTXCustomWorldShutdown", function()
