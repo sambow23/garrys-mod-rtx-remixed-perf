@@ -32,12 +32,23 @@ rtx:rtx.volumetrics.transmittanceMeasurementDistanceMeters = 15
 rtx:rtx.volumetrics.froxelMaxDistanceMeters = 100
 rtx:rtx.volumetrics.froxelDepthSlices = 48
 
+## Textures
+rtx:rtx.enableMultiStageTextureFactorBlending = True
+
+## For API Lights
+rtx:rtx.neeCache.enableAnalyticalLight = False
+rtx:rtx.risLightSampleCount = 64
+rtx:rtx.di.initialSampleCount = 64
+rtx:rtx.di.spatialSamples = 4
+rtx:rtx.di.enableBestLightSampling = True
+rtx:rtx.di.maxHistoryLength = 1
+rtx:rtx.di.enableRayTracedBiasCorrection = True
+rtx:rtx.di.enableSpatialReuse = True
+rtx:rtx.di.enableDenoiserConfidence = True
+rtx:rtx.di.enableDenoiserGradient = True
+rtx:rtx.denoiseDirectAndIndirectLightingSeparately = True
 
 ### Post FX
-rtx:rtx.bloom.luminanceThreshold = 0.5
-rtx:rtx.bloom.enable = True
-rtx:rtx.bloom.burnIntensity = 1
-rtx:rtx.bloom.steps = 5
 rtx:rtx.autoExposure.enabled = True
 rtx:rtx.autoExposure.evMinValue = -2
 rtx:rtx.autoExposure.evMaxValue = 4
@@ -49,6 +60,9 @@ rtx:rtx.localtonemap.exposure = 0.6
 rtx:rtx.localtonemap.useAgX = True
 rtx:rtx.localtonemap.finalizeWithACES = False
 
+## Alpha
+rtx:rtx.enableStochasticAlphaBlend = True
+
 ### Lights
 rtx:rtx.ignoreGamePointLights = True
 rtx:rtx.ignoreGameSpotLights = True
@@ -58,6 +72,7 @@ rtx:rtx.lightConversionSphereLightFixedRadius = 9
 ### Sky
 rtx:rtx.skyBrightness = 1
 rtx:rtx.skyReprojectScale = 17
+rtx:rtx.skyMinZThreshold = 0.999
 
 # Source Engine Settings
 ### Sky
