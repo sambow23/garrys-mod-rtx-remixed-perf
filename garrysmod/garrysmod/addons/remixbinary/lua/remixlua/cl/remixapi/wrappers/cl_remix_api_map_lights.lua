@@ -129,6 +129,18 @@ local function ParseEntityAngles(ent)
         if ax and ay and az then
             -- Source convention: +pitch looks down -> negate when building Angle
             local a = Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0)
+            -- If angles field is all zeros, check for standalone pitch/yaw fields
+            if a.p == 0 and a.y == 0 and a.r == 0 then
+                local standalonePitch = tonumber(ent.pitch or ent._pitch)
+                local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+                if standalonePitch and standalonePitch ~= 0 then
+                    a.p = -standalonePitch
+                    return a, "angles_xyz_zero+pitch_override"
+                elseif standaloneYaw and standaloneYaw ~= 0 then
+                    a.y = standaloneYaw
+                    return a, "angles_xyz_zero+yaw_override"
+                end
+            end
             return applyEnvPitchOverride(ent, a, "angles_xyz")
         end
         local yawOnly = tonumber(angField)
@@ -143,9 +155,33 @@ local function ParseEntityAngles(ent)
     elseif (isvector and isvector(angField)) or type(angField) == "Vector" then
         -- Some BSP libs may expose angles as a Vector
         local a = Angle(-(angField.x or 0), angField.y or 0, angField.z or 0)
+        -- If angles field is all zeros, check for standalone pitch/yaw fields
+        if a.p == 0 and a.y == 0 and a.r == 0 then
+            local standalonePitch = tonumber(ent.pitch or ent._pitch)
+            local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+            if standalonePitch and standalonePitch ~= 0 then
+                a.p = -standalonePitch
+                return a, "angles_vec_zero+pitch_override"
+            elseif standaloneYaw and standaloneYaw ~= 0 then
+                a.y = standaloneYaw
+                return a, "angles_vec_zero+yaw_override"
+            end
+        end
         return applyEnvPitchOverride(ent, a, "angles_vec")
     elseif istable(angField) and angField.x and angField.y and angField.z then
         local a = Angle(-(angField.x or 0), angField.y or 0, angField.z or 0)
+        -- If angles field is all zeros, check for standalone pitch/yaw fields
+        if a.p == 0 and a.y == 0 and a.r == 0 then
+            local standalonePitch = tonumber(ent.pitch or ent._pitch)
+            local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+            if standalonePitch and standalonePitch ~= 0 then
+                a.p = -standalonePitch
+                return a, "angles_tbl_zero+pitch_override"
+            elseif standaloneYaw and standaloneYaw ~= 0 then
+                a.y = standaloneYaw
+                return a, "angles_tbl_zero+yaw_override"
+            end
+        end
         return applyEnvPitchOverride(ent, a, "angles_tbl")
     elseif istable(angField) then
         -- Support array-like tables: {pitch, yaw, roll}
@@ -154,13 +190,44 @@ local function ParseEntityAngles(ent)
             local a = Angle(-ax, ay, az)
             return applyEnvPitchOverride(ent, a, "angles_tbl_idx")
         end
+        -- All zeros in array, check standalone fields
+        local standalonePitch = tonumber(ent.pitch or ent._pitch)
+        local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+        if standalonePitch or standaloneYaw then
+            local a = Angle(-(standalonePitch or 0), standaloneYaw or 0, 0)
+            return a, "angles_tbl_idx_zero+standalone"
+        end
     elseif (isangle and isangle(angField)) then
         -- GLua Angle userdata
         local a = Angle(-(angField.p or 0), angField.y or 0, angField.r or 0)
+        -- If angles field is all zeros, check for standalone pitch/yaw fields
+        if a.p == 0 and a.y == 0 and a.r == 0 then
+            local standalonePitch = tonumber(ent.pitch or ent._pitch)
+            local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+            if standalonePitch and standalonePitch ~= 0 then
+                a.p = -standalonePitch
+                return a, "angles_glua_zero+pitch_override"
+            elseif standaloneYaw and standaloneYaw ~= 0 then
+                a.y = standaloneYaw
+                return a, "angles_glua_zero+yaw_override"
+            end
+        end
         return applyEnvPitchOverride(ent, a, "angles_glua")
     elseif type(angField) == "Angle" then
         -- Angle type without isangle available
         local a = Angle(-(angField.p or 0), angField.y or 0, angField.r or 0)
+        -- If angles field is all zeros, check for standalone pitch/yaw fields
+        if a.p == 0 and a.y == 0 and a.r == 0 then
+            local standalonePitch = tonumber(ent.pitch or ent._pitch)
+            local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+            if standalonePitch and standalonePitch ~= 0 then
+                a.p = -standalonePitch
+                return a, "angles_type_Angle_zero+pitch_override"
+            elseif standaloneYaw and standaloneYaw ~= 0 then
+                a.y = standaloneYaw
+                return a, "angles_type_Angle_zero+yaw_override"
+            end
+        end
         return applyEnvPitchOverride(ent, a, "angles_type_Angle")
     elseif type(angField) == "userdata" then
         -- Generic userdata exposing p/y/r or pitch/yaw/roll
@@ -188,6 +255,18 @@ local function ParseEntityAngles(ent)
             local ax, ay, az = string.match(s, "([%-%.%d]+)%s+([%-%.%d]+)%s+([%-%.%d]+)")
             if ax and ay and az then
                 local a = Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0)
+                -- If angles field is all zeros, check for standalone pitch/yaw fields
+                if a.p == 0 and a.y == 0 and a.r == 0 then
+                    local standalonePitch = tonumber(ent.pitch or ent._pitch)
+                    local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+                    if standalonePitch and standalonePitch ~= 0 then
+                        a.p = -standalonePitch
+                        return a, "angles_any_str_zero+pitch_override"
+                    elseif standaloneYaw and standaloneYaw ~= 0 then
+                        a.y = standaloneYaw
+                        return a, "angles_any_str_zero+yaw_override"
+                    end
+                end
                 return applyEnvPitchOverride(ent, a, "angles_any_str")
             end
         end
@@ -319,16 +398,23 @@ local function getLightProperties(entity)
             lightProps.debugSource = (src or "?") .. "+light_environment"
         end
     elseif entity.classname == "light_spot" then
-        if debug_mode:GetBool() then
-            -- Dump raw fields to diagnose yaw sourcing
-            local function tv(v)
-                local t = type(v)
-                if t == "table" then return "table" end
-                if t == "Vector" or (isvector and isvector(v)) then
-                    return string.format("Vector(%.2f,%.2f,%.2f)", v.x or 0, v.y or 0, v.z or 0)
-                end
-                return tostring(v)
+        -- Dump raw fields to diagnose angle parsing (always show for light_spot with potential zero angles issue)
+        local function tv(v)
+            local t = type(v)
+            if t == "table" then return "table" end
+            if t == "Vector" or (isvector and isvector(v)) then
+                return string.format("Vector(%.2f,%.2f,%.2f)", v.x or 0, v.y or 0, v.z or 0)
             end
+            return tostring(v)
+        end
+        local showDebug = debug_mode:GetBool()
+        -- Always show debug if angles is "0 0 0" but pitch field exists
+        local anglesStr = tostring(entity.angles or entity._angles or "")
+        local hasSeparatePitch = (entity.pitch ~= nil or entity._pitch ~= nil)
+        if anglesStr:match("^0%s+0%s+0") and hasSeparatePitch then
+            showDebug = true
+        end
+        if showDebug then
             print("[Light2RTX Debug] spot raw angle fields:",
                 "angles=", tv(entity.angles),
                 "_angles=", tv(entity._angles),
@@ -358,6 +444,10 @@ local function getLightProperties(entity)
             lightProps.direction = a:Forward()
             lightProps.shapingEnabled = true
             lightProps.debugSource = src .. "+getLightProperties"
+            if showDebug then
+                print(string.format("[Light2RTX Debug] spot parsed: pitch=%.2f yaw=%.2f roll=%.2f src=%s dir=(%.2f,%.2f,%.2f)", 
+                    a.p, a.y, a.r, src, lightProps.direction.x, lightProps.direction.y, lightProps.direction.z))
+            end
         end
     elseif entity.classname == "env_projectedtexture" then
         if debug_mode:GetBool() then
