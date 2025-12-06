@@ -207,6 +207,39 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
         local infoCol = Color(255, 255, 255, alpha * 0.8)
         draw.SimpleTextOutlined(info, "DermaDefaultBold", x, y + 35, infoCol, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, Color(0, 0, 0, alpha * 0.4))
         
+        -- Draw bonemerge status if applicable
+        if ent:GetNWBool("rtx_light_is_bonemerged", false) then
+            local parentID = ent:GetNWInt("rtx_light_parent_id", -1)
+            local boneID = ent:GetNWInt("rtx_light_bone_id", -1)
+            local parent = Entity(parentID)
+            
+            local bonemergeCol = Color(100, 255, 100, alpha * 0.9)
+            local bonemergeOutline = Color(0, 0, 0, alpha * 0.5)
+            
+            if IsValid(parent) then
+                local boneName = parent:GetBoneName(boneID) or "Entity"
+                local parentName = parent:GetClass()
+                local bonemergeText = string.format("🔗 %s [%s]", parentName, boneName)
+                draw.SimpleTextOutlined(bonemergeText, "DermaDefault", x, y + 50, bonemergeCol, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, bonemergeOutline)
+                
+                -- Draw line from light to parent bone
+                local parentPos = parent:GetPos()
+                if boneID >= 0 and parent:GetBoneCount() > 0 and boneID < parent:GetBoneCount() then
+                    local boneMatrix = parent:GetBoneMatrix(boneID)
+                    if boneMatrix then
+                        parentPos = boneMatrix:GetTranslation()
+                    end
+                end
+                
+                local parentScreen = parentPos:ToScreen()
+                if parentScreen.visible then
+                    DrawThickLine(x, y, parentScreen.x, parentScreen.y, lineThickness * 0.8, 100, 255, 100, alpha * 0.4)
+                end
+            else
+                draw.SimpleTextOutlined("🔗 DETACHED", "DermaDefault", x, y + 50, Color(255, 100, 100, alpha * 0.9), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, bonemergeOutline)
+            end
+        end
+        
         -- Draw direction indicator for directional lights
         if lt == "distant" or lt == "rect" or lt == "disk" then
             local ang = ent:GetAngles()
@@ -813,19 +846,75 @@ local function updateLight(self)
     end
 end
 
+-- Helper function to update bonemerged light position
+local function updateBonemergedPosition(self)
+    if not self:GetNWBool("rtx_light_is_bonemerged", false) then return end
+    
+    local parentID = self:GetNWInt("rtx_light_parent_id", -1)
+    if parentID == -1 then return end
+    
+    local parent = Entity(parentID)
+    if not IsValid(parent) then
+        -- Parent removed, convert to static light
+        self:SetNWBool("rtx_light_is_bonemerged", false)
+        return
+    end
+    
+    local boneID = self:GetNWInt("rtx_light_bone_id", -1)
+    local offsetPos = self:GetNWVector("rtx_light_offset_pos", Vector(0, 0, 0))
+    local offsetAng = self:GetNWAngle("rtx_light_offset_ang", Angle(0, 0, 0))
+    
+    -- Get bone matrix if valid bone, otherwise use entity position
+    local boneMatrix = nil
+    if boneID >= 0 and parent:GetBoneCount() > 0 and boneID < parent:GetBoneCount() then
+        boneMatrix = parent:GetBoneMatrix(boneID)
+    end
+    
+    if boneMatrix then
+        -- Calculate world position/angle from bone matrix + offsets
+        local bonePos = boneMatrix:GetTranslation()
+        local boneAng = boneMatrix:GetAngles()
+        
+        -- Apply position offset in bone's local space
+        local worldPos = bonePos + boneAng:Forward() * offsetPos.x + 
+                                     boneAng:Right() * offsetPos.y + 
+                                     boneAng:Up() * offsetPos.z
+        
+        -- Apply angle offset
+        local worldAng = boneAng + offsetAng
+        
+        -- Update light position and angle
+        self:SetPos(worldPos)
+        self:SetAngles(worldAng)
+    else
+        -- Fallback to entity position if no valid bone
+        local worldPos = parent:GetPos() + parent:GetAngles():Forward() * offsetPos.x + 
+                                            parent:GetAngles():Right() * offsetPos.y + 
+                                            parent:GetAngles():Up() * offsetPos.z
+        local worldAng = parent:GetAngles() + offsetAng
+        
+        self:SetPos(worldPos)
+        self:SetAngles(worldAng)
+    end
+end
+
 function ENT:Think()
     -- Ensure we have a light, but be defensive about it
     if not self.LightId and not self.LightCreateQueued then
         ensure_light(self)
     end
     
+    -- Update bonemerged position if applicable
+    updateBonemergedPosition(self)
+    
     -- Call the update function
     updateLight(self)
     
-    -- Think more frequently if physics object is awake (being moved)
+    -- Think more frequently if physics object is awake (being moved) or if bonemerged
+    local isBonemerged = self:GetNWBool("rtx_light_is_bonemerged", false)
     local phys = self:GetPhysicsObject()
-    if IsValid(phys) and not phys:IsAsleep() then
-        self:NextThink(CurTime()) -- Think every frame when moving
+    if isBonemerged or (IsValid(phys) and not phys:IsAsleep()) then
+        self:NextThink(CurTime()) -- Think every frame when moving or bonemerged
     else
         self:NextThink(CurTime() + 0.05) -- Think every 50ms when static
     end
@@ -837,15 +926,8 @@ function ENT:PopulateToolMenu(panel)
     -- Not used; using context menu hook below
 end
 
-properties.Add("remix_rt_light_edit", {
-    MenuLabel = "Edit Remix Light", Order = 0, MenuIcon = "icon16/lightbulb.png",
-    Filter = function(self, ent, ply)
-        return IsValid(ent) and ent:GetClass() == "remix_rt_light" and ply:IsAdmin() ~= false
-    end,
-    Action = function(self, ent)
-        self:OpenEditor(ent)
-    end,
-    OpenEditor = function(self, ent)
+-- Store editor function globally so it can be accessed by other properties
+local function OpenLightEditor(ent)
         if not IsValid(ent) then return end
         local frame = vgui.Create("DFrame")
         frame:SetTitle("Remix Light")
@@ -1004,6 +1086,68 @@ properties.Add("remix_rt_light_edit", {
         distantang:SetDecimals(2)
         distantang:SetValue(ent:GetNWFloat("rtx_light_distant_angle", 0.5))
 
+        -- Bonemerge offset controls (only visible for bonemerged lights)
+        local offsetLabel = vgui.Create("DLabel", body)
+        offsetLabel:Dock(TOP)
+        offsetLabel:DockMargin(10, 10, 10, 0)
+        offsetLabel:SetText("-- Bonemerge Offsets --")
+        offsetLabel:SetTextColor(Color(100, 255, 100))
+        offsetLabel:SetFont("DermaDefaultBold")
+        
+        local offsetX = vgui.Create("DNumSlider", body)
+        offsetX:Dock(TOP)
+        offsetX:DockMargin(10, 5, 10, 5)
+        offsetX:SetText("Position X (Forward)")
+        offsetX:SetMin(-500)
+        offsetX:SetMax(500)
+        offsetX:SetDecimals(1)
+        offsetX:SetValue(ent:GetNWVector("rtx_light_offset_pos", Vector(0,0,0)).x)
+        
+        local offsetY = vgui.Create("DNumSlider", body)
+        offsetY:Dock(TOP)
+        offsetY:DockMargin(10, 5, 10, 5)
+        offsetY:SetText("Position Y (Right)")
+        offsetY:SetMin(-500)
+        offsetY:SetMax(500)
+        offsetY:SetDecimals(1)
+        offsetY:SetValue(ent:GetNWVector("rtx_light_offset_pos", Vector(0,0,0)).y)
+        
+        local offsetZ = vgui.Create("DNumSlider", body)
+        offsetZ:Dock(TOP)
+        offsetZ:DockMargin(10, 5, 10, 5)
+        offsetZ:SetText("Position Z (Up)")
+        offsetZ:SetMin(-500)
+        offsetZ:SetMax(500)
+        offsetZ:SetDecimals(1)
+        offsetZ:SetValue(ent:GetNWVector("rtx_light_offset_pos", Vector(0,0,0)).z)
+        
+        local angleP = vgui.Create("DNumSlider", body)
+        angleP:Dock(TOP)
+        angleP:DockMargin(10, 5, 10, 5)
+        angleP:SetText("Angle Pitch")
+        angleP:SetMin(-180)
+        angleP:SetMax(180)
+        angleP:SetDecimals(1)
+        angleP:SetValue(ent:GetNWAngle("rtx_light_offset_ang", Angle(0,0,0)).p)
+        
+        local angleY = vgui.Create("DNumSlider", body)
+        angleY:Dock(TOP)
+        angleY:DockMargin(10, 5, 10, 5)
+        angleY:SetText("Angle Yaw")
+        angleY:SetMin(-180)
+        angleY:SetMax(180)
+        angleY:SetDecimals(1)
+        angleY:SetValue(ent:GetNWAngle("rtx_light_offset_ang", Angle(0,0,0)).y)
+        
+        local angleR = vgui.Create("DNumSlider", body)
+        angleR:Dock(TOP)
+        angleR:DockMargin(10, 5, 10, 5)
+        angleR:SetText("Angle Roll")
+        angleR:SetMin(-180)
+        angleR:SetMax(180)
+        angleR:SetDecimals(1)
+        angleR:SetValue(ent:GetNWAngle("rtx_light_offset_ang", Angle(0,0,0)).r)
+
         -- Realtime apply as user adjusts controls
         -- Throttled server apply helper
         local function sendApplyThrottled()
@@ -1039,6 +1183,10 @@ properties.Add("remix_rt_light_edit", {
                 t.rtx_light_color_r = col.r
                 t.rtx_light_color_g = col.g
                 t.rtx_light_color_b = col.b
+                
+                -- Bonemerge offsets
+                t.rtx_light_offset_pos = {x = offsetX:GetValue(), y = offsetY:GetValue(), z = offsetZ:GetValue()}
+                t.rtx_light_offset_ang = {p = angleP:GetValue(), y = angleY:GetValue(), r = angleR:GetValue()}
                 
                 -- Debug logging
                 if cv_debug_updates:GetBool() then
@@ -1079,6 +1227,10 @@ properties.Add("remix_rt_light_edit", {
             ent:SetNWFloat("rtx_light_color_r", col.r)
             ent:SetNWFloat("rtx_light_color_g", col.g)
             ent:SetNWFloat("rtx_light_color_b", col.b)
+            
+            -- Bonemerge offsets
+            ent:SetNWVector("rtx_light_offset_pos", Vector(offsetX:GetValue(), offsetY:GetValue(), offsetZ:GetValue()))
+            ent:SetNWAngle("rtx_light_offset_ang", Angle(angleP:GetValue(), angleY:GetValue(), angleR:GetValue()))
             
             -- Debug logging
             if cv_debug_updates:GetBool() then
@@ -1127,6 +1279,14 @@ properties.Add("remix_rt_light_edit", {
         yradius.OnValueChanged = function(_, _val) applyRealtime() end
         axislen.OnValueChanged = function(_, _val) applyRealtime() end
         distantang.OnValueChanged = function(_, _val) applyRealtime() end
+        
+        -- Bonemerge offset callbacks
+        offsetX.OnValueChanged = function(_, _val) applyRealtime() end
+        offsetY.OnValueChanged = function(_, _val) applyRealtime() end
+        offsetZ.OnValueChanged = function(_, _val) applyRealtime() end
+        angleP.OnValueChanged = function(_, _val) applyRealtime() end
+        angleY.OnValueChanged = function(_, _val) applyRealtime() end
+        angleR.OnValueChanged = function(_, _val) applyRealtime() end
 
         -- Show only relevant controls per light type
         local function refreshVisibility()
@@ -1164,6 +1324,16 @@ properties.Add("remix_rt_light_edit", {
             elseif lt == "distant" then
                 distantang:SetVisible(true)
             end
+            
+            -- Show bonemerge offsets only for bonemerged lights
+            local isBonemerged = ent:GetNWBool("rtx_light_is_bonemerged", false)
+            offsetLabel:SetVisible(isBonemerged)
+            offsetX:SetVisible(isBonemerged)
+            offsetY:SetVisible(isBonemerged)
+            offsetZ:SetVisible(isBonemerged)
+            angleP:SetVisible(isBonemerged)
+            angleY:SetVisible(isBonemerged)
+            angleR:SetVisible(isBonemerged)
         end
         refreshVisibility()
         -- Don't call applyRealtime() here - entity already has correct values
@@ -1181,6 +1351,72 @@ properties.Add("remix_rt_light_edit", {
         close.DoClick = function()
             frame:Close()
         end
+end
+
+-- Add property menu for editing remix lights
+properties.Add("remix_rt_light_edit", {
+    MenuLabel = "Edit Remix Light", Order = 0, MenuIcon = "icon16/lightbulb.png",
+    Filter = function(self, ent, ply)
+        return IsValid(ent) and ent:GetClass() == "remix_rt_light" and ply:IsAdmin() ~= false
+    end,
+    Action = function(self, ent)
+        OpenLightEditor(ent)
+    end
+})
+
+-- Property menu for entities with attached bonemerged lights
+properties.Add("remix_rt_light_edit_attached", {
+    MenuLabel = "Edit Attached Lights", Order = 1, MenuIcon = "icon16/attach.png",
+    Filter = function(self, ent, ply)
+        if not IsValid(ent) then return false end
+        if ent:GetClass() == "remix_rt_light" then return false end -- Don't show for lights themselves
+        if not ply:IsAdmin() then return false end
+        
+        -- Check if entity has attached lights
+        for _, light in ipairs(ents.FindByClass("remix_rt_light")) do
+            if light:GetNWBool("rtx_light_is_bonemerged", false) and 
+               light:GetNWInt("rtx_light_parent_id", -1) == ent:EntIndex() then
+                return true
+            end
+        end
+        return false
+    end,
+    Action = function(self, ent)
+        -- Find all attached lights
+        local attachedLights = {}
+        for _, light in ipairs(ents.FindByClass("remix_rt_light")) do
+            if light:GetNWBool("rtx_light_is_bonemerged", false) and 
+               light:GetNWInt("rtx_light_parent_id", -1) == ent:EntIndex() then
+                table.insert(attachedLights, light)
+            end
+        end
+        
+        -- If only one light, open it directly
+        if #attachedLights == 1 then
+            OpenLightEditor(attachedLights[1])
+            return
+        end
+        
+        -- Multiple lights: Show selection menu
+        local menu = DermaMenu()
+        menu:SetMinimumWidth(200)
+        
+        for i, light in ipairs(attachedLights) do
+            local lightType = light:GetNWString("rtx_light_type", "sphere")
+            local boneID = light:GetNWInt("rtx_light_bone_id", -1)
+            local boneName = "origin"
+            
+            if boneID >= 0 and ent:GetBoneCount() > 0 and boneID < ent:GetBoneCount() then
+                boneName = ent:GetBoneName(boneID) or ("Bone " .. boneID)
+            end
+            
+            local label = string.format("Light #%d: %s [%s]", i, lightType, boneName)
+            menu:AddOption(label, function()
+                OpenLightEditor(light)
+            end):SetIcon("icon16/lightbulb.png")
+        end
+        
+        menu:Open()
     end
 })
 
