@@ -180,13 +180,10 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
         local radius = ent:GetNWFloat("rtx_light_radius", 20)
         local brightness = ent:GetNWFloat("rtx_light_brightness", 1)
         
-        -- Get the light's actual color from radiance vector
-        local radiance = ent:GetNWVector("rtx_light_col", Vector(15,15,15))
-        -- Convert radiance back to RGB (radiance = (rgb/12)*brightness)
-        local scale = math.max(0.01, brightness) -- Avoid division by zero
-        local r = math.Clamp(radiance.x * 12 / scale, 0, 255)
-        local g = math.Clamp(radiance.y * 12 / scale, 0, 255)
-        local b = math.Clamp(radiance.z * 12 / scale, 0, 255)
+        -- Get the light's RGB color directly
+        local r = ent:GetNWFloat("rtx_light_color_r", 255)
+        local g = ent:GetNWFloat("rtx_light_color_g", 220)
+        local b = ent:GetNWFloat("rtx_light_color_b", 180)
         local col = Color(r, g, b)
         
         -- Alpha fade based on distance
@@ -234,36 +231,67 @@ hook.Add("HUDPaint", "RemixRTLight_Visualize", function()
             end
         end
         
-        -- Draw shaping cone indicator for sphere lights
+        -- Draw shaping cone indicator for sphere lights (spotlight style)
         if lt == "sphere" and ent:GetNWBool("rtx_light_shape_enabled", false) then
             local coneAngle = ent:GetNWFloat("rtx_light_shape_cone", 90)
+            local coneSoftness = ent:GetNWFloat("rtx_light_shape_softness", 0.1)
             local ang = ent:GetAngles()
             local dir = ang:Forward()
             
-            -- Draw cone outline
-            local coneLen = radius * 1.5 * vizScale
+            -- Calculate cone geometry
+            local coneLen = radius * 2.5 * vizScale
             local coneEnd = pos + dir * coneLen
             local coneRadius = math.tan(math.rad(coneAngle / 2)) * coneLen
             
-            -- Draw cone lines with thick lines
-            local up = ang:Up() * coneRadius
-            local right = ang:Right() * coneRadius
+            local up = ang:Up()
+            local right = ang:Right()
             
-            for i = 0, 7 do
-                local angle = (i / 8) * math.pi * 2
-                local offset = up * math.cos(angle) + right * math.sin(angle)
+            -- Draw filled cone with gradient (more lines for smoother appearance)
+            local numRays = 16
+            for i = 0, numRays - 1 do
+                local angle = (i / numRays) * math.pi * 2
+                local offset = (up * math.cos(angle) + right * math.sin(angle)) * coneRadius
                 local edgePos = coneEnd + offset
                 local edgeScreen = edgePos:ToScreen()
                 
                 if edgeScreen.visible then
-                    DrawThickLine(x, y, edgeScreen.x, edgeScreen.y, lineThickness, col.r, col.g, col.b, alpha * 0.5)
+                    -- Brighter lines for better visibility
+                    DrawThickLine(x, y, edgeScreen.x, edgeScreen.y, lineThickness * 1.2, col.r, col.g, col.b, alpha * 0.6)
                 end
+            end
+            
+            -- Draw cone base circle (spotlight coverage area)
+            local numCirclePoints = 24
+            local circlePoints = {}
+            for i = 0, numCirclePoints do
+                local angle = (i / numCirclePoints) * math.pi * 2
+                local offset = (up * math.cos(angle) + right * math.sin(angle)) * coneRadius
+                local circlePos = coneEnd + offset
+                local circleScreen = circlePos:ToScreen()
+                if circleScreen.visible then
+                    table.insert(circlePoints, {x = circleScreen.x, y = circleScreen.y})
+                end
+            end
+            
+            -- Draw circle segments
+            for i = 1, #circlePoints - 1 do
+                DrawThickLine(circlePoints[i].x, circlePoints[i].y, circlePoints[i+1].x, circlePoints[i+1].y, 
+                             lineThickness, col.r, col.g, col.b, alpha * 0.7)
+            end
+            
+            -- Draw center indicator at spotlight target
+            local endScreen = coneEnd:ToScreen()
+            if endScreen.visible then
+                local dotSize = 4
+                surface.SetDrawColor(col.r, col.g, col.b, alpha)
+                surface.DrawRect(endScreen.x - dotSize/2, endScreen.y - dotSize/2, dotSize, dotSize)
             end
             
             -- Draw cone angle text with subtle outline
             local coneTextCol = Color(col.r, col.g, col.b, alpha * 0.8)
             local subtleOutline = Color(outlineR, outlineG, outlineB, alpha * 0.3)
-            draw.SimpleTextOutlined(string.format("∠%.0f°", coneAngle), "DermaDefault", x, y + 50, coneTextCol, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, subtleOutline)
+            draw.SimpleTextOutlined(string.format("∠%.0f° (softness: %.2f)", coneAngle, coneSoftness), 
+                                   "DermaDefault", x, y + 50, coneTextCol, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, subtleOutline)
         end
         
         -- Draw 3D shape visualizations for physical dimensions
@@ -599,7 +627,15 @@ local function updateLight(self)
     
     -- Read all properties
     local lt = self:GetNWString("rtx_light_type", "sphere")
-    local col = self:GetNWVector("rtx_light_col", Vector(15,15,15))
+    local colorR = self:GetNWFloat("rtx_light_color_r", 255)
+    local colorG = self:GetNWFloat("rtx_light_color_g", 220)
+    local colorB = self:GetNWFloat("rtx_light_color_b", 180)
+    local brightness = self:GetNWFloat("rtx_light_brightness", 1)
+    
+    -- Calculate radiance from RGB color and brightness
+    local scale = math.max(0, brightness)
+    local col = Vector((colorR/12)*scale, (colorG/12)*scale, (colorB/12)*scale)
+    
     local radius = self:GetNWFloat("rtx_light_radius", 20)
     local shapingEnabled = self:GetNWBool("rtx_light_shape_enabled", false)
     local cone = self:GetNWFloat("rtx_light_shape_cone", 90)
@@ -649,7 +685,8 @@ local function updateLight(self)
         
         -- Property change checks
         if not needsUpdate then
-            if cache.lt ~= lt or cache.col ~= col or cache.radius ~= radius or
+            if cache.lt ~= lt or cache.colorR ~= colorR or cache.colorG ~= colorG or cache.colorB ~= colorB or
+               cache.brightness ~= brightness or cache.radius ~= radius or
                cache.shapingEnabled ~= shapingEnabled or cache.cone ~= cone or
                cache.softness ~= softness or cache.focus ~= focus or
                cache.volScale ~= volScale or cache.xsize ~= xsize or
@@ -667,14 +704,19 @@ local function updateLight(self)
     -- Debug output
     if cv_debug_updates:GetBool() then
         local movingStr = isMoving and " [MOVING]" or ""
-        print(string.format("[RTX Light #%d] Updating (type=%s)%s", self:EntIndex(), lt, movingStr))
+        local brightness = self:GetNWFloat("rtx_light_brightness", 1)
+        print(string.format("[RTX Light #%d] Updating (type=%s)%s Brightness=%.2f Radiance=(%.2f,%.2f,%.2f)",
+            self:EntIndex(), lt, movingStr, brightness, col.x, col.y, col.z))
     end
     
     -- Update cache
     cache.pos = Vector(pos.x, pos.y, pos.z)
     cache.ang = Angle(ang.p, ang.y, ang.r)
     cache.lt = lt
-    cache.col = col
+    cache.colorR = colorR
+    cache.colorG = colorG
+    cache.colorB = colorB
+    cache.brightness = brightness
     cache.radius = radius
     cache.shapingEnabled = shapingEnabled
     cache.cone = cone
@@ -837,7 +879,7 @@ properties.Add("remix_rt_light_edit", {
         radius:DockMargin(10, 5, 10, 5)
         radius:SetText("Radius")
         radius:SetMin(1)
-        radius:SetMax(200)
+        radius:SetMax(2000)
         radius:SetDecimals(0)
         radius:SetValue(ent:GetNWFloat("rtx_light_radius", 20))
 
@@ -857,15 +899,17 @@ properties.Add("remix_rt_light_edit", {
         mixer:SetAlphaBar(false)
         mixer:SetPalette(false)
         mixer:SetWangs(true)
-        local c = ent:GetNWVector("rtx_light_col", Vector(15,15,15))
-        mixer:SetColor(Color(c.x*12, c.y*12, c.z*12))
+        local r = ent:GetNWFloat("rtx_light_color_r", 255)
+        local g = ent:GetNWFloat("rtx_light_color_g", 220)
+        local b = ent:GetNWFloat("rtx_light_color_b", 180)
+        mixer:SetColor(Color(r, g, b))
 
         local brightness = vgui.Create("DNumSlider", body)
         brightness:Dock(TOP)
         brightness:DockMargin(10, 5, 10, 5)
         brightness:SetText("Brightness")
         brightness:SetMin(0)
-        brightness:SetMax(10)
+        brightness:SetMax(10000)
         brightness:SetDecimals(2)
         brightness:SetValue(ent:GetNWFloat("rtx_light_brightness", 1))
 
@@ -911,7 +955,7 @@ properties.Add("remix_rt_light_edit", {
         xsize:DockMargin(10, 5, 10, 5)
         xsize:SetText("Rect X Size")
         xsize:SetMin(1)
-        xsize:SetMax(400)
+        xsize:SetMax(2000)
         xsize:SetDecimals(0)
         xsize:SetValue(ent:GetNWFloat("rtx_light_xsize", 40))
 
@@ -920,7 +964,7 @@ properties.Add("remix_rt_light_edit", {
         ysize:DockMargin(10, 5, 10, 5)
         ysize:SetText("Rect Y Size")
         ysize:SetMin(1)
-        ysize:SetMax(400)
+        ysize:SetMax(2000)
         ysize:SetDecimals(0)
         ysize:SetValue(ent:GetNWFloat("rtx_light_ysize", 40))
 
@@ -929,7 +973,7 @@ properties.Add("remix_rt_light_edit", {
         xradius:DockMargin(10, 5, 10, 5)
         xradius:SetText("Disk X Radius")
         xradius:SetMin(1)
-        xradius:SetMax(200)
+        xradius:SetMax(2000)
         xradius:SetDecimals(0)
         xradius:SetValue(ent:GetNWFloat("rtx_light_xradius", 20))
 
@@ -938,7 +982,7 @@ properties.Add("remix_rt_light_edit", {
         yradius:DockMargin(10, 5, 10, 5)
         yradius:SetText("Disk Y Radius")
         yradius:SetMin(1)
-        yradius:SetMax(200)
+        yradius:SetMax(2000)
         yradius:SetDecimals(0)
         yradius:SetValue(ent:GetNWFloat("rtx_light_yradius", 20))
 
@@ -947,7 +991,7 @@ properties.Add("remix_rt_light_edit", {
         axislen:DockMargin(10, 5, 10, 5)
         axislen:SetText("Cylinder Axis Length")
         axislen:SetMin(1)
-        axislen:SetMax(400)
+        axislen:SetMax(2000)
         axislen:SetDecimals(0)
         axislen:SetValue(ent:GetNWFloat("rtx_light_axis_len", 40))
 
@@ -966,7 +1010,7 @@ properties.Add("remix_rt_light_edit", {
             if not IsValid(ent) then return end
             local id = ent:EntIndex()
             local timerName = "remix_rt_light_apply_" .. tostring(id)
-            timer.Create(timerName, 0.15, 1, function()
+            timer.Create(timerName, 0.05, 1, function()
                 if not IsValid(ent) then return end
                 if not net then return end
                 net.Start("remix_rt_light_apply")
@@ -977,7 +1021,7 @@ properties.Add("remix_rt_light_edit", {
                         local sid = typeCombo:GetSelectedID()
                         return (sid and typeCombo:GetOptionData(sid)) or ent:GetNWString("rtx_light_type", "sphere")
                     end)(),
-                    rtx_light_radius = math.Clamp(math.floor(radius:GetValue()), 1, 200),
+                    rtx_light_radius = math.floor(radius:GetValue()),
                     rtx_light_brightness = brightness:GetValue(),
                     rtx_light_volumetric = vol:GetValue(),
                     rtx_light_shape_enabled = shapeToggle:GetChecked() and true or false,
@@ -992,18 +1036,35 @@ properties.Add("remix_rt_light_edit", {
                     rtx_light_distant_angle = distantang:GetValue(),
                 }
                 local col = mixer:GetColor()
-                local scale = math.max(0.0, brightness:GetValue())
-                local vec = Vector((col.r/12)*scale, (col.g/12)*scale, (col.b/12)*scale)
-                t.rtx_light_col = { x = vec.x, y = vec.y, z = vec.z }
+                t.rtx_light_color_r = col.r
+                t.rtx_light_color_g = col.g
+                t.rtx_light_color_b = col.b
+                
+                -- Debug logging
+                if cv_debug_updates:GetBool() then
+                    local brightnessVal = brightness:GetValue()
+                    local scale = math.max(0.0, brightnessVal)
+                    local radiance_x = (col.r/12)*scale
+                    local radiance_y = (col.g/12)*scale
+                    local radiance_z = (col.b/12)*scale
+                    print(string.format("[Editor->Server] Brightness=%.2f, Color=(%d,%d,%d), Radiance=(%.2f,%.2f,%.2f)",
+                        brightnessVal, col.r, col.g, col.b, radiance_x, radiance_y, radiance_z))
+                end
+                
                 net.WriteTable(t)
                 net.SendToServer()
             end)
         end
 
         local function applyRealtime()
+            if not IsValid(ent) then return end
+            -- Set NWVars locally for instant client-side visual feedback
             local col = mixer:GetColor()
-            ent:SetNWFloat("rtx_light_radius", math.Clamp(math.floor(radius:GetValue()), 1, 200))
-            ent:SetNWFloat("rtx_light_brightness", brightness:GetValue())
+            local brightnessVal = brightness:GetValue()
+            local scale = math.max(0.0, brightnessVal)
+            
+            ent:SetNWFloat("rtx_light_radius", math.floor(radius:GetValue()))
+            ent:SetNWFloat("rtx_light_brightness", brightnessVal)
             ent:SetNWFloat("rtx_light_volumetric", vol:GetValue())
             ent:SetNWBool("rtx_light_shape_enabled", shapeToggle:GetChecked())
             ent:SetNWFloat("rtx_light_shape_cone", cone:GetValue())
@@ -1015,14 +1076,27 @@ properties.Add("remix_rt_light_edit", {
             ent:SetNWFloat("rtx_light_yradius", yradius:GetValue())
             ent:SetNWFloat("rtx_light_axis_len", axislen:GetValue())
             ent:SetNWFloat("rtx_light_distant_angle", distantang:GetValue())
-            local scale = math.max(0.0, brightness:GetValue())
-            ent:SetNWVector("rtx_light_col", Vector((col.r/12)*scale, (col.g/12)*scale, (col.b/12)*scale))
+            ent:SetNWFloat("rtx_light_color_r", col.r)
+            ent:SetNWFloat("rtx_light_color_g", col.g)
+            ent:SetNWFloat("rtx_light_color_b", col.b)
+            
+            -- Debug logging
+            if cv_debug_updates:GetBool() then
+                local radiance_x = (col.r/12)*scale
+                local radiance_y = (col.g/12)*scale
+                local radiance_z = (col.b/12)*scale
+                print(string.format("[Editor Local] Brightness=%.2f, Color=(%d,%d,%d), Radiance=(%.2f,%.2f,%.2f)",
+                    brightnessVal, col.r, col.g, col.b, radiance_x, radiance_y, radiance_z))
+            end
+            
             local sid = typeCombo:GetSelectedID()
             local sel = (sid and typeCombo:GetOptionData(sid)) or ent:GetNWString("rtx_light_type", "sphere")
             ent:SetNWString("rtx_light_type", sel)
-            -- Flag that this entity needs an update on next Think
+            
+            -- Flag for instant visual update
             ent.NeedsUpdate = true
-            -- send authoritative apply to server
+            
+            -- Send throttled update to server for persistence
             sendApplyThrottled()
         end
 

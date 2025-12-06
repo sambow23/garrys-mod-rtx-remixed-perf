@@ -125,6 +125,13 @@ if SERVER then
                 local x = tonumber(tbl.x) or 0
                 local y = tonumber(tbl.y) or 0
                 local z = tonumber(tbl.z) or 0
+                -- Validate numbers but don't clamp - let Remix API handle limits
+                if x ~= x then x = 0 end  -- Check for NaN
+                if y ~= y then y = 0 end
+                if z ~= z then z = 0 end
+                if x == math.huge or x == -math.huge then x = 0 end  -- Check for infinity
+                if y == math.huge or y == -math.huge then y = 0 end
+                if z == math.huge or z == -math.huge then z = 0 end
                 return Vector(x, y, z)
             end
             return nil
@@ -138,20 +145,38 @@ if SERVER then
         end
 
         local v
-        v = clampf(t.rtx_light_radius, 1, 200);        if v then ent:SetNWFloat("rtx_light_radius", v) end
-        v = clampf(t.rtx_light_brightness, 0, 10);     if v then ent:SetNWFloat("rtx_light_brightness", v) end
+        v = clampf(t.rtx_light_radius, 1, 2000);        if v then ent:SetNWFloat("rtx_light_radius", v) end
+        v = clampf(t.rtx_light_brightness, 0, 10000);     if v then 
+            local cv_debug = GetConVar("rtx_rt_debug_sv")
+            if cv_debug and cv_debug:GetBool() and t.rtx_light_brightness then
+                print(string.format("[Server] Received brightness=%.2f, clamped to=%.2f", t.rtx_light_brightness, v))
+            end
+            ent:SetNWFloat("rtx_light_brightness", v) 
+        end
         v = clampf(t.rtx_light_volumetric, 0, 5);      if v then ent:SetNWFloat("rtx_light_volumetric", v) end
         if t.rtx_light_shape_enabled ~= nil then ent:SetNWBool("rtx_light_shape_enabled", clampb(t.rtx_light_shape_enabled)) end
         v = clampf(t.rtx_light_shape_cone, 0, 180);    if v then ent:SetNWFloat("rtx_light_shape_cone", v) end
         v = clampf(t.rtx_light_shape_softness, 0, 1);  if v then ent:SetNWFloat("rtx_light_shape_softness", v) end
         v = clampf(t.rtx_light_shape_focus, 0, 10);    if v then ent:SetNWFloat("rtx_light_shape_focus", v) end
-        v = clampf(t.rtx_light_xsize, 1, 400);         if v then ent:SetNWFloat("rtx_light_xsize", v) end
-        v = clampf(t.rtx_light_ysize, 1, 400);         if v then ent:SetNWFloat("rtx_light_ysize", v) end
-        v = clampf(t.rtx_light_xradius, 1, 200);       if v then ent:SetNWFloat("rtx_light_xradius", v) end
-        v = clampf(t.rtx_light_yradius, 1, 200);       if v then ent:SetNWFloat("rtx_light_yradius", v) end
-        v = clampf(t.rtx_light_axis_len, 1, 400);      if v then ent:SetNWFloat("rtx_light_axis_len", v) end
+        v = clampf(t.rtx_light_xsize, 1, 2000);         if v then ent:SetNWFloat("rtx_light_xsize", v) end
+        v = clampf(t.rtx_light_ysize, 1, 2000);         if v then ent:SetNWFloat("rtx_light_ysize", v) end
+        v = clampf(t.rtx_light_xradius, 1, 2000);       if v then ent:SetNWFloat("rtx_light_xradius", v) end
+        v = clampf(t.rtx_light_yradius, 1, 2000);       if v then ent:SetNWFloat("rtx_light_yradius", v) end
+        v = clampf(t.rtx_light_axis_len, 1, 2000);      if v then ent:SetNWFloat("rtx_light_axis_len", v) end
         v = clampf(t.rtx_light_distant_angle, 0, 10);  if v then ent:SetNWFloat("rtx_light_distant_angle", v) end
         local s = clampstr(t.rtx_light_dome_tex);       if s and s ~= "" then ent:SetNWString("rtx_light_dome_tex", s) end
-        local col = clampvec(t.rtx_light_col);          if col then ent:SetNWVector("rtx_light_col", col) end
+        
+        -- Validate RGB color components separately (0-255 range)
+        v = clampf(t.rtx_light_color_r, 0, 255);  if v then 
+            local cv_debug = GetConVar("rtx_rt_debug_sv")
+            if cv_debug and cv_debug:GetBool() and t.rtx_light_color_r then
+                print(string.format("[Server] Received color RGB=(%.2f,%.2f,%.2f), clamped to=(%.2f,%.2f,%.2f)",
+                    t.rtx_light_color_r or 0, t.rtx_light_color_g or 0, t.rtx_light_color_b or 0,
+                    clampf(t.rtx_light_color_r, 0, 255) or 0, clampf(t.rtx_light_color_g, 0, 255) or 0, clampf(t.rtx_light_color_b, 0, 255) or 0))
+            end
+            ent:SetNWFloat("rtx_light_color_r", v) 
+        end
+        v = clampf(t.rtx_light_color_g, 0, 255);  if v then ent:SetNWFloat("rtx_light_color_g", v) end
+        v = clampf(t.rtx_light_color_b, 0, 255);  if v then ent:SetNWFloat("rtx_light_color_b", v) end
     end)
 end

@@ -22,7 +22,9 @@ function ENT:Initialize()
 
     self.LightId = nil
     -- Default parameters; can be overridden via net message
-    self:SetNWVector("rtx_light_col", Vector(15, 15, 15))
+    self:SetNWFloat("rtx_light_color_r", 255)
+    self:SetNWFloat("rtx_light_color_g", 220)
+    self:SetNWFloat("rtx_light_color_b", 180)
     self:SetNWFloat("rtx_light_radius", 20)
     self:SetNWFloat("rtx_light_brightness", 1)
     self:SetNWFloat("rtx_light_volumetric", 1)
@@ -92,7 +94,9 @@ local function getNWTable(ent)
         rtx_light_yradius = ent:GetNWFloat("rtx_light_yradius", 20),
         rtx_light_axis_len = ent:GetNWFloat("rtx_light_axis_len", 40),
         rtx_light_distant_angle = ent:GetNWFloat("rtx_light_distant_angle", 0.5),
-        rtx_light_col = ent:GetNWVector("rtx_light_col", Vector(15, 15, 15)),
+        rtx_light_color_r = ent:GetNWFloat("rtx_light_color_r", 255),
+        rtx_light_color_g = ent:GetNWFloat("rtx_light_color_g", 220),
+        rtx_light_color_b = ent:GetNWFloat("rtx_light_color_b", 180),
     }
 end
 
@@ -114,7 +118,9 @@ local function applyNWTable(ent, t)
     if t.rtx_light_yradius then ent:SetNWFloat("rtx_light_yradius", t.rtx_light_yradius) end
     if t.rtx_light_axis_len then ent:SetNWFloat("rtx_light_axis_len", t.rtx_light_axis_len) end
     if t.rtx_light_distant_angle then ent:SetNWFloat("rtx_light_distant_angle", t.rtx_light_distant_angle) end
-    if t.rtx_light_col then ent:SetNWVector("rtx_light_col", t.rtx_light_col) end
+    if t.rtx_light_color_r then ent:SetNWFloat("rtx_light_color_r", t.rtx_light_color_r) end
+    if t.rtx_light_color_g then ent:SetNWFloat("rtx_light_color_g", t.rtx_light_color_g) end
+    if t.rtx_light_color_b then ent:SetNWFloat("rtx_light_color_b", t.rtx_light_color_b) end
 end
 
 function ENT:PreEntityCopy()
