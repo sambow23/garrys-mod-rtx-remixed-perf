@@ -129,17 +129,20 @@ local function ParseEntityAngles(ent)
         if ax and ay and az then
             -- Source convention: +pitch looks down -> negate when building Angle
             local a = Angle(-(tonumber(ax) or 0), tonumber(ay) or 0, tonumber(az) or 0)
-            -- If angles field is all zeros, check for standalone pitch/yaw fields
-            if a.p == 0 and a.y == 0 and a.r == 0 then
-                local standalonePitch = tonumber(ent.pitch or ent._pitch)
-                local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
-                if standalonePitch and standalonePitch ~= 0 then
-                    a.p = -standalonePitch
-                    return a, "angles_xyz_zero+pitch_override"
-                elseif standaloneYaw and standaloneYaw ~= 0 then
-                    a.y = standaloneYaw
-                    return a, "angles_xyz_zero+yaw_override"
-                end
+            -- Check for standalone pitch/yaw fields - they override the angles field when present
+            local standalonePitch = tonumber(ent.pitch or ent._pitch)
+            local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+            local overridden = false
+            if standalonePitch and standalonePitch ~= 0 then
+                a.p = -standalonePitch
+                overridden = true
+            end
+            if standaloneYaw and standaloneYaw ~= 0 and a.y == 0 then
+                a.y = standaloneYaw
+                overridden = true
+            end
+            if overridden then
+                return a, "angles_xyz+standalone_override"
             end
             return applyEnvPitchOverride(ent, a, "angles_xyz")
         end
@@ -155,32 +158,38 @@ local function ParseEntityAngles(ent)
     elseif (isvector and isvector(angField)) or type(angField) == "Vector" then
         -- Some BSP libs may expose angles as a Vector
         local a = Angle(-(angField.x or 0), angField.y or 0, angField.z or 0)
-        -- If angles field is all zeros, check for standalone pitch/yaw fields
-        if a.p == 0 and a.y == 0 and a.r == 0 then
-            local standalonePitch = tonumber(ent.pitch or ent._pitch)
-            local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
-            if standalonePitch and standalonePitch ~= 0 then
-                a.p = -standalonePitch
-                return a, "angles_vec_zero+pitch_override"
-            elseif standaloneYaw and standaloneYaw ~= 0 then
-                a.y = standaloneYaw
-                return a, "angles_vec_zero+yaw_override"
-            end
+        -- Check for standalone pitch/yaw fields - they override the angles field when present
+        local standalonePitch = tonumber(ent.pitch or ent._pitch)
+        local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+        local overridden = false
+        if standalonePitch and standalonePitch ~= 0 then
+            a.p = -standalonePitch
+            overridden = true
+        end
+        if standaloneYaw and standaloneYaw ~= 0 then
+            a.y = standaloneYaw
+            overridden = true
+        end
+        if overridden then
+            return a, "angles_vec+standalone_override"
         end
         return applyEnvPitchOverride(ent, a, "angles_vec")
     elseif istable(angField) and angField.x and angField.y and angField.z then
         local a = Angle(-(angField.x or 0), angField.y or 0, angField.z or 0)
-        -- If angles field is all zeros, check for standalone pitch/yaw fields
-        if a.p == 0 and a.y == 0 and a.r == 0 then
-            local standalonePitch = tonumber(ent.pitch or ent._pitch)
-            local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
-            if standalonePitch and standalonePitch ~= 0 then
-                a.p = -standalonePitch
-                return a, "angles_tbl_zero+pitch_override"
-            elseif standaloneYaw and standaloneYaw ~= 0 then
-                a.y = standaloneYaw
-                return a, "angles_tbl_zero+yaw_override"
-            end
+        -- Check for standalone pitch/yaw fields - they override the angles field when present
+        local standalonePitch = tonumber(ent.pitch or ent._pitch)
+        local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+        local overridden = false
+        if standalonePitch and standalonePitch ~= 0 then
+            a.p = -standalonePitch
+            overridden = true
+        end
+        if standaloneYaw and standaloneYaw ~= 0 then
+            a.y = standaloneYaw
+            overridden = true
+        end
+        if overridden then
+            return a, "angles_tbl+standalone_override"
         end
         return applyEnvPitchOverride(ent, a, "angles_tbl")
     elseif istable(angField) then
@@ -188,6 +197,21 @@ local function ParseEntityAngles(ent)
         local ax, ay, az = tonumber(angField[1] or 0), tonumber(angField[2] or 0), tonumber(angField[3] or 0)
         if ax ~= 0 or ay ~= 0 or az ~= 0 then
             local a = Angle(-ax, ay, az)
+            -- Check for standalone pitch/yaw fields - they override the angles field when present
+            local standalonePitch = tonumber(ent.pitch or ent._pitch)
+            local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+            local overridden = false
+            if standalonePitch and standalonePitch ~= 0 then
+                a.p = -standalonePitch
+                overridden = true
+            end
+            if standaloneYaw and standaloneYaw ~= 0 then
+                a.y = standaloneYaw
+                overridden = true
+            end
+            if overridden then
+                return a, "angles_tbl_idx+standalone_override"
+            end
             return applyEnvPitchOverride(ent, a, "angles_tbl_idx")
         end
         -- All zeros in array, check standalone fields
@@ -200,33 +224,39 @@ local function ParseEntityAngles(ent)
     elseif (isangle and isangle(angField)) then
         -- GLua Angle userdata
         local a = Angle(-(angField.p or 0), angField.y or 0, angField.r or 0)
-        -- If angles field is all zeros, check for standalone pitch/yaw fields
-        if a.p == 0 and a.y == 0 and a.r == 0 then
-            local standalonePitch = tonumber(ent.pitch or ent._pitch)
-            local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
-            if standalonePitch and standalonePitch ~= 0 then
-                a.p = -standalonePitch
-                return a, "angles_glua_zero+pitch_override"
-            elseif standaloneYaw and standaloneYaw ~= 0 then
-                a.y = standaloneYaw
-                return a, "angles_glua_zero+yaw_override"
-            end
+        -- Check for standalone pitch/yaw fields - they override the angles field when present
+        local standalonePitch = tonumber(ent.pitch or ent._pitch)
+        local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+        local overridden = false
+        if standalonePitch and standalonePitch ~= 0 then
+            a.p = -standalonePitch
+            overridden = true
+        end
+        if standaloneYaw and standaloneYaw ~= 0 then
+            a.y = standaloneYaw
+            overridden = true
+        end
+        if overridden then
+            return a, "angles_glua+standalone_override"
         end
         return applyEnvPitchOverride(ent, a, "angles_glua")
     elseif type(angField) == "Angle" then
         -- Angle type without isangle available
         local a = Angle(-(angField.p or 0), angField.y or 0, angField.r or 0)
-        -- If angles field is all zeros, check for standalone pitch/yaw fields
-        if a.p == 0 and a.y == 0 and a.r == 0 then
-            local standalonePitch = tonumber(ent.pitch or ent._pitch)
-            local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
-            if standalonePitch and standalonePitch ~= 0 then
-                a.p = -standalonePitch
-                return a, "angles_type_Angle_zero+pitch_override"
-            elseif standaloneYaw and standaloneYaw ~= 0 then
-                a.y = standaloneYaw
-                return a, "angles_type_Angle_zero+yaw_override"
-            end
+        -- Check for standalone pitch/yaw fields - they override the angles field when present
+        local standalonePitch = tonumber(ent.pitch or ent._pitch)
+        local standaloneYaw = tonumber(ent.angle or ent._angle or ent.yaw or ent._yaw)
+        local overridden = false
+        if standalonePitch and standalonePitch ~= 0 then
+            a.p = -standalonePitch
+            overridden = true
+        end
+        if standaloneYaw and standaloneYaw ~= 0 then
+            a.y = standaloneYaw
+            overridden = true
+        end
+        if overridden then
+            return a, "angles_type_Angle+standalone_override"
         end
         return applyEnvPitchOverride(ent, a, "angles_type_Angle")
     elseif type(angField) == "userdata" then
@@ -704,20 +734,36 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
             appliedBrightness = math.min(appliedBrightness, maxEnv)
         end
     end
-    local scale = appliedBrightness / 100.0
+    
     -- Per-type brightness multiplier
     local kind = (classname == "light_environment") and "env"
         or ((classname == "light_spot" or classname == "env_projectedtexture") and "spot" or "point")
     local typeBrightnessMult = (kind == "env") and env_brightness_mult:GetFloat()
         or ((kind == "spot") and spot_brightness_mult:GetFloat() or point_brightness_mult:GetFloat())
-    local bscale = scale * (typeBrightnessMult or 1.0)
+    
+    -- Compute intensity for radiance calculation
+    -- For physically-based rendering, radiance should be in linear light units
+    -- Scale brightness (0-100) to a reasonable intensity range for Remix
+    local intensity = (appliedBrightness / 100.0) * typeBrightnessMult
+    
+    -- For light_environment, use a different scaling since Source sun brightness 
+    -- can vary wildly (LDR: 0-255, HDR: 1000+)
+    -- Normalize to a consistent physical scale
+    if classname == "light_environment" then
+        -- Directional lights: moderate scaling (per-type mult already applied)
+        intensity = intensity * 2.0
+    else
+        -- For local lights (point/spot), scale to a reasonable range
+        -- Typical indoor lights: 100-1000 lumens, outdoor: 1000-10000+
+        intensity = intensity * 10.0
+    end
     
     local base = {
         hash = tonumber(util.CRC(string.format("maplight_%s", posKey))) or entityId,
         radiance = { 
-            x = srgbToLinear(color.r) * bscale * 255, 
-            y = srgbToLinear(color.g) * bscale * 255, 
-            z = srgbToLinear(color.b) * bscale * 255 
+            x = srgbToLinear(color.r) * intensity, 
+            y = srgbToLinear(color.g) * intensity, 
+            z = srgbToLinear(color.b) * intensity 
         },
     }
 
@@ -985,7 +1031,6 @@ local function updateEntryRuntime(entry)
     local kind = entry.kind or ((entry.classname == "light_environment") and "env" or ((entry.classname == "light_spot" or entry.classname == "env_projectedtexture") and "spot" or "point"))
     -- Brightness scale from stored baseBrightness (0-100) and current per-kind multiplier
     local baseBright = tonumber(entry.baseBrightness) or 100
-    local scale = baseBright / 100.0
     local bmult = 1.0
     if kind == "env" then
         bmult = env_brightness_mult:GetFloat()
@@ -995,13 +1040,23 @@ local function updateEntryRuntime(entry)
         bmult = point_brightness_mult:GetFloat()
     end
     local amult = tonumber(entry.animMul or 1.0) or 1.0
-    local bscale = scale * (bmult or 1.0) * amult
+    
+    -- Compute intensity using the same formula as createRemixLight
+    local intensity = (baseBright / 100.0) * bmult * amult
+    
+    -- Apply same scaling as creation for consistency
+    if entry.classname == "light_environment" then
+        intensity = intensity * 2.0
+    else
+        intensity = intensity * 10.0
+    end
+    
     local base = {
         hash = tonumber(util.CRC("upd_" .. tostring(entry.id))) or entry.entityId,
         radiance = { 
-            x = srgbToLinear(entry.color.r) * bscale * 255, 
-            y = srgbToLinear(entry.color.g) * bscale * 255, 
-            z = srgbToLinear(entry.color.b) * bscale * 255 
+            x = srgbToLinear(entry.color.r) * intensity, 
+            y = srgbToLinear(entry.color.g) * intensity, 
+            z = srgbToLinear(entry.color.b) * intensity 
         },
     }
     -- Helper to compute direction for distant/spot from stored angles if available
