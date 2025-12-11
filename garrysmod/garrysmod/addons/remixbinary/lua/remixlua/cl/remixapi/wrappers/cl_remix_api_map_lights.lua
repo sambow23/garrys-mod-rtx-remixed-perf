@@ -371,9 +371,9 @@ local function getLightProperties(entity)
             r, g, b, i = tonumber(r), tonumber(g), tonumber(b), tonumber(i)
             color = Color(r, g, b)
             
-            -- Normalize brightness based on color intensity
-            local colorIntensity = (r + g + b) / (3 * 255)
-            brightness = i * colorIntensity / 2.55  -- Convert 0-255 to 0-100
+            -- Source engine keeps brightness in 0-255 range, not 0-100
+            -- We'll use the raw intensity value from the _light field
+            brightness = i
         end
     end
     
@@ -381,9 +381,6 @@ local function getLightProperties(entity)
     if entity.distance or entity._distance then
         entitySize = tonumber(entity.distance or entity._distance or nil)
     end
-    
-    -- Apply brightness multiplier
-    brightness = brightness * brightness_multiplier:GetFloat()
     
     -- Estimate appropriate size
     local size, baseSizeBeforeMultipliers = estimateLightSize(brightness, entitySize, entity.classname)
@@ -393,8 +390,7 @@ local function getLightProperties(entity)
     
     -- Special handling for certain light types
     if entity.classname == "light_environment" then
-        -- Environment lights are usually brighter and larger
-        brightness = brightness * 1.5
+        -- Size adjustment for environment lights
         size = size * 1.5
         -- Read sun spread/diameter if available, else default to ~solar disc size
         local spread = tonumber(entity.sunspreadangle or entity._sunspreadangle or 0.53)
@@ -500,12 +496,13 @@ local function getLightProperties(entity)
         if lr and lg and lb then
             lr, lg, lb = tonumber(lr), tonumber(lg), tonumber(lb)
             color = Color(lr, lg, lb)
+            
+            -- Normalize env_projectedtexture brightness:
+            --  - Small values (0..10) are treated as 0..100
+            --  - Typical values (0..255) map to 0..100 via /2.55
+            --  - HDR values (>255, e.g. 10000) map to 0..100 via /100
             local iv = tonumber(la)
             if iv then
-                -- Normalize env_projectedtexture brightness:
-                --  - Small values (0..10) are treated as 0..100
-                --  - Typical values (0..255) map to 0..100 via /2.55
-                --  - HDR values (>255, e.g. 10000) map to 0..100 via /100
                 if iv <= 10 then
                     brightness = math.max(0, iv * 10)
                 elseif iv <= 255 then
@@ -726,14 +723,8 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
 
     local entityId = getUniqueEntityID()
 
-    -- Base light definition: compute radiance from color and brightness (0-100)
-    local appliedBrightness = tonumber(brightness) or 100
-    if classname == "light_environment" then
-        local maxEnv = tonumber(env_max_brightness:GetFloat()) or 0
-        if maxEnv > 0 then
-            appliedBrightness = math.min(appliedBrightness, maxEnv)
-        end
-    end
+    -- Base light definition: compute radiance from color and brightness (0-255)
+    local appliedBrightness = tonumber(brightness) or 255
     
     -- Per-type brightness multiplier
     local kind = (classname == "light_environment") and "env"
@@ -741,22 +732,13 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
     local typeBrightnessMult = (kind == "env") and env_brightness_mult:GetFloat()
         or ((kind == "spot") and spot_brightness_mult:GetFloat() or point_brightness_mult:GetFloat())
     
-    -- Compute intensity for radiance calculation
-    -- For physically-based rendering, radiance should be in linear light units
-    -- Scale brightness (0-100) to a reasonable intensity range for Remix
-    local intensity = (appliedBrightness / 100.0) * typeBrightnessMult
-    
-    -- For light_environment, use a different scaling since Source sun brightness 
-    -- can vary wildly (LDR: 0-255, HDR: 1000+)
-    -- Normalize to a consistent physical scale
-    if classname == "light_environment" then
-        -- Directional lights: moderate scaling (per-type mult already applied)
-        intensity = intensity * 2.0
-    else
-        -- For local lights (point/spot), scale to a reasonable range
-        -- Typical indoor lights: 100-1000 lumens, outdoor: 1000-10000+
-        intensity = intensity * 10.0
-    end
+    -- Compute intensity using Source engine's formula
+    -- Source: intensity = (color_linear) * (brightness / 255.0) * lightscale
+    -- where color_linear = pow(color/255, 2.2) * 255 (but srgbToLinear already does this)
+    -- brightness is the 4th value in _light field (0-255 range)
+    -- Point/spot lights need ~100x boost to compensate for missing radiosity calculations
+    local baseScale = (kind == "env") and 1.0 or 100.0
+    local intensity = (appliedBrightness / 255.0) * baseScale * typeBrightnessMult
     
     local base = {
         hash = tonumber(util.CRC(string.format("maplight_%s", posKey))) or entityId,
@@ -1029,8 +1011,8 @@ local function updateEntryRuntime(entry)
     if not entry or not entry.id then return end
     -- Determine kind reliably
     local kind = entry.kind or ((entry.classname == "light_environment") and "env" or ((entry.classname == "light_spot" or entry.classname == "env_projectedtexture") and "spot" or "point"))
-    -- Brightness scale from stored baseBrightness (0-100) and current per-kind multiplier
-    local baseBright = tonumber(entry.baseBrightness) or 100
+    -- Brightness scale from stored baseBrightness (0-255) and current per-kind multiplier
+    local baseBright = tonumber(entry.baseBrightness) or 255
     local bmult = 1.0
     if kind == "env" then
         bmult = env_brightness_mult:GetFloat()
@@ -1041,15 +1023,13 @@ local function updateEntryRuntime(entry)
     end
     local amult = tonumber(entry.animMul or 1.0) or 1.0
     
-    -- Compute intensity using the same formula as createRemixLight
-    local intensity = (baseBright / 100.0) * bmult * amult
-    
-    -- Apply same scaling as creation for consistency
-    if entry.classname == "light_environment" then
-        intensity = intensity * 2.0
-    else
-        intensity = intensity * 10.0
-    end
+    -- Compute intensity using Source engine's formula
+    -- Source: intensity = (color_linear) * (brightness / 255.0) * lightscale
+    -- where color_linear = pow(color/255, 2.2) * 255 (but srgbToLinear already does this)
+    -- brightness is the 4th value in _light field (0-255 range)
+    -- Point/spot lights need ~100x boost to compensate for missing radiosity calculations
+    local baseScale = (kind == "env") and 1.0 or 100.0
+    local intensity = (baseBright / 255.0) * baseScale * bmult * amult
     
     local base = {
         hash = tonumber(util.CRC("upd_" .. tostring(entry.id))) or entry.entityId,
