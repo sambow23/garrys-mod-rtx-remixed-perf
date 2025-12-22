@@ -37,8 +37,8 @@ rtx:rtx.enableMultiStageTextureFactorBlending = True
 
 ## For API Lights
 rtx:rtx.neeCache.enableAnalyticalLight = False
-rtx:rtx.risLightSampleCount = 64
-rtx:rtx.di.initialSampleCount = 64
+rtx:rtx.risLightSampleCount = 32
+rtx:rtx.di.initialSampleCount = 32
 rtx:rtx.di.spatialSamples = 4
 rtx:rtx.di.enableBestLightSampling = True
 rtx:rtx.di.maxHistoryLength = 1
@@ -63,11 +63,16 @@ rtx:rtx.localtonemap.finalizeWithACES = False
 ## Alpha
 rtx:rtx.enableStochasticAlphaBlend = True
 
+### Misc
+rtx:rtx.viewModel.enable = True
+rtx:rtx.viewModel.scale = 0.250
+rtx:rtx.skyAutoDetect = 2
+rtx:rtx.hideInstanceTextures = B85950B06260EF56,41C11B59983BC9E7
+rtx:rtx.neeCache.enable = True
+
 ### Lights
-rtx:rtx.ignoreGamePointLights = True
-rtx:rtx.ignoreGameSpotLights = True
-rtx:rtx.ignoreGameDirectionalLights = True
 rtx:rtx.lightConversionSphereLightFixedRadius = 9
+rtx:rtx.suppressLightKeeping = True
 
 ### Sky
 rtx:rtx.skyBrightness = 1

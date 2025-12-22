@@ -9,15 +9,10 @@ hook.Add("PopulateToolMenu", "RTXProjectedTextureWrapper_Menu", function()
         panel:Help("Works with Glide base headlights, spotlight entities, and other addons that use ProjectedTexture()")
 
         -- Enable/Disable
-        panel:CheckBox("Enable Projected Texture Wrapper", "rtx_projectedtexture_wrapper_enabled")
+        local enableCheckbox = panel:CheckBox("Enable Projected Texture Wrapper", "rtx_projectedtexture_wrapper_enabled")
         
-        
-        local brightnessSlider = panel:NumSlider("Brightness Scale", "rtx_projectedtexture_wrapper_brightness_scale", 1, 500, 0)
+        local brightnessSlider = panel:NumSlider("Brightness Scale", "rtx_projectedtexture_wrapper_brightness_scale", 1, 10000, 0)
         if brightnessSlider then brightnessSlider:SetDecimals(0) end
-        panel:Help("Higher values = brighter lights. Default: 10")
-        
-        local radiusSlider = panel:NumSlider("Radius Scale", "rtx_projectedtexture_wrapper_radius_scale", 0.001, 5.000, 2.000)
-        if radiusSlider then radiusSlider:SetDecimals(4) end
         
         panel:Help("Position Offsets")
         local offsetXSlider = panel:NumSlider("Offset X (Forward/Back)", "rtx_projectedtexture_wrapper_offset_x", -200, 200, 0)
@@ -29,9 +24,17 @@ hook.Add("PopulateToolMenu", "RTXProjectedTextureWrapper_Menu", function()
         local offsetZSlider = panel:NumSlider("Offset Z (Up/Down)", "rtx_projectedtexture_wrapper_offset_z", -200, 200, 0)
         if offsetZSlider then offsetZSlider:SetDecimals(0) end
         
-        panel:Button("Reset Offsets", "rtx_projectedtexture_reset_offsets")
+        -- Update controls based on lightupdater state
+        local function UpdateControls()
+            local lightupdaterEnabled = GetConVar("rtx_lightupdater"):GetBool()
+            local enabled = not lightupdaterEnabled
+            if enableCheckbox then enableCheckbox:SetEnabled(enabled) end
+            if brightnessSlider then brightnessSlider:SetEnabled(enabled) end
+            if offsetXSlider then offsetXSlider:SetEnabled(enabled) end
+            if offsetYSlider then offsetYSlider:SetEnabled(enabled) end
+            if offsetZSlider then offsetZSlider:SetEnabled(enabled) end
+        end
         
-        -- Clear button
-        panel:Button("Clear All Wrapped Lights", "rtx_projectedtexture_clear")
+        UpdateControls()
     end)
 end)

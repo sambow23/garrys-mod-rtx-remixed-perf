@@ -1,6 +1,6 @@
 local brightness_multiplier = CreateClientConVar("rtx_api_map_lights_brightness", "1.0", true, false, "Brightness multiplier for converted lights")
 local min_size = CreateClientConVar("rtx_api_map_lights_min_size", "0", true, false, "Minimum size for RTX lights")
-local max_size = CreateClientConVar("rtx_api_map_lights_max_size", "9", true, false, "Maximum size for RTX lights")
+local max_size = CreateClientConVar("rtx_api_map_lights_max_size", "4", true, false, "Maximum size for RTX lights")
 local visual_mode = CreateClientConVar("rtx_api_map_lights_visual", "0", true, false, "Show visible models for lights")
 local debug_mode = CreateClientConVar("rtx_api_map_lights_debug", "0", true, false, "Enable debug messages")
 local env_max_brightness = CreateClientConVar("rtx_api_map_lights_env_max_brightness", "3", true, false, "Max brightness (0-100 scale) for directional lights; 0 disables clamping")
@@ -12,9 +12,9 @@ local point_radius_mult = CreateClientConVar("rtx_api_map_lights_point_radius_mu
 local spot_radius_mult = CreateClientConVar("rtx_api_map_lights_spot_radius_mult", "1.5", true, false, "Radius multiplier for spot lights")
 local env_angular_mult = CreateClientConVar("rtx_api_map_lights_env_angular_mult", "1.0", true, false, "Angular diameter multiplier for directional lights")
 
-local point_brightness_mult = CreateClientConVar("rtx_api_map_lights_point_brightness_mult", "2.0", true, false, "Brightness multiplier for point lights")
+local point_brightness_mult = CreateClientConVar("rtx_api_map_lights_point_brightness_mult", "1.0", true, false, "Brightness multiplier for point lights")
 local spot_brightness_mult = CreateClientConVar("rtx_api_map_lights_spot_brightness_mult", "1.0", true, false, "Brightness multiplier for spot lights")
-local env_brightness_mult = CreateClientConVar("rtx_api_map_lights_env_brightness_mult", "0.15", true, false, "Brightness multiplier for directional lights")
+local env_brightness_mult = CreateClientConVar("rtx_api_map_lights_env_brightness_mult", "1.0", true, false, "Brightness multiplier for directional lights")
 
 local point_volumetric_mult = CreateClientConVar("rtx_api_map_lights_point_volumetric_mult", "1.0", true, false, "Volumetric scale multiplier for point lights")
 local spot_volumetric_mult = CreateClientConVar("rtx_api_map_lights_spot_volumetric_mult", "1.0", true, false, "Volumetric scale multiplier for spot lights")
@@ -28,6 +28,9 @@ local creation_batch_size = CreateClientConVar("rtx_api_map_lights_batch_size", 
 local creation_batch_delay = CreateClientConVar("rtx_api_map_lights_batch_delay", "0.0", true, false, "Delay between batches in seconds")
 local pos_jitter = CreateClientConVar("rtx_api_map_lights_position_jitter", "1", true, false, "Add a small random offset to light positions to prevent conflicts")
 local pos_jitter_amount = CreateClientConVar("rtx_api_map_lights_position_jitter_amount", "0.1", true, false, "Amount of random position offset")
+
+-- Trace mask constants (use GMod globals if available, otherwise define them)
+local TRACE_MASK_SOLID = MASK_SOLID or 0x200400B -- CONTENTS_SOLID | CONTENTS_MOVEABLE | CONTENTS_WINDOW | CONTENTS_MONSTER | CONTENTS_GRATE
 local rect_rotation_x = CreateClientConVar("rtx_api_map_lights_rect_rotation_x", "0", true, false, "X rotation offset for rectangle and disk lights")
 local rect_rotation_y = CreateClientConVar("rtx_api_map_lights_rect_rotation_y", "0", true, false, "Y rotation offset for rectangle and disk lights")
 local rect_rotation_z = CreateClientConVar("rtx_api_map_lights_rect_rotation_z", "0", true, false, "Z rotation offset for rectangle and disk lights")
@@ -45,6 +48,9 @@ local autospawn_delay = CreateClientConVar("rtx_api_map_lights_autospawn_delay",
 
 -- Debug helpers
 local debug_vis = CreateClientConVar("rtx_api_map_lights_debug_vis", "0", true, false, "Draw debug direction for spotlights")
+local debug_hud = CreateClientConVar("rtx_api_map_lights_debug_hud", "0", true, false, "Show HUD overlay with light positions and info")
+local debug_hud_max_distance = CreateClientConVar("rtx_api_map_lights_debug_hud_max_distance", "2048", true, false, "Maximum distance to show lights in HUD")
+local debug_hud_show_disabled = CreateClientConVar("rtx_api_map_lights_debug_hud_show_disabled", "0", true, false, "Show disabled/dark lights in HUD")
 local spot_dir_basis = CreateClientConVar("rtx_api_map_lights_dir_basis", "0", true, false, "Angles basis if no target: 0=F,1=-F,2=U,3=-U,4=R,5=-R")
 local debug_beam_mat = Material("cable/physbeam")
 
@@ -365,21 +371,80 @@ local function getLightProperties(entity)
     }
     
     -- Extract color information from the _light property if available
+    -- Format: "R G B I" or sometimes just "R G B" (defaults intensity to 255)
     if entity._light then
-        local r, g, b, i = string.match(entity._light or "", "(%d+)%s+(%d+)%s+(%d+)%s+(%d+)")
+        -- Try parsing 4 values first (R G B I)
+        local r, g, b, i = string.match(entity._light or "", "([%+%-]?%d+)%s+([%+%-]?%d+)%s+([%+%-]?%d+)%s+([%+%-]?%d+)")
         if r and g and b and i then
             r, g, b, i = tonumber(r), tonumber(g), tonumber(b), tonumber(i)
+            -- Clamp negative values to 0 (some maps have malformed data)
+            if r < 0 then r = 0 end
+            if g < 0 then g = 0 end
+            if b < 0 then b = 0 end
+            if i < 0 then i = 255 end
             color = Color(r, g, b)
-            
-            -- Source engine keeps brightness in 0-255 range, not 0-100
-            -- We'll use the raw intensity value from the _light field
             brightness = i
+        else
+            -- Try parsing 3 values (R G B), default intensity to 200
+            r, g, b = string.match(entity._light or "", "([%+%-]?%d+)%s+([%+%-]?%d+)%s+([%+%-]?%d+)")
+            if r and g and b then
+                r, g, b = tonumber(r), tonumber(g), tonumber(b)
+                -- Clamp negative values
+                if r < 0 then r = 0 end
+                if g < 0 then g = 0 end
+                if b < 0 then b = 0 end
+                color = Color(r, g, b)
+                brightness = 200  -- Default intensity when not specified (matches Source Engine's vrad)
+            end
         end
     end
     
-    -- Get size from entity properties
-    if entity.distance or entity._distance then
-        entitySize = tonumber(entity.distance or entity._distance or nil)
+    -- Check _lightHDR for sentinel value (indicates "use SDR values")
+    -- Sentinel formats: "-1 -1 -1 1" or any negative RGB with negative intensity
+    if entity._lightHDR then
+        local hr, hg, hb, hi = string.match(entity._lightHDR or "", "([%+%-]?%d+)%s+([%+%-]?%d+)%s+([%+%-]?%d+)%s+([%+%-]?%d+)")
+        if hr and hg and hb and hi then
+            hr, hg, hb, hi = tonumber(hr), tonumber(hg), tonumber(hb), tonumber(hi)
+            local hasNegativeRGB = (hr < 0 or hg < 0 or hb < 0)
+            local hasNegativeIntensity = (hi and hi < 0)
+            -- If NOT a sentinel (no negative values), use HDR values instead
+            if not ((hr < 0 and hg < 0 and hb < 0) or (hasNegativeRGB and hasNegativeIntensity)) then
+                -- Valid HDR color, use it
+                if hr >= 0 and hg >= 0 and hb >= 0 and hi >= 0 then
+                    color = Color(hr, hg, hb)
+                    brightness = hi
+                end
+            end
+            -- Otherwise it's a sentinel, keep using SDR values from above
+        end
+    end
+    
+    -- Get size from entity properties and falloff distances
+    -- Source Engine uses these to control light attenuation:
+    -- _fifty_percent_distance (_distance): Distance where light is 50% bright
+    -- _zero_percent_distance: Distance where light reaches 0%
+    
+    -- Only apply falloff-based calculations if these fields are actually present
+    local fiftyPercent = tonumber(entity._fifty_percent_distance or entity._distance or entity.distance)
+    local zeroPercent = tonumber(entity._zero_percent_distance)
+    
+    if fiftyPercent and zeroPercent and fiftyPercent > 0 and zeroPercent > fiftyPercent then
+        -- Hybrid approach: Use fifty_percent for radius hint
+        -- Since RTX uses physical PBR (inverse-square falloff), we approximate Source's arbitrary curves
+        
+        -- Calculate radius from fifty_percent with a baseline offset to prevent tiny lights
+        -- Use a more conservative divisor and add a minimum base size
+        local radiusFromFalloff = (fiftyPercent / 40.0) + 2.0  -- Base size of 2.0 + scaled component
+        entitySize = radiusFromFalloff
+        
+        -- Apply a very modest brightness adjustment using square root scaling
+        -- This prevents extreme brightness for lights with large falloff distances
+        -- Square root provides diminishing returns: 100->1.0x, 400->2.0x, 900->3.0x
+        local baseline = 100.0  -- Source's typical default falloff distance
+        local reachScale = math.sqrt(fiftyPercent / baseline)
+        -- Cap the multiplier to reasonable values
+        reachScale = math.Clamp(reachScale, 0.3, 2.0)
+        brightness = brightness * reachScale
     end
     
     -- Estimate appropriate size
@@ -395,6 +460,8 @@ local function getLightProperties(entity)
         -- Read sun spread/diameter if available, else default to ~solar disc size
         local spread = tonumber(entity.sunspreadangle or entity._sunspreadangle or 0.53)
         lightProps.angularDiameter = spread or 0.53
+        -- Store HDR brightness scale for use in intensity calculation
+        lightProps._lightscaleHDR = tonumber(entity._lightscaleHDR or entity.lightscaleHDR or 1.0)
         -- Derive directional angles (reuse robust parser)
         local a, src = ParseEntityAngles(entity)
         if debug_mode:GetBool() then
@@ -578,6 +645,476 @@ local function getLightProperties(entity)
     return color, brightness, size, lightType, lightProps
 end
 
+-- Check if a position is within map bounds and clamp it if needed
+local function validateAndClampPosition(pos, classname)
+    if not NikNaks or not NikNaks.CurrentMap then return pos end
+    
+    local bsp = NikNaks.CurrentMap
+    
+    -- Try to get map bounds from BSP
+    local mins, maxs
+    
+    -- Method 1: Try GetModels() to get world geometry bounds (model 0 = worldspawn)
+    if bsp.GetModels then
+        local models = bsp:GetModels()
+        if models and models[0] then
+            local worldModel = models[0]
+            if worldModel.min and worldModel.max then
+                mins = worldModel.min
+                maxs = worldModel.max
+                DebugPrint(string.format("Got map bounds from model: mins=(%.1f, %.1f, %.1f) maxs=(%.1f, %.1f, %.1f)", 
+                    mins.x, mins.y, mins.z, maxs.x, maxs.y, maxs.z))
+            end
+        end
+    end
+    
+    -- Method 2: Try GetModel(0) directly
+    if not mins and bsp.GetModel then
+        local worldModel = bsp:GetModel(0)
+        if worldModel and worldModel.min and worldModel.max then
+            mins = worldModel.min
+            maxs = worldModel.max
+            DebugPrint(string.format("Got map bounds from GetModel(0): mins=(%.1f, %.1f, %.1f) maxs=(%.1f, %.1f, %.1f)", 
+                mins.x, mins.y, mins.z, maxs.x, maxs.y, maxs.z))
+        end
+    end
+    
+    -- Method 3: Calculate bounds from all brush entities
+    if not mins and bsp.GetEntities then
+        local calcMins = Vector(999999, 999999, 999999)
+        local calcMaxs = Vector(-999999, -999999, -999999)
+        local foundAny = false
+        
+        for _, ent in pairs(bsp:GetEntities()) do
+            if ent.origin then
+                local entPos = StringToVector(ent.origin)
+                if entPos ~= Vector(0, 0, 0) then
+                    calcMins.x = math.min(calcMins.x, entPos.x)
+                    calcMins.y = math.min(calcMins.y, entPos.y)
+                    calcMins.z = math.min(calcMins.z, entPos.z)
+                    calcMaxs.x = math.max(calcMaxs.x, entPos.x)
+                    calcMaxs.y = math.max(calcMaxs.y, entPos.y)
+                    calcMaxs.z = math.max(calcMaxs.z, entPos.z)
+                    foundAny = true
+                end
+            end
+        end
+        
+        if foundAny then
+            -- Add padding around calculated bounds
+            local padding = 512
+            mins = Vector(calcMins.x - padding, calcMins.y - padding, calcMins.z - padding)
+            maxs = Vector(calcMaxs.x + padding, calcMaxs.y + padding, calcMaxs.z + padding)
+            DebugPrint(string.format("Calculated map bounds from entities: mins=(%.1f, %.1f, %.1f) maxs=(%.1f, %.1f, %.1f)", 
+                mins.x, mins.y, mins.z, maxs.x, maxs.y, maxs.z))
+        end
+    end
+    
+    -- Method 4: Use a reasonable default fallback (very large bounds)
+    if not mins or not maxs then
+        mins = Vector(-16384, -16384, -16384)
+        maxs = Vector(16384, 16384, 16384)
+        DebugPrint("Using default map bounds for clamping")
+    end
+    
+    -- Check if position is out of bounds
+    local clamped = Vector(pos.x, pos.y, pos.z)
+    local wasOutOfBounds = false
+    
+    if pos.x < mins.x then clamped.x = mins.x + 10; wasOutOfBounds = true end
+    if pos.y < mins.y then clamped.y = mins.y + 10; wasOutOfBounds = true end
+    if pos.z < mins.z then clamped.z = mins.z + 10; wasOutOfBounds = true end
+    if pos.x > maxs.x then clamped.x = maxs.x - 10; wasOutOfBounds = true end
+    if pos.y > maxs.y then clamped.y = maxs.y - 10; wasOutOfBounds = true end
+    if pos.z > maxs.z then clamped.z = maxs.z - 10; wasOutOfBounds = true end
+    
+    if wasOutOfBounds then
+        print(string.format("[Light2RTX] WARNING: %s at (%.1f, %.1f, %.1f) is out of bounds! Clamped to (%.1f, %.1f, %.1f)", 
+            classname or "light", pos.x, pos.y, pos.z, clamped.x, clamped.y, clamped.z))
+    end
+    
+    return clamped
+end
+
+-- Check if a position is inside solid geometry and try to move it to a valid position
+-- If lightDir is provided (for spotlights), prefer moving in that direction
+local function validatePositionAgainstGeometry(pos, classname, lightDir)
+    local isInSolid = false
+    local checkMethod = "none"
+    
+    -- Method 1: Check BSP geometry using NikNaks
+    if NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.PointContents then
+        local contents = NikNaks.CurrentMap:PointContents(pos)
+        local CONTENTS_SOLID = 1
+        if contents and bit.band(contents, CONTENTS_SOLID) ~= 0 then
+            isInSolid = true
+            checkMethod = "BSP"
+        end
+    end
+    
+    -- Method 2: Check for collision with world + static props using hull trace
+    -- TraceHull is better at detecting if we're inside geometry
+    if not isInSolid then
+        local hullSize = 4 -- Small hull to detect tight spaces
+        local trace = util.TraceHull({
+            start = pos,
+            endpos = pos, -- Zero-length trace to check current position
+            mins = Vector(-hullSize, -hullSize, -hullSize),
+            maxs = Vector(hullSize, hullSize, hullSize),
+            mask = TRACE_MASK_SOLID, -- Check everything solid (world + props)
+            -- No filter - we want to detect ALL solid geometry including props
+        })
+        
+        if debug_mode:GetBool() then
+            local hitEnt = "nil"
+            if trace.Entity and IsValid(trace.Entity) then
+                hitEnt = trace.Entity:GetClass()
+            elseif trace.Entity then
+                hitEnt = "world"
+            end
+            DebugPrint(string.format("Hull trace at (%.1f,%.1f,%.1f): StartSolid=%s AllSolid=%s Hit=%s HitEnt=%s", 
+                pos.x, pos.y, pos.z, tostring(trace.StartSolid), tostring(trace.AllSolid), tostring(trace.Hit), hitEnt))
+        end
+        
+        if trace.StartSolid or trace.AllSolid then
+            isInSolid = true
+            checkMethod = "trace_hull"
+        end
+    end
+    
+    -- Method 3: Check if light is inside a prop_static bounding box
+    -- This catches non-solid props (like lamp fixtures) that don't have collision
+    if not isInSolid and NikNaks and NikNaks.CurrentMap then
+        local bsp = NikNaks.CurrentMap
+        
+        -- Get static props from BSP using NikNaks API
+        if bsp.GetStaticProps then
+            local props = bsp:GetStaticProps()
+            local propCount = #props
+            local nearbyProps = 0
+            
+            for _, prop in pairs(props) do
+                -- StaticProp has Origin (capital O) and PropType fields
+                local propOrigin = prop.Origin
+                local propModel = prop.PropType
+                
+                if propOrigin and propModel then
+                    -- Check if prop is nearby (within 100 units) before doing expensive checks
+                    local dist = pos:Distance(propOrigin)
+                    if dist < 100 then
+                        nearbyProps = nearbyProps + 1
+                        
+                        -- Get model bounds using NikNaks StaticProp:GetModelBounds() method
+                        -- This automatically includes scale
+                        local mins, maxs = prop:GetModelBounds()
+                        
+                        -- Fallback if GetModelBounds fails
+                        if not mins or not maxs then
+                            mins = Vector(-32, -32, -32)
+                            maxs = Vector(32, 32, 32)
+                        end
+                        
+                        -- Transform bounds to world space
+                        local worldMins = propOrigin + mins
+                        local worldMaxs = propOrigin + maxs
+                        
+                        if debug_mode:GetBool() then
+                            DebugPrint(string.format("Checking prop at distance %.1f: %s", dist, propModel))
+                            DebugPrint(string.format("  Light: (%.1f,%.1f,%.1f), Prop: (%.1f,%.1f,%.1f)", 
+                                pos.x, pos.y, pos.z, propOrigin.x, propOrigin.y, propOrigin.z))
+                            DebugPrint(string.format("  BBox: mins=(%.1f,%.1f,%.1f) maxs=(%.1f,%.1f,%.1f)",
+                                worldMins.x, worldMins.y, worldMins.z, worldMaxs.x, worldMaxs.y, worldMaxs.z))
+                        end
+                        
+                        -- Check if light is inside bounding box
+                        if pos.x >= worldMins.x and pos.x <= worldMaxs.x and
+                           pos.y >= worldMins.y and pos.y <= worldMaxs.y and
+                           pos.z >= worldMins.z and pos.z <= worldMaxs.z then
+                            isInSolid = true
+                            checkMethod = "inside_prop_bbox"
+                            if debug_mode:GetBool() then
+                                DebugPrint(string.format(">>> Light IS inside this prop!"))
+                            end
+                            break
+                        end
+                    end
+                end
+            end
+            
+            if debug_mode:GetBool() then
+                DebugPrint(string.format("Prop check: found %d total props, %d nearby", propCount, nearbyProps))
+            end
+        else
+            if debug_mode:GetBool() then
+                DebugPrint("Prop check: NikNaks doesn't support GetStaticProps()")
+            end
+        end
+    end
+    
+    -- Method 4: Check if there's geometry very close in all directions (enclosed space)
+    if not isInSolid then
+        local checkDist = 8
+        local hitCount = 0
+        local directions = {
+            Vector(1, 0, 0), Vector(-1, 0, 0),
+            Vector(0, 1, 0), Vector(0, -1, 0),
+            Vector(0, 0, 1), Vector(0, 0, -1),
+        }
+        
+        for _, dir in ipairs(directions) do
+            local trace = util.TraceLine({
+                start = pos,
+                endpos = pos + dir * checkDist,
+                mask = TRACE_MASK_SOLID, -- Check all solid geometry
+            })
+            
+            if trace.Hit and trace.Fraction < 1.0 then
+                hitCount = hitCount + 1
+            end
+        end
+        
+        -- If we hit geometry in most/all directions, we're likely enclosed
+        if hitCount >= 5 then
+            isInSolid = true
+            checkMethod = "enclosed"
+            if debug_mode:GetBool() then
+                DebugPrint(string.format("Light at (%.1f,%.1f,%.1f) detected as enclosed (%d/6 directions blocked)", 
+                    pos.x, pos.y, pos.z, hitCount))
+            end
+        end
+    end
+    
+    if not isInSolid then
+        -- Position is valid, no adjustment needed
+        return pos
+    end
+    
+    print(string.format("[Light2RTX] WARNING: %s at (%.1f, %.1f, %.1f) is inside solid geometry! (detected via %s)", 
+        classname or "light", pos.x, pos.y, pos.z, checkMethod))
+    
+    -- Try to find a valid position by tracing in multiple directions
+    -- Use shorter distances for spotlights (keep them close to fixture)
+    local testDistances = lightDir and { 8, 16, 32, 64, 96 } or { 32, 64, 128, 256 }
+    
+    -- If we have a light direction (spotlight), try ALL distances in that direction first
+    if lightDir and lightDir:Length() > 0 then
+        local dir = lightDir:GetNormalized()
+        for _, dist in ipairs(testDistances) do
+            local testPos = pos + (dir * dist)
+            
+            -- Check both BSP and props at test position using same logic as detection
+            local isValid = true
+            
+            -- Check BSP if available
+            if NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.PointContents then
+                local testContents = NikNaks.CurrentMap:PointContents(testPos)
+                local CONTENTS_SOLID = 1
+                if testContents and bit.band(testContents, CONTENTS_SOLID) ~= 0 then
+                    isValid = false
+                end
+            end
+            
+            -- Check via hull trace
+            if isValid then
+                local hullSize = 4
+                local trace = util.TraceHull({
+                    start = testPos,
+                    endpos = testPos,
+                    mins = Vector(-hullSize, -hullSize, -hullSize),
+                    maxs = Vector(hullSize, hullSize, hullSize),
+                    mask = TRACE_MASK_SOLID,
+                })
+                if trace.StartSolid or trace.AllSolid then
+                    isValid = false
+                end
+            end
+            
+            -- Check if still inside a prop bounding box
+            if isValid and NikNaks and NikNaks.CurrentMap then
+                local bsp = NikNaks.CurrentMap
+                if bsp.GetStaticProps then
+                    local props = bsp:GetStaticProps()
+                    for _, prop in pairs(props) do
+                        local propOrigin = prop.Origin
+                        local propModel = prop.PropType
+                        if propOrigin and propModel then
+                            local propDist = testPos:Distance(propOrigin)
+                            if propDist < 150 then
+                                local mins, maxs = prop:GetModelBounds()
+                                if not mins or not maxs then
+                                    mins = Vector(-32, -32, -32)
+                                    maxs = Vector(32, 32, 32)
+                                end
+                                local worldMins = propOrigin + mins
+                                local worldMaxs = propOrigin + maxs
+                                
+                                if testPos.x >= worldMins.x and testPos.x <= worldMaxs.x and
+                                   testPos.y >= worldMins.y and testPos.y <= worldMaxs.y and
+                                   testPos.z >= worldMins.z and testPos.z <= worldMaxs.z then
+                                    isValid = false
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- CRITICAL: Check if path from stuck position to candidate is clear
+            -- This prevents pushing lights through walls to the other side
+            if isValid then
+                local pathTrace = util.TraceLine({
+                    start = pos,
+                    endpos = testPos,
+                    mask = TRACE_MASK_SOLID,
+                })
+                -- If we hit something before reaching the destination, path is blocked
+                if pathTrace.Hit and pathTrace.Fraction < 0.99 then
+                    isValid = false
+                end
+            end
+            
+            if isValid then
+                -- Found valid position in light direction!
+                print(string.format("[Light2RTX] Moved %s to valid position (%.1f, %.1f, %.1f) - %d units in light direction", 
+                    classname or "light", testPos.x, testPos.y, testPos.z, dist))
+                return testPos
+            end
+        end
+    end
+    
+    -- Fallback: try standard directions if light direction didn't work
+    local testDirections = {
+        Vector(0, 0, 1),    -- Up
+        Vector(0, 0, -1),   -- Down
+        Vector(1, 0, 0),    -- Right
+        Vector(-1, 0, 0),   -- Left
+        Vector(0, 1, 0),    -- Forward
+        Vector(0, -1, 0),   -- Back
+        Vector(1, 1, 0):GetNormalized(),   -- Diagonal
+        Vector(-1, 1, 0):GetNormalized(),
+        Vector(1, -1, 0):GetNormalized(),
+        Vector(-1, -1, 0):GetNormalized(),
+    }
+    
+    -- Try each direction at various distances
+    for _, dist in ipairs(testDistances) do
+        for _, dir in ipairs(testDirections) do
+            local testPos = pos + (dir * dist)
+            
+            -- Check both BSP and props at test position using same logic as detection
+            local isValid = true
+            
+            -- Check BSP if available
+            if NikNaks and NikNaks.CurrentMap and NikNaks.CurrentMap.PointContents then
+                local testContents = NikNaks.CurrentMap:PointContents(testPos)
+                local CONTENTS_SOLID = 1
+                if testContents and bit.band(testContents, CONTENTS_SOLID) ~= 0 then
+                    isValid = false
+                end
+            end
+            
+            -- Check via hull trace
+            if isValid then
+                local hullSize = 4
+                local trace = util.TraceHull({
+                    start = testPos,
+                    endpos = testPos,
+                    mins = Vector(-hullSize, -hullSize, -hullSize),
+                    maxs = Vector(hullSize, hullSize, hullSize),
+                    mask = TRACE_MASK_SOLID, -- Check all solid geometry
+                })
+                if trace.StartSolid or trace.AllSolid then
+                    isValid = false
+                end
+            end
+            
+            -- Check if still inside a prop bounding box
+            if isValid and NikNaks and NikNaks.CurrentMap then
+                local bsp = NikNaks.CurrentMap
+                if bsp.GetStaticProps then
+                    local props = bsp:GetStaticProps()
+                    for _, prop in pairs(props) do
+                        local propOrigin = prop.Origin
+                        local propModel = prop.PropType
+                        if propOrigin and propModel then
+                            local dist = testPos:Distance(propOrigin)
+                            if dist < 100 then
+                                local mins, maxs = prop:GetModelBounds()
+                                if not mins or not maxs then
+                                    mins = Vector(-32, -32, -32)
+                                    maxs = Vector(32, 32, 32)
+                                end
+                                local worldMins = propOrigin + mins
+                                local worldMaxs = propOrigin + maxs
+                                
+                                -- Check if test position is inside this prop's bbox
+                                if testPos.x >= worldMins.x and testPos.x <= worldMaxs.x and
+                                   testPos.y >= worldMins.y and testPos.y <= worldMaxs.y and
+                                   testPos.z >= worldMins.z and testPos.z <= worldMaxs.z then
+                                    isValid = false
+                                    break
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            
+            -- CRITICAL: Check if path from stuck position to candidate is clear
+            -- This prevents pushing lights through walls to the other side
+            if isValid then
+                local pathTrace = util.TraceLine({
+                    start = pos,
+                    endpos = testPos,
+                    mask = TRACE_MASK_SOLID,
+                })
+                -- If we hit something before reaching the destination, path is blocked
+                if pathTrace.Hit and pathTrace.Fraction < 0.99 then
+                    isValid = false
+                end
+            end
+            
+            -- Check if enclosed (surrounded by geometry)
+            if isValid then
+                local checkDist = 8
+                local hitCount = 0
+                local checkDirs = {
+                    Vector(1,0,0), Vector(-1,0,0),
+                    Vector(0,1,0), Vector(0,-1,0),
+                    Vector(0,0,1), Vector(0,0,-1),
+                }
+                for _, d in ipairs(checkDirs) do
+                    local tr = util.TraceLine({
+                        start = testPos,
+                        endpos = testPos + d * checkDist,
+                        mask = TRACE_MASK_SOLID, -- Check all solid geometry
+                    })
+                    if tr.Hit and tr.Fraction < 1.0 then
+                        hitCount = hitCount + 1
+                    end
+                end
+                if hitCount >= 5 then
+                    isValid = false
+                end
+            end
+            
+            if isValid then
+                -- Found a valid position!
+                print(string.format("[Light2RTX] Moved %s to valid position (%.1f, %.1f, %.1f) - %d units %s", 
+                    classname or "light", testPos.x, testPos.y, testPos.z, dist, 
+                    dir.z > 0.5 and "up" or dir.z < -0.5 and "down" or "away"))
+                return testPos
+            end
+        end
+    end
+    
+    -- Could not find a valid position, return original with warning
+    print(string.format("[Light2RTX] ERROR: Could not find valid position for %s! Using original position.", 
+        classname or "light"))
+    return pos
+end
+
 -- Find lights in the BSP data
 local function findLightsInBSP()
     if not NikNaks or not NikNaks.CurrentMap then 
@@ -601,6 +1138,15 @@ local function findLightsInBSP()
     -- Check entities in the BSP
     for _, ent in pairs(bsp:GetEntities()) do
         if ent.classname and lightClasses[ent.classname] then
+            -- ADD DIAGNOSTIC: Show all keys for light entities
+            if debug_mode:GetBool() then
+                print("[Light2RTX Debug] ===== All keys for " .. ent.classname .. " =====")
+                for k, v in pairs(ent) do
+                    print(string.format("  [%s] = %s (type: %s)", tostring(k), tostring(v), type(v)))
+                end
+                print("[Light2RTX Debug] ===== End keys =====")
+            end
+            
             -- Get position - convert to Vector if it's a string
             local pos = StringToVector(ent.origin)
             
@@ -608,6 +1154,9 @@ local function findLightsInBSP()
             if invalidPos then
                 DebugPrint("Could not parse position from:", ent.origin)
             else
+                -- Validate and clamp position to map bounds
+                pos = validateAndClampPosition(pos, ent.classname)
+                
                 local color, brightness, size, lightType, lightProps = getLightProperties(ent)
                 
                 -- Derive direction for spotlights from target or angles when available
@@ -642,6 +1191,18 @@ local function findLightsInBSP()
                 end
                 end
                 
+                -- Check if position is inside solid geometry and try to fix it
+                -- Pass light direction for spotlights so they move in the right direction
+                local lightDir = (ent.classname == "light_spot" or ent.classname == "env_projectedtexture") and lightProps.direction or nil
+                pos = validatePositionAgainstGeometry(pos, ent.classname, lightDir)
+                
+                -- Check if light should start disabled (spawnflags bit 1 = "Initially dark")
+                local spawnflags = tonumber(ent.spawnflags or ent._spawnflags or 0) or 0
+                local initiallyDark = (bit.band(spawnflags, 1) == 1)
+                
+                -- Read lightstyle/appearance pattern (style field)
+                local style = ent.style or ent._style
+                
                 table.insert(lights, {
                     pos = pos,
                     color = color,
@@ -651,11 +1212,13 @@ local function findLightsInBSP()
                     lightType = lightType,
                     lightProps = lightProps,
                     angles = lightProps.angles, -- Store angles if available
-                    targetname = ent.targetname or ent._targetname
+                    targetname = ent.targetname or ent._targetname,
+                    initiallyDark = initiallyDark,
+                    style = style
                 })
                 
-                DebugPrint(string.format("Found light: %s (RTX Type: %d) at %.2f,%.2f,%.2f - Color: %d,%d,%d - Brightness: %.1f - Size: %.1f", 
-                    ent.classname, lightType, pos.x, pos.y, pos.z, color.r, color.g, color.b, brightness, size))
+                DebugPrint(string.format("Found light: %s (RTX Type: %d) at %.2f,%.2f,%.2f - Color: %d,%d,%d - Brightness: %.1f - Size: %.1f%s", 
+                    ent.classname, lightType, pos.x, pos.y, pos.z, color.r, color.g, color.b, brightness, size, initiallyDark and " [Initially Dark]" or ""))
             end
         end
     end
@@ -706,7 +1269,7 @@ local function createVisualProp(pos, color, classname)
 end
 
 -- Create a Remix light using the newer RemixLight Lua API (sphere for now)
-local function createRemixLight(pos, color, brightness, size, lightType, lightProps, angles, visualProp, classname, targetname)
+local function createRemixLight(pos, color, brightness, size, lightType, lightProps, angles, visualProp, classname, targetname, initiallyDark)
     -- Generate a unique position key with some tolerance (0.1 units)
     local posKey = string.format("%.1f_%.1f_%.1f", pos.x, pos.y, pos.z)
     if createdLightPositions[posKey] then
@@ -735,10 +1298,40 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
     -- Compute intensity using Source engine's formula
     -- Source: intensity = (color_linear) * (brightness / 255.0) * lightscale
     -- where color_linear = pow(color/255, 2.2) * 255 (but srgbToLinear already does this)
-    -- brightness is the 4th value in _light field (0-255 range)
-    -- Point/spot lights need ~100x boost to compensate for missing radiosity calculations
-    local baseScale = (kind == "env") and 1.0 or 100.0
-    local intensity = (appliedBrightness / 255.0) * baseScale * typeBrightnessMult
+    -- brightness is the 4th value in _light field (0-255 range for LDR, >255 for bright lights)
+    local baseScale = 1.0
+    local brightBoost = 1.0
+    
+    if kind == "env" then
+        -- For light_environment, apply a baseline scale then multiply by mapper's HDR Brightness Scale
+        -- Use square root scaling to compress brightness range (prevents extreme lights from dominating)
+        local hdrScale = tonumber(lightProps._lightscaleHDR or 1.0)
+        
+        -- Normalize brightness to a baseline, then apply sqrt to compress range
+        -- Baseline of 200: sqrt(200/200) = 1.0x, sqrt(560/200) = 1.67x, sqrt(1000/200) = 2.24x
+        -- Clamp minimum to 0.9 to prevent very dim lights (50) from being over-bright
+        local brightnessNormalized = math.max(0.9, math.sqrt(appliedBrightness / 200.0))
+        local envBaseline = 0.2  -- Base multiplier (tuned for brightness ~200)
+        
+        baseScale = envBaseline * brightnessNormalized * hdrScale
+        -- No brightBoost for environment lights - HDR scale handles intensity variation
+    else
+        -- Point/spot lights need ~100x boost to compensate for missing radiosity calculations
+        baseScale = 100.0
+        
+        -- Apply extra boost for high brightness values (>255) to compensate for lack of HDR tone mapping
+        if appliedBrightness > 255 then
+            -- Scale: 256-2000 -> 2x-20x boost, >2000 -> clamp at 20x
+            brightBoost = math.min(20.0, 1.0 + (appliedBrightness - 255) / 92.0)
+        end
+    end
+    
+    local intensity = (appliedBrightness / 255.0) * baseScale * typeBrightnessMult * brightBoost
+    
+    -- Force intensity to 0 if light should start disabled
+    if initiallyDark then
+        intensity = 0.0
+    end
     
     local base = {
         hash = tonumber(util.CRC(string.format("maplight_%s", posKey))) or entityId,
@@ -747,6 +1340,7 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
             y = srgbToLinear(color.g) * intensity, 
             z = srgbToLinear(color.b) * intensity 
         },
+        isDynamic = true,
     }
 
     -- Direction from angles if present
@@ -789,10 +1383,16 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         -- If size is 0 or very small, use default
         if baseRadius < 0.1 then baseRadius = 5 end
         local rmult = (kind == "spot") and (spot_radius_mult:GetFloat() or 1.0) or (point_radius_mult:GetFloat() or 1.0)
+        local smult = (kind == "spot") and (spot_size_mult:GetFloat() or 1.0) or (point_size_mult:GetFloat() or 1.0)
         local vmult = (kind == "spot") and (spot_volumetric_mult:GetFloat() or 1.0) or (point_volumetric_mult:GetFloat() or 1.0)
+        
+        -- Apply size multiplier to radius, then clamp like updateEntryRuntime does
+        local radiusWithSizeMult = baseRadius * smult
+        radiusWithSizeMult = math.Clamp(radiusWithSizeMult, min_size:GetFloat(), max_size:GetFloat())
+        
         local sphere = {
             position = { x = pos.x, y = pos.y, z = pos.z },
-            radius = baseRadius * rmult,
+            radius = radiusWithSizeMult * rmult,
             volumetricRadianceScale = vmult,
         }
         if lightProps and lightProps.shapingEnabled then
@@ -837,6 +1437,8 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         baseAngular = (classname == "light_environment") and ((lightProps and tonumber(lightProps.angularDiameter)) or 0.53) or nil,
         baseRadius = (classname ~= "light_environment") and (tonumber(size) or 200) or nil,
         baseSizeBeforeMultipliers = (classname ~= "light_environment") and (lightProps and tonumber(lightProps.baseSizeBeforeMultipliers)) or nil,
+        -- Store HDR scale for environment lights (used in runtime updates)
+        hdrScale = (classname == "light_environment") and (lightProps and tonumber(lightProps._lightscaleHDR)) or nil,
         -- Debug/inspection fields
         angles = angles,
         direction = dir,
@@ -845,8 +1447,8 @@ local function createRemixLight(pos, color, brightness, size, lightType, lightPr
         coneSoftness = (lightProps and tonumber(lightProps.coneSoftness)) or nil,
         -- Animation / linkage
         targetname = targetname,
-        animMul = 1.0,
-        animEnabled = true,
+        animMul = (initiallyDark and 0.0) or 1.0,  -- Respect "Initially dark" spawnflag
+        animEnabled = not initiallyDark,  -- Start disabled if initially dark
     }
     return entry
 end
@@ -945,7 +1547,8 @@ local function batchCreateRTXLights()
                     light.angles,
                     visualProp,
                     light.classname,
-                    light.targetname
+                    light.targetname,
+                    light.initiallyDark  -- Respect "Initially dark" spawnflag from BSP
                 )
                 
                 if entry and entry.id then
@@ -955,12 +1558,27 @@ local function batchCreateRTXLights()
                     if entry.kind and lightsByKind[entry.kind] then
                         lightsByKind[entry.kind][entry.id] = true
                     end
-                    if entry.targetname and entry.targetname ~= "" then
-                        local lname = string.lower(entry.targetname)
+                    
+                    -- Assign targetname for pattern support
+                    local targetname = entry.targetname
+                    if (not targetname or targetname == "") and light.style then
+                        -- Create synthetic targetname for unnamed lights with patterns
+                        targetname = string.format("_rtx_light_%d", entry.id)
+                        entry.targetname = targetname
+                    end
+                    
+                    if targetname and targetname ~= "" then
+                        local lname = string.lower(targetname)
                         lightsByName[lname] = lightsByName[lname] or {}
                         lightsByName[lname][entry.id] = true
                     end
                     lightsCreated = lightsCreated + 1
+                    
+                    -- Start lightstyle pattern animation if specified
+                    if light.style and targetname and targetname ~= "" then
+                        Light2RTX.StartPattern(targetname, light.style)
+                        DebugPrint(string.format("Started pattern %s for light '%s' (id=%d)", tostring(light.style), targetname, entry.id))
+                    end
                     
                     -- Last light in batch
                     if i == #batch then
@@ -1026,10 +1644,34 @@ local function updateEntryRuntime(entry)
     -- Compute intensity using Source engine's formula
     -- Source: intensity = (color_linear) * (brightness / 255.0) * lightscale
     -- where color_linear = pow(color/255, 2.2) * 255 (but srgbToLinear already does this)
-    -- brightness is the 4th value in _light field (0-255 range)
-    -- Point/spot lights need ~100x boost to compensate for missing radiosity calculations
-    local baseScale = (kind == "env") and 1.0 or 100.0
-    local intensity = (baseBright / 255.0) * baseScale * bmult * amult
+    -- brightness is the 4th value in _light field (0-255 range for LDR, >255 for bright lights)
+    local baseScale = 1.0
+    local brightBoost = 1.0
+    
+    if kind == "env" then
+        -- For light_environment, apply same formula as creation: baseline * sqrt(brightness) * hdrScale
+        local hdrScale = tonumber(entry.hdrScale or 1.0)
+        local brightnessNormalized = math.max(0.9, math.sqrt(baseBright / 200.0))
+        local envBaseline = 0.2
+        baseScale = envBaseline * brightnessNormalized * hdrScale
+        -- No brightBoost for environment lights
+    else
+        -- Point/spot lights need ~100x boost to compensate for missing radiosity calculations
+        baseScale = 100.0
+        
+        -- Apply extra boost for high brightness values (>255) to compensate for lack of HDR tone mapping
+        if baseBright > 255 then
+            -- Scale: 256-2000 -> 2x-20x boost, >2000 -> clamp at 20x
+            brightBoost = math.min(20.0, 1.0 + (baseBright - 255) / 92.0)
+        end
+    end
+    
+    local intensity = (baseBright / 255.0) * baseScale * bmult * amult * brightBoost
+    
+    -- Force radiance to 0 if light is disabled (for compatibility with HDRI editor)
+    if not entry.animEnabled or amult <= 0.0 then
+        intensity = 0.0
+    end
     
     local base = {
         hash = tonumber(util.CRC("upd_" .. tostring(entry.id))) or entry.entityId,
@@ -1038,6 +1680,7 @@ local function updateEntryRuntime(entry)
             y = srgbToLinear(entry.color.g) * intensity, 
             z = srgbToLinear(entry.color.b) * intensity 
         },
+        isDynamic = true,
     }
     -- Helper to compute direction for distant/spot from stored angles if available
     local function computeDir()
@@ -1256,7 +1899,7 @@ hook.Add("Think", "rtx_api_map_lights_PhysgunThink", function()
                             RemixLight.UpdateSphereFields(entry.id, { position = { x = newPos.x, y = newPos.y, z = newPos.z } })
                         elseif istable(RemixLight) and RemixLight.UpdateSphere then
                             -- Fallback: build minimal base+info from cached entry, only include shaping if enabled
-                            local base = { hash = tonumber(util.CRC("upd_" .. tostring(entry.id))) or entry.entityId, radiance = { x = entry.color.r, y = entry.color.g, z = entry.color.b } }
+                            local base = { hash = tonumber(util.CRC("upd_" .. tostring(entry.id))) or entry.entityId, radiance = { x = entry.color.r, y = entry.color.g, z = entry.color.b }, isDynamic = true }
                             local info = { position = { x = newPos.x, y = newPos.y, z = newPos.z }, radius = entry.size or 200, volumetricRadianceScale = 1.0 }
                             if entry.shapingEnabled then
                                 info.shaping = { direction = { x = 0, y = 0, z = -1 }, coneAngleDegrees = 45.0, coneSoftness = 0.2, focusExponent = 1.0 }
@@ -1389,6 +2032,133 @@ hook.Add("PostDrawTranslucentRenderables", "rtx_api_map_lights_DebugDir", functi
     end
 end)
 
+-- HUD overlay showing light positions and info
+hook.Add("HUDPaint", "rtx_api_map_lights_DebugHUD", function()
+    if not debug_hud:GetBool() then return end
+    if #createdLights == 0 then return end
+    
+    local ply = LocalPlayer()
+    if not IsValid(ply) then return end
+    
+    local plyPos = ply:EyePos()
+    local maxDist = debug_hud_max_distance:GetFloat()
+    local showDisabled = debug_hud_show_disabled:GetBool()
+    
+    -- Font setup
+    surface.SetFont("DermaDefault")
+    
+    local visibleLights = 0
+    
+    for _, entry in ipairs(createdLights) do
+        if not entry.pos then continue end
+        
+        -- Check if light is enabled
+        local isEnabled = (entry.animMul or 1.0) > 0.01
+        if not isEnabled and not showDisabled then continue end
+        
+        -- Distance check
+        local dist = plyPos:Distance(entry.pos)
+        if dist > maxDist then continue end
+        
+        -- Convert world position to screen position
+        local scrPos = entry.pos:ToScreen()
+        if not scrPos.visible then continue end
+        
+        visibleLights = visibleLights + 1
+        
+        -- Determine light type and color
+        local lightType = "Point"
+        local typeColor = Color(255, 255, 0, 255)
+        
+        if entry.classname == "light_environment" then
+            lightType = "Sun"
+            typeColor = Color(255, 200, 100, 255)
+        elseif entry.classname == "light_spot" then
+            lightType = "Spot"
+            typeColor = Color(255, 100, 100, 255)
+        elseif entry.classname == "env_projectedtexture" then
+            lightType = "Proj"
+            typeColor = Color(255, 0, 255, 255)
+        end
+        
+        -- Fade based on distance
+        local alpha = math.Clamp(1 - (dist / maxDist), 0.3, 1)
+        typeColor.a = alpha * 255
+        
+        -- Draw background box
+        local text = string.format("%s", lightType)
+        local textW, textH = surface.GetTextSize(text)
+        local boxPadding = 4
+        local boxW = textW + boxPadding * 2
+        local boxH = textH + boxPadding * 2
+        
+        -- Background with light color tint
+        local bgColor = Color(0, 0, 0, alpha * 180)
+        surface.SetDrawColor(bgColor)
+        surface.DrawRect(scrPos.x - boxW / 2, scrPos.y - boxH / 2, boxW, boxH)
+        
+        -- Border with light color
+        local borderColor = Color(entry.color.r, entry.color.g, entry.color.b, alpha * 255)
+        surface.SetDrawColor(borderColor)
+        surface.DrawOutlinedRect(scrPos.x - boxW / 2, scrPos.y - boxH / 2, boxW, boxH)
+        
+        -- Draw light type text
+        draw.SimpleText(text, "DermaDefault", scrPos.x, scrPos.y, typeColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+        
+        -- Draw additional info below if close enough
+        if dist < maxDist * 0.5 then
+            local infoY = scrPos.y + boxH / 2 + 2
+            
+            -- Distance
+            local distText = string.format("%dm", math.floor(dist / 39.37)) -- Convert to meters (Source units to meters)
+            local distColor = Color(200, 200, 200, alpha * 200)
+            draw.SimpleText(distText, "DermaDefault", scrPos.x, infoY, distColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            
+            -- Targetname if available
+            if entry.targetname and entry.targetname ~= "" then
+                local nameText = string.format("%s", entry.targetname)
+                local nameColor = Color(100, 200, 255, alpha * 200)
+                draw.SimpleText(nameText, "DermaDefault", scrPos.x, infoY + textH, nameColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+            end
+            
+            -- Show disabled status
+            if not isEnabled then
+                local disabledText = "[OFF]"
+                local disabledColor = Color(255, 100, 100, alpha * 200)
+                draw.SimpleText(disabledText, "DermaDefault", scrPos.x, scrPos.y - boxH / 2 - textH, disabledColor, TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
+            end
+        end
+        
+        -- Draw line from player to light (if very close)
+        if dist < maxDist * 0.25 then
+            local centerX, centerY = scrPos.x, scrPos.y
+            local plyScreenPos = plyPos:ToScreen()
+            if plyScreenPos.visible then
+                surface.SetDrawColor(borderColor.r, borderColor.g, borderColor.b, alpha * 100)
+                surface.DrawLine(plyScreenPos.x, plyScreenPos.y, centerX, centerY)
+            end
+        end
+    end
+    
+    -- Draw legend in top-right corner
+    local legendX = ScrW() - 150
+    local legendY = 100
+    local legendBg = Color(0, 0, 0, 200)
+    
+    surface.SetDrawColor(legendBg)
+    surface.DrawRect(legendX - 5, legendY - 5, 145, 110)
+    
+    draw.SimpleText("Map Lights HUD", "DermaDefaultBold", legendX, legendY, Color(255, 255, 255), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+    draw.SimpleText(string.format("Visible: %d / %d", visibleLights, #createdLights), "DermaDefault", legendX, legendY + 15, Color(200, 200, 200), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+    draw.SimpleText(string.format("Max Dist: %dm", math.floor(maxDist / 39.37)), "DermaDefault", legendX, legendY + 30, Color(200, 200, 200), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+    
+    -- Legend items
+    draw.SimpleText("Point", "DermaDefault", legendX, legendY + 50, Color(255, 255, 0), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+    draw.SimpleText("Spot", "DermaDefault", legendX, legendY + 65, Color(255, 100, 100), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+    draw.SimpleText("Sun", "DermaDefault", legendX, legendY + 80, Color(255, 200, 100), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+    draw.SimpleText("Proj", "DermaDefault", legendX, legendY + 95, Color(255, 0, 255), TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+end)
+
 hook.Add("Initialize", "rtx_api_map_lights_Reset", function()
     resetLightTracking()
 end)
@@ -1507,6 +2277,12 @@ function Light2RTX.GetEntriesByClassname(classname)
         end
     end
     return result
+end
+
+-- Forward pattern control to the animator (will be available when animator loads)
+function Light2RTX.StartPattern(name, style)
+    -- Defer to hook - the animator will handle this
+    hook.Run("RTXMapLight_StartPattern", name, style)
 end
 
 print("[Light2RTX] Loaded! Use 'rtx_api_map_lights_process' to convert map lights to RTX lights")

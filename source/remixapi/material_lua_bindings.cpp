@@ -516,15 +516,36 @@ LUA_FUNCTION(RemixMaterial_GetTextureHash) {
     uint64_t firstValidHash = 0;
     for (size_t i = 0; i < variants->size(); ++i) {
         IDirect3DTexture9* d3dTexture = (*variants)[i];
-        auto result = g_remix->dxvk_GetTextureHash(d3dTexture);
         
-        if (result) {
-            uint64_t hash = result.value();
-            // Msg("[RemixMaterial]   Variant %zu (0x%p): Hash = 0x%llX\n", i, d3dTexture, hash);
+        // Validate the texture pointer is still valid before using it
+        if (!d3dTexture) {
+            continue;
+        }
+        
+        // Try to AddRef/Release to test if the pointer is still valid
+        // If this crashes, the texture was already released by the engine
+        ULONG refCount = d3dTexture->AddRef();
+        if (refCount > 1) {
+            // Texture is still alive, release the ref we just added
+            d3dTexture->Release();
             
-            if (firstValidHash == 0) {
-                firstValidHash = hash;
+            // Now safe to query the hash
+            auto result = g_remix->dxvk_GetTextureHash(d3dTexture);
+            
+            if (result) {
+                uint64_t hash = result.value();
+                // Msg("[RemixMaterial]   Variant %zu (0x%p): Hash = 0x%llX\n", i, d3dTexture, hash);
+                
+                if (firstValidHash == 0) {
+                    firstValidHash = hash;
+                }
             }
+        } else {
+            // Texture has been deleted (refcount was 0 before our AddRef)
+            // Release and skip this variant
+            d3dTexture->Release();
+            Warning("[RemixMaterial] GetTextureHash: Texture variant %zu (0x%p) for '%s' has been released\n", 
+                    i, d3dTexture, materialName);
         }
     }
     
@@ -546,6 +567,160 @@ LUA_FUNCTION(RemixMaterial_GetTextureHash) {
     
     return 2; // Return 2 values
 }
+
+// Lua function: RemixMaterial.GetAllTextureHashes(materialName)
+// Returns ALL texture hashes for a material (handles multiple variants)
+// Returns: table of hash strings
+LUA_FUNCTION(RemixMaterial_GetAllTextureHashes) {
+    if (!LUA->IsType(1, Type::String)) {
+        LUA->ThrowError("Expected string for material name");
+        return 0;
+    }
+    
+    const char* materialName = LUA->GetString(1);
+    
+    if (!g_remix) {
+        LUA->CreateTable(); // Return empty table
+        return 1;
+    }
+    
+    const std::vector<IDirect3DTexture9*>* variants = D3D9TextureTracker::Instance().GetTextureVariantsForMaterial(materialName);
+    
+    if (!variants || variants->empty()) {
+        LUA->CreateTable(); // Return empty table
+        return 1;
+    }
+    
+    // Create result table
+    LUA->CreateTable();
+    int idx = 1;
+    
+    for (size_t i = 0; i < variants->size(); ++i) {
+        IDirect3DTexture9* d3dTexture = (*variants)[i];
+        
+        if (!d3dTexture) continue;
+        
+        ULONG refCount = d3dTexture->AddRef();
+        if (refCount > 1) {
+            d3dTexture->Release();
+            
+            auto result = g_remix->dxvk_GetTextureHash(d3dTexture);
+            if (result) {
+                uint64_t hash = result.value();
+                if (hash != 0) {
+                    char hashStr[32];
+                    sprintf_s(hashStr, "0x%llX", hash);
+                    
+                    LUA->PushNumber(idx);
+                    LUA->PushString(hashStr);
+                    LUA->SetTable(-3);
+                    idx++;
+                }
+            }
+        } else {
+            d3dTexture->Release();
+        }
+    }
+    
+    return 1;
+}
+
+// Lua function: RemixMaterial.FindMaterialByHash(textureHash)
+// Reverse lookup: Returns all material names that match the given texture hash
+// Input: textureHash (number or hex string like "0xABCD1234")
+// Returns: table of material names
+LUA_FUNCTION(RemixMaterial_FindMaterialByHash) {
+    uint64_t queryHash = 0;
+    
+    // Parse hash from either number or string
+    if (LUA->IsType(1, Type::Number)) {
+        queryHash = static_cast<uint64_t>(LUA->GetNumber(1));
+    } else if (LUA->IsType(1, Type::String)) {
+        const char* hashStr = LUA->GetString(1);
+        // Parse hex string (with or without 0x prefix)
+        if (strncmp(hashStr, "0x", 2) == 0 || strncmp(hashStr, "0X", 2) == 0) {
+            sscanf_s(hashStr + 2, "%llx", &queryHash);
+        } else {
+            sscanf_s(hashStr, "%llx", &queryHash);
+        }
+    } else {
+        LUA->ThrowError("Expected number or hex string for texture hash");
+        return 0;
+    }
+    
+    if (queryHash == 0) {
+        Warning("[RemixMaterial] FindMaterialByHash: Invalid hash (0)\n");
+        LUA->CreateTable();
+        return 1;
+    }
+    
+    // Check Remix API is initialized
+    if (!g_remix) {
+        Warning("[RemixMaterial] FindMaterialByHash: Remix API not initialized\n");
+        LUA->CreateTable();
+        return 1;
+    }
+    
+    Msg("[RemixMaterial] FindMaterialByHash: Searching for hash 0x%llX...\n", queryHash);
+    
+    // Get all cached materials
+    std::vector<std::string> allMaterials = D3D9TextureTracker::Instance().GetCachedMaterials();
+    std::vector<std::string> matchingMaterials;
+    
+    // Check each material's texture hash
+    for (const auto& materialName : allMaterials) {
+        const std::vector<IDirect3DTexture9*>* variants = 
+            D3D9TextureTracker::Instance().GetTextureVariantsForMaterial(materialName.c_str());
+        
+        if (!variants || variants->empty()) {
+            continue;
+        }
+        
+        // Check all texture variants for this material
+        for (IDirect3DTexture9* d3dTexture : *variants) {
+            if (!d3dTexture) {
+                continue;
+            }
+            
+            // Validate texture is still alive
+            ULONG refCount = d3dTexture->AddRef();
+            if (refCount > 1) {
+                d3dTexture->Release();
+                
+                // Get the hash from Remix
+                auto result = g_remix->dxvk_GetTextureHash(d3dTexture);
+                if (result) {
+                    uint64_t hash = result.value();
+                    if (hash == queryHash) {
+                        matchingMaterials.push_back(materialName);
+                        Msg("[RemixMaterial]   Found match: '%s' (hash 0x%llX)\n", materialName.c_str(), hash);
+                        break; // Found a match, no need to check other variants
+                    }
+                }
+            } else {
+                d3dTexture->Release();
+            }
+        }
+    }
+    
+    // Return results as Lua table
+    LUA->CreateTable();
+    for (size_t i = 0; i < matchingMaterials.size(); ++i) {
+        LUA->PushNumber(static_cast<double>(i + 1)); // Lua arrays are 1-indexed
+        LUA->PushString(matchingMaterials[i].c_str());
+        LUA->SetTable(-3);
+    }
+    
+    if (matchingMaterials.empty()) {
+        Msg("[RemixMaterial] FindMaterialByHash: No materials found with hash 0x%llX\n", queryHash);
+        Msg("[RemixMaterial]   Tip: Make sure the texture has been rendered and is in the cache\n");
+    } else {
+        Msg("[RemixMaterial] FindMaterialByHash: Found %zu matching material(s)\n", matchingMaterials.size());
+    }
+    
+    return 1;
+}
+
 
 // Lua function: RemixMaterial.GetCachedMaterials()
 // Returns a table of all material names currently in the texture tracker cache
@@ -573,17 +748,18 @@ LUA_FUNCTION(RemixMaterial_GetCachedMaterials) {
 static std::vector<const char*> GetRemixCategoryOptions(uint32_t categoryFlags) {
     std::vector<const char*> options;
     
-    // Based on remixapi_InstanceCategoryBit enum  
-    if (categoryFlags & (1 << 12)) options.push_back("rtx.decalTextures");  // DECAL_STATIC
+    // Based on remixapi_InstanceCategoryBit enum and our Lua constants
+    // NOTE: We intentionally skip bit 0 (WORLD_UI) and bit 1 (WORLD_MATTE) - not used
+    if (categoryFlags & (1 << 2))  options.push_back("rtx.skyBoxTextures");  // SKY
+    if (categoryFlags & (1 << 3))  options.push_back("rtx.ignoreTextures");  // IGNORE
     if (categoryFlags & (1 << 9))  options.push_back("rtx.hideInstanceTextures");  // HIDDEN
     if (categoryFlags & (1 << 10)) options.push_back("rtx.particleTextures");  // PARTICLE
     if (categoryFlags & (1 << 11)) options.push_back("rtx.beamTextures");  // BEAM
-    if (categoryFlags & (1 << 2))  options.push_back("rtx.worldSpaceUiTextures");  // WORLD_UI
-    if (categoryFlags & (1 << 3))  options.push_back("rtx.worldSpaceUiBackgroundTextures");  // WORLD_UI_BACKGROUND
-    if (categoryFlags & (1 << 4))  options.push_back("rtx.ignoreTextures");  // IGNORE
+    if (categoryFlags & (1 << 12)) options.push_back("rtx.decalTextures");  // DECAL_STATIC
     if (categoryFlags & (1 << 17)) options.push_back("rtx.terrainTextures");  // TERRAIN
     if (categoryFlags & (1 << 18)) options.push_back("rtx.animatedWaterTextures");  // ANIMATED_WATER
     if (categoryFlags & (1 << 19)) options.push_back("rtx.playerModelTextures");  // THIRD_PERSON_PLAYER_MODEL
+    if (categoryFlags & (1 << 24)) options.push_back("rtx.legacyEmissiveTextures");  // LEGACY_EMISSIVE
     
     return options;
 }
@@ -744,6 +920,87 @@ LUA_FUNCTION(RemixMaterial_ClearTextureCache) {
     return 1;
 }
 
+// Lua function: RemixMaterial.RetryPendingCategories()
+// Retries categorization for textures that returned hash=0
+// Returns number of textures successfully categorized
+LUA_FUNCTION(RemixMaterial_RetryPendingCategories) {
+    int count = D3D9TextureTracker::Instance().RetryPendingCategories();
+    LUA->PushNumber(count);
+    return 1;
+}
+
+// Lua function: RemixMaterial.GetPendingCount()
+// Returns the number of textures waiting for categorization
+LUA_FUNCTION(RemixMaterial_GetPendingCount) {
+    size_t count = D3D9TextureTracker::Instance().GetPendingCount();
+    LUA->PushNumber(static_cast<double>(count));
+    return 1;
+}
+
+// Lua function: RemixMaterial.RescanAllMaterials()
+// Re-scans all cached materials and applies categories (emissive, etc.)
+// Useful after code changes or to catch materials that were cached before detection was added
+LUA_FUNCTION(RemixMaterial_RescanAllMaterials) {
+    int count = D3D9TextureTracker::Instance().RescanAllMaterials();
+    LUA->PushNumber(count);
+    return 1;
+}
+
+// Lua function: RemixMaterial.RecheckWorldTextures()
+// Re-checks all cached materials against the world texture list
+// Useful after SetWorldTextureList is called to categorize materials that rendered before the list was loaded
+LUA_FUNCTION(RemixMaterial_RecheckWorldTextures) {
+    int count = D3D9TextureTracker::Instance().RecheckWorldTextures();
+    LUA->PushNumber(count);
+    return 1;
+}
+
+// Lua function: RemixMaterial.DumpAllTextureHashes()
+// Returns a table of all tracked textures with their current hashes
+// Format: { { material = "name", texture = "0xPTR", hash = "0xHASH" }, ... }
+LUA_FUNCTION(RemixMaterial_DumpAllTextureHashes) {
+    auto& tracker = D3D9TextureTracker::Instance();
+    auto dump = tracker.DumpAllTextureHashes();
+    
+    // Create Lua table
+    LUA->CreateTable();
+    int idx = 1;
+    
+    for (const auto& entry : dump) {
+        const std::string& materialName = std::get<0>(entry);
+        void* texturePtr = std::get<1>(entry);
+        uint64_t hash = std::get<2>(entry);
+        
+        LUA->PushNumber(idx);
+        LUA->CreateTable();
+        
+        LUA->PushString("material");
+        LUA->PushString(materialName.c_str());
+        LUA->SetTable(-3);
+        
+        LUA->PushString("texture");
+        char ptrStr[32];
+        sprintf_s(ptrStr, "0x%p", texturePtr);
+        LUA->PushString(ptrStr);
+        LUA->SetTable(-3);
+        
+        LUA->PushString("hash");
+        if (hash != 0) {
+            char hashStr[32];
+            sprintf_s(hashStr, "0x%llX", hash);
+            LUA->PushString(hashStr);
+        } else {
+            LUA->PushString("0x0");
+        }
+        LUA->SetTable(-3);
+        
+        LUA->SetTable(-3);
+        idx++;
+    }
+    
+    return 1;
+}
+
 // Lua function: RemixMaterial.FindTexturesByName(searchName)
 LUA_FUNCTION(RemixMaterial_FindTexturesByName) {
     if (!LUA->IsType(1, Type::String)) {
@@ -782,6 +1039,132 @@ LUA_FUNCTION(RemixMaterial_FindTexturesByName) {
     return 1;
 }
 
+// Lua function: RemixMaterial.SetWorldTextureList(textureTable)
+// Accepts a Lua table of texture names from BSP parsing
+// These will be automatically marked as DECAL_STATIC (world geometry) when rendered
+LUA_FUNCTION(RemixMaterial_SetWorldTextureList) {
+    if (!LUA->IsType(1, Type::Table)) {
+        LUA->ThrowError("RemixMaterial.SetWorldTextureList: Expected table of texture names");
+        return 0;
+    }
+    
+    std::vector<std::string> textureNames;
+    textureNames.reserve(1024); // Pre-allocate to avoid reallocations
+    
+    Msg("[RemixMaterial] SetWorldTextureList: Starting table iteration...\n");
+    
+    // Iterate through the Lua table
+    LUA->PushNil(); // First key
+    int count = 0;
+    while (LUA->Next(1) != 0) {
+        // Key is at -2, value is at -1
+        if (LUA->IsType(-1, Type::String)) {
+            const char* textureName = LUA->GetString(-1);
+            if (textureName && textureName[0] != '\0') {
+                textureNames.push_back(textureName);
+                count++;
+            }
+        }
+        LUA->Pop(1); // Explicitly pop 1 value, keep key for next iteration
+    }
+    
+    Msg("[RemixMaterial] SetWorldTextureList: Parsed %d texture names from Lua table\n", count);
+    
+    // Pass to D3D9TextureTracker
+    if (!textureNames.empty()) {
+        D3D9TextureTracker::Instance().SetWorldTextureNames(textureNames);
+        Msg("[RemixMaterial] SetWorldTextureList: Sent to D3D9TextureTracker\n");
+    } else {
+        Warning("[RemixMaterial] SetWorldTextureList: No valid texture names found in table\n");
+    }
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
+// Lua function: RemixMaterial.ClearWorldTextureList()
+// Clears the world texture list (useful for map changes)
+LUA_FUNCTION(RemixMaterial_ClearWorldTextureList) {
+    D3D9TextureTracker::Instance().ClearWorldTextureNames();
+    LUA->PushBool(true);
+    return 1;
+}
+
+// Lua function: RemixMaterial.SetParticleCategorization(enabled)
+// Enable or disable automatic particle categorization
+LUA_FUNCTION(RemixMaterial_SetParticleCategorization) {
+    if (!LUA->IsType(1, Type::Bool)) {
+        LUA->ThrowError("RemixMaterial.SetParticleCategorization: Expected boolean argument");
+        return 0;
+    }
+    
+    bool enabled = LUA->GetBool(1);
+    D3D9TextureTracker::Instance().SetParticleCategorization(enabled);
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
+// Lua function: RemixMaterial.SetDecalCategorization(enabled)
+// Enable or disable automatic decal categorization
+LUA_FUNCTION(RemixMaterial_SetDecalCategorization) {
+    if (!LUA->IsType(1, Type::Bool)) {
+        LUA->ThrowError("RemixMaterial.SetDecalCategorization: Expected boolean argument");
+        return 0;
+    }
+    
+    bool enabled = LUA->GetBool(1);
+    D3D9TextureTracker::Instance().SetDecalCategorization(enabled);
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
+// Lua function: RemixMaterial.SetEmissiveCategorization(enabled)
+// Enable or disable automatic emissive categorization
+LUA_FUNCTION(RemixMaterial_SetEmissiveCategorization) {
+    if (!LUA->IsType(1, Type::Bool)) {
+        LUA->ThrowError("RemixMaterial.SetEmissiveCategorization: Expected boolean argument");
+        return 0;
+    }
+    
+    bool enabled = LUA->GetBool(1);
+    D3D9TextureTracker::Instance().SetEmissiveCategorization(enabled);
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
+// Lua function: RemixMaterial.SetAutoCategorization(enabled)
+// Enable or disable ALL automatic categorization (master switch)
+LUA_FUNCTION(RemixMaterial_SetAutoCategorization) {
+    if (!LUA->IsType(1, Type::Bool)) {
+        LUA->ThrowError("RemixMaterial.SetAutoCategorization: Expected boolean argument");
+        return 0;
+    }
+    
+    bool enabled = LUA->GetBool(1);
+    D3D9TextureTracker::Instance().SetAutoCategorization(enabled);
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
+// Lua function: RemixMaterial.SetDebugOutput(enabled)
+// Enable or disable debug output for categorization
+LUA_FUNCTION(RemixMaterial_SetDebugOutput) {
+    if (!LUA->IsType(1, Type::Bool)) {
+        LUA->ThrowError("RemixMaterial.SetDebugOutput: Expected boolean argument");
+        return 0;
+    }
+    
+    bool enabled = LUA->GetBool(1);
+    D3D9TextureTracker::Instance().SetDebugOutput(enabled);
+    
+    LUA->PushBool(true);
+    return 1;
+}
+
 // Initialize Material Manager Lua bindings
 void MaterialManager::InitializeLuaBindings() {
     if (!m_lua) return;
@@ -808,6 +1191,12 @@ void MaterialManager::InitializeLuaBindings() {
     m_lua->PushCFunction(RemixMaterial_GetTextureHash);
     m_lua->SetField(-2, "GetTextureHash");
     
+    m_lua->PushCFunction(RemixMaterial_GetAllTextureHashes);
+    m_lua->SetField(-2, "GetAllTextureHashes");
+    
+    m_lua->PushCFunction(RemixMaterial_FindMaterialByHash);
+    m_lua->SetField(-2, "FindMaterialByHash");
+    
     m_lua->PushCFunction(RemixMaterial_TrackMaterial);
     m_lua->SetField(-2, "TrackMaterial");
 
@@ -832,10 +1221,46 @@ void MaterialManager::InitializeLuaBindings() {
     m_lua->PushCFunction(RemixMaterial_ClearTextureCache);
     m_lua->SetField(-2, "ClearTextureCache");
     
-    // Set the table as a global field
+    m_lua->PushCFunction(RemixMaterial_RetryPendingCategories);
+    m_lua->SetField(-2, "RetryPendingCategories");
+    
+    m_lua->PushCFunction(RemixMaterial_GetPendingCount);
+    m_lua->SetField(-2, "GetPendingCount");
+    
+    m_lua->PushCFunction(RemixMaterial_RescanAllMaterials);
+    m_lua->SetField(-2, "RescanAllMaterials");
+    
+    m_lua->PushCFunction(RemixMaterial_RecheckWorldTextures);
+    m_lua->SetField(-2, "RecheckWorldTextures");
+    
+    m_lua->PushCFunction(RemixMaterial_DumpAllTextureHashes);
+    m_lua->SetField(-2, "DumpAllTextureHashes");
+    
+    m_lua->PushCFunction(RemixMaterial_SetWorldTextureList);
+    m_lua->SetField(-2, "SetWorldTextureList");
+    
+    m_lua->PushCFunction(RemixMaterial_ClearWorldTextureList);
+    m_lua->SetField(-2, "ClearWorldTextureList");
+    
+    m_lua->PushCFunction(RemixMaterial_SetParticleCategorization);
+    m_lua->SetField(-2, "SetParticleCategorization");
+    
+    m_lua->PushCFunction(RemixMaterial_SetDecalCategorization);
+    m_lua->SetField(-2, "SetDecalCategorization");
+    
+    m_lua->PushCFunction(RemixMaterial_SetEmissiveCategorization);
+    m_lua->SetField(-2, "SetEmissiveCategorization");
+    
+    m_lua->PushCFunction(RemixMaterial_SetAutoCategorization);
+    m_lua->SetField(-2, "SetAutoCategorization");
+    
+    m_lua->PushCFunction(RemixMaterial_SetDebugOutput);
+    m_lua->SetField(-2, "SetDebugOutput");
+    
+    // Set the table as the global "RemixMaterial"
     m_lua->SetField(-2, "RemixMaterial");
     
-    // Pop the global table
+    // Pop global table
     m_lua->Pop();
     
     Msg("[MaterialManager] Lua bindings initialized\n");

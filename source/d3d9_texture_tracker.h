@@ -4,6 +4,7 @@
 
 #include <d3d9.h>
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 #include <vector>
 #include <mutex>
@@ -26,7 +27,21 @@ public:
     void Shutdown();
 
     // Track a material being rendered
-    void SetCurrentMaterial(const char* materialName);
+    void SetCurrentMaterial(IMaterial* pMaterial);
+    
+    // Check and apply automatic categories (particles, emissive, sky, water, etc.)
+    void CheckAndApplyCategories(IDirect3DTexture9* pTexture);
+    
+    // Apply category flags to a texture hash (used by CheckAndApply and Retry)
+    void ApplyCategoryToHash(uint64_t hash, uint32_t categoryFlags, const char* materialName);
+    
+    // Re-scan all cached materials and apply categories
+    // This is useful after code changes or to catch materials that were cached before detection was added
+    int RescanAllMaterials();
+    
+    // Re-check all cached materials for world texture categorization
+    // Useful after SetWorldTextureNames is called to categorize materials that rendered before the list was loaded
+    int RecheckWorldTextures();
     
     // Get the D3D9 texture for a material (returns null if not found)
     IDirect3DTexture9* GetTextureForMaterial(const char* materialName);
@@ -61,8 +76,50 @@ public:
     
     // Find textures by partial name match (returns name->hash pairs)
     std::vector<std::pair<std::string, uint64_t>> FindTexturesByName(const std::string& searchName) const;
+    
+    // Retry categorization for pending textures (those that returned hash=0)
+    // Returns number of textures successfully categorized
+    int RetryPendingCategories();
+    
+    // Get count of pending textures
+    size_t GetPendingCount() const { return m_pendingCategories.size(); }
+    
+    // Dump all tracked textures with their hashes (for debugging)
+    // Returns vector of (materialName, texturePtr, hash) tuples
+    std::vector<std::tuple<std::string, void*, uint64_t>> DumpAllTextureHashes() const;
+    
+    // Set the list of world texture names (from BSP parsing)
+    // These will be marked as DECAL_STATIC when rendered
+    void SetWorldTextureNames(const std::vector<std::string>& textureNames);
+    
+    // Clear the world texture list (for map changes)
+    void ClearWorldTextureNames();
+    
+    // Check if a material is in the world texture list
+    bool IsWorldTexture(const std::string& materialName) const;
+    
+    // Enable/disable automatic particle categorization
+    void SetParticleCategorization(bool enabled);
+    
+    // Enable/disable automatic decal categorization
+    void SetDecalCategorization(bool enabled);
+    
+    // Enable/disable automatic emissive categorization
+    void SetEmissiveCategorization(bool enabled);
+    
+    // Enable/disable ALL automatic categorization (master switch)
+    void SetAutoCategorization(bool enabled);
+    
+    // Enable/disable debug output
+    void SetDebugOutput(bool enabled);
 
 private:
+    // Pending categorization entry
+    struct PendingCategory {
+        IDirect3DTexture9* texture;
+        std::string materialName;
+        uint32_t categoryFlags;  // Combined category flags (SKY, PARTICLE, WATER, etc.)
+    };
     D3D9TextureTracker() = default;
     ~D3D9TextureTracker();
 
@@ -99,13 +156,29 @@ private:
     IMatRenderContext* m_pRenderContext = nullptr;
     
     // Current material being rendered (set by Bind hooks)
-    std::string m_currentMaterial;
+    std::string m_currentMaterialName;
+    IMaterial* m_currentMaterial = nullptr;
     
     // Cache: material name -> set of D3D9 textures (materials can have multiple texture variants)
     std::unordered_map<std::string, std::vector<IDirect3DTexture9*>> m_textureCache;
     
     // Hash to category flags mapping
     std::unordered_map<uint64_t, uint32_t> m_hashToCategoryFlags;
+    
+    // Pending categorizations (textures that returned hash=0)
+    std::vector<PendingCategory> m_pendingCategories;
+    
+    // World texture names from BSP (for DECAL_STATIC marking)
+    std::unordered_set<std::string> m_worldTextureNames;
+    
+    // Category enable flags
+    bool m_enableAutoCategorization = true;     // Master switch
+    bool m_enableParticleCategorization = true;
+    bool m_enableDecalCategorization = true;
+    bool m_enableEmissiveCategorization = true;
+    
+    // Debug output flag
+    bool m_enableDebugOutput = false;
     
     // Track whether we're initialized
     bool m_bInitialized = false;

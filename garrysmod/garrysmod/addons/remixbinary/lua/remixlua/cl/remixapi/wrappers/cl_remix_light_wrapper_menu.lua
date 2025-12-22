@@ -8,18 +8,19 @@ hook.Add("PopulateToolMenu", "RTXLightWrapper_Menu", function()
         panel:Help("Automatically converts Garry's Mod point and spot lights into Remix API Lights")
         
         -- Enable/Disable
-        panel:CheckBox("Enable Light Wrapper", "rtx_light_wrapper_enabled")
+        local enableCheckbox = panel:CheckBox("Enable Light Wrapper", "rtx_light_wrapper_enabled")
         
-        local brightnessSlider = panel:NumSlider("Brightness Scale", "rtx_light_wrapper_brightness_scale", 0, 1, 3)
-        if brightnessSlider then brightnessSlider:SetDecimals(3) end
+        local brightnessSlider = panel:NumSlider("Brightness Scale", "rtx_light_wrapper_brightness_scale", 0, 500, 0)
+        if brightnessSlider then brightnessSlider:SetDecimals(0) end
         
-        local radiusPowerSlider = panel:NumSlider("Radius Power", "rtx_light_wrapper_radius_power", 0.10, 2.0, 1.0)
-        if radiusPowerSlider then radiusPowerSlider:SetDecimals(2) end
-
-        local radiusPointSlider = panel:NumSlider("Point Light Radius Scale", "rtx_light_wrapper_radius_scale_point", 1.5, 5.0, 2)
-        if radiusPointSlider then radiusPointSlider:SetDecimals(3) end
+        -- Update controls based on lightupdater state
+        local function UpdateControls()
+            local lightupdaterEnabled = GetConVar("rtx_lightupdater"):GetBool()
+            local enabled = not lightupdaterEnabled
+            if enableCheckbox then enableCheckbox:SetEnabled(enabled) end
+            if brightnessSlider then brightnessSlider:SetEnabled(enabled) end
+        end
         
-        local radiusSpotSlider = panel:NumSlider("Spotlight Radius Scale", "rtx_light_wrapper_radius_scale_spot", 0.1, 5.0, 2)
-        if radiusSpotSlider then radiusSpotSlider:SetDecimals(3) end
+        UpdateControls()
     end)
 end)
