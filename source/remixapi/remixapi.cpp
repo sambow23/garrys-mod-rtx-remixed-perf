@@ -2,6 +2,7 @@
 #include "remixapi.h"
 #include "bsp_geometry_manager.h"
 #include "rtx_option_defaults.h"
+#include "material_pipeline/material_pipeline.h"
 #include <Windows.h>
 #include <remix/remix_c.h>
 #include <tier0/dbg.h>
@@ -89,6 +90,9 @@ bool RemixAPI::Initialize(remix::Interface* remixInterface, GarrysMod::Lua::ILua
         m_resourceManager->InitializeLuaBindings();
         m_lightManager->InitializeLuaBindings();
         m_bspGeometryManager->InitializeLuaBindings();
+        
+        // Initialize the unified material pipeline and its Lua bindings
+        MaterialPipeline::Pipeline::Initialize(remixInterface, LUA);
 
     m_initialized = true;
 #ifdef _DEBUG
@@ -100,6 +104,9 @@ bool RemixAPI::Initialize(remix::Interface* remixInterface, GarrysMod::Lua::ILua
 void RemixAPI::Shutdown() {
     if (!m_initialized) return;
 
+    // Shutdown unified material pipeline first
+    MaterialPipeline::Pipeline::Shutdown();
+    
     m_bspGeometryManager.reset();
     m_resourceManager.reset();
     m_lightManager.reset();
@@ -798,7 +805,6 @@ MeshManager::MeshManager(remix::Interface* remixInterface, GarrysMod::Lua::ILuaB
 }
 
 MeshManager::~MeshManager() {
-    // Clean up all meshes
     for (auto& pair : m_meshes) {
         if (pair.second.handle) {
             m_remixInterface->DestroyMesh(pair.second.handle);
@@ -810,7 +816,6 @@ MeshManager::~MeshManager() {
 uint64_t MeshManager::CreateMesh(const std::string& name, const remix::MeshInfo& info) {
     if (!m_remixInterface) return 0;
 
-    // Try batched API if available to fix stability issues
     auto result = [&]() {
         if (m_remixInterface->m_CInterface.CreateMeshBatched) {
             return m_remixInterface->CreateMeshBatched(info);
@@ -844,11 +849,9 @@ bool MeshManager::UpdateMesh(uint64_t meshId, const remix::MeshInfo& info) {
         return false;
     }
 
-    // For now, we need to recreate the mesh
-    // TODO: Check if Remix API supports mesh updates
     auto oldHandle = it->second.handle;
     auto result = m_remixInterface->CreateMesh(info);
-        if (!result) {
+    if (!result) {
         Warning("[MeshManager] Failed to update mesh ID %llu: %d\n", meshId, result.status());
         return false;
     }
