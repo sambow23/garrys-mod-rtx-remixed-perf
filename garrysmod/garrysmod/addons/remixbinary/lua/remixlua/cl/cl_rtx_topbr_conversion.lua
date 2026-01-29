@@ -17,6 +17,10 @@
 
 if not (BRANCH == "x86-64" or BRANCH == "chromium") then return end
 
+-- Create global alias for the C++ module (registered as MaterialPipeline.ToPBR)
+_G.LegacyTextureProcessor = MaterialPipeline and MaterialPipeline.ToPBR or nil
+_G.VTFConverter = LegacyTextureProcessor  -- Backwards compatibility alias
+
 -- ConVars for configuration
 CreateClientConVar("rtx_topbr_enabled", "1", true, false, "Enable automatic ToPBR conversion")
 CreateClientConVar("rtx_topbr_auto", "1", true, false, "Auto-process materials on map load")
