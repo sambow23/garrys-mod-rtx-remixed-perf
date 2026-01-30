@@ -31,6 +31,7 @@ CreateClientConVar("rtx_topbr_autodiscover", "1", true, false, "Auto-discover co
 CreateClientConVar("rtx_topbr_parse_commented_properties", "1", true, false, "Parse commented-out VMT properties (e.g., //$envmap) - useful for maps where they were disabled for vanilla Source")
 CreateClientConVar("rtx_topbr_continuous", "1", true, false, "Continuous processing interval in seconds (0 = disabled, >0 = process every N seconds)")
 CreateClientConVar("rtx_topbr_batch_size", "3", true, false, "Number of materials to process per batch (reduces stutter)")
+CreateClientConVar("rtx_autocat_export_auto", "1", true, false, "Automatically export categorized hashes on map change/shutdown")
 
 -- Module table
 RTXToPBR = RTXToPBR or {}
@@ -780,6 +781,40 @@ concommand.Add("rtx_topbr_continuous", function(ply, cmd, args)
     end
 end, nil, "Start/stop continuous material processing. Usage: rtx_topbr_continuous <seconds> (0 = stop)")
 
+-- Auto-export helper function
+local function AutoExportHashes(silent)
+    if not MaterialPipeline or not MaterialPipeline.AutoCategorisation then
+        return false
+    end
+    
+    -- Export to game root directory where RTX Remix loads conf files
+    local filepath = "rtx_auto_hashes.conf"
+    local count = MaterialPipeline.AutoCategorisation.ExportHashes(filepath)
+    
+    if count > 0 then
+        if not silent then
+            MsgC(Color(100, 255, 100), string.format("[RTX AutoCat] Exported %d categorized hashes to %s\n", count, filepath))
+        end
+        return true
+    end
+    
+    return false
+end
+
+concommand.Add("rtx_autocat_export", function()
+    if not MaterialPipeline or not MaterialPipeline.AutoCategorisation then
+        MsgC(Color(255, 100, 100), "[RTX AutoCat] AutoCategorisation module not available\n")
+        return
+    end
+    
+    local result = AutoExportHashes(false)
+    if result then
+        MsgC(Color(200, 200, 200), "[RTX AutoCat] Restart the game or reload RTX Remix config to apply\n")
+    else
+        MsgC(Color(255, 200, 100), "[RTX AutoCat] No hashes to export (none categorized yet)\n")
+    end
+end, nil, "Export auto-categorized texture hashes to rtx_auto_hashes.conf")
+
 concommand.Add("rtx_topbr_help", function()
     MsgC(Color(100, 200, 255), "\n[RTX ToPBR] Runtime PBR Material Converter\n")
     MsgC(Color(100, 200, 255), string.rep("=", 70) .. "\n")
@@ -854,6 +889,27 @@ PBR metallic surfaces reflect their base color.
 ]])
     MsgC(Color(100, 200, 255), string.rep("=", 60) .. "\n\n")
 end, nil, "Show ToPBR help information")
+
+-- Auto-export on map change
+hook.Add("ShutDown", "RTXToPBR_AutoExport", function()
+    if GetConVarBoolSafe("rtx_autocat_export_auto", true) then
+        AutoExportHashes(true)
+    end
+end)
+
+-- Auto-export when changing maps
+local lastMap = game.GetMap()
+hook.Add("Think", "RTXToPBR_MapChangeExport", function()
+    if not GetConVarBoolSafe("rtx_autocat_export_auto", true) then
+        return
+    end
+    
+    local currentMap = game.GetMap()
+    if currentMap ~= lastMap then
+        AutoExportHashes(true)
+        lastMap = currentMap
+    end
+end)
 
 -- Auto-process on map load
 hook.Add("InitPostEntity", "RTXToPBR_AutoProcess", function()
