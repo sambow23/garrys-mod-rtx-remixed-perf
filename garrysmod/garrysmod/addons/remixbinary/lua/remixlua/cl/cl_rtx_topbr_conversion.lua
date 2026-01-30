@@ -589,6 +589,15 @@ function RTXToPBR.StartContinuousProcessing(interval)
             return
         end
         
+        -- Process pending materials through the pipeline (runs quick stages: ShaderFixes, HashCollision, AutoCategorisation)
+        -- This is critical for auto-categorization of particles, decals, emissives, etc.
+        if MaterialPipeline and MaterialPipeline.ProcessPendingMaterials then
+            local pendingProcessed = MaterialPipeline.ProcessPendingMaterials()
+            if pendingProcessed > 0 and GetConVarBoolSafe("rtx_topbr_debug", false) then
+                MsgC(Color(150, 150, 150), string.format("[RTX ToPBR] Continuous: processed %d pending materials (auto-categorisation)\n", pendingProcessed))
+            end
+        end
+        
         -- Process silently (no console spam) - uses background thread
         local count = RTXToPBR.ProcessAllMaterials(true)
         
@@ -866,6 +875,13 @@ hook.Add("InitPostEntity", "RTXToPBR_AutoProcess", function()
     -- Schedule auto-processing
     timer.Create("RTXToPBR_AutoProcess", delay, 1, function()
         MsgC(Color(100, 200, 255), "[RTX ToPBR] Running auto-process...\n")
+        
+        -- Process pending materials through the pipeline (runs quick stages: ShaderFixes, HashCollision, AutoCategorisation)
+        -- This ensures particles, decals, emissives are categorized before ToPBR processing
+        if MaterialPipeline and MaterialPipeline.ProcessPendingMaterials then
+            MaterialPipeline.ProcessPendingMaterials()
+        end
+        
         RTXToPBR.ProcessAllMaterials()
         
         -- Start continuous processing if configured

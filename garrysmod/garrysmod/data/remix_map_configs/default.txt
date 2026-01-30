@@ -9,75 +9,7 @@
 # Use "rtx_conf_reload_tracked_params" console command to reload after editing this file.
 
 # RTX Remix Settings
-
-### Volumetrics
-rtx:rtx.volumetrics.enable = False
-rtx:rtx.volumetrics.enableAtmosphere = False
-rtx:rtx.volumetrics.atmosphereHeightMeters = 50
-rtx:rtx.volumetrics.atmospherePlanetRadiusMeters = 1000
-rtx:rtx.volumetrics.fogRemapMaxDistanceMaxMeters = 10000
-rtx:rtx.volumetrics.fogRemapMaxDistanceMinMeters = 0
-rtx:rtx.volumetrics.singleScatteringAlbedo = 0.95, 0.95, 0.95
-rtx:rtx.volumetrics.enableInPortals = True
-rtx:rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMaxMeters = 1
-rtx:rtx.volumetrics.fogRemapTransmittanceMeasurementDistanceMinMeters = 2.75
-rtx:rtx.volumetrics.fogRemapColorMultiscatteringScale = 0.5
-rtx:rtx.volumetrics.enableFogColorRemap = False
-rtx:rtx.volumetrics.enableFogRemap = False
-rtx:rtx.volumetrics.anisotropy = 0
-rtx:rtx.enableFog = False
-rtx:rtx.volumetrics.transmittanceColor = 0.93, 0.93, 0.93
-rtx:rtx.volumetrics.froxelGridResolutionScale = 3
-rtx:rtx.volumetrics.transmittanceMeasurementDistanceMeters = 15
-rtx:rtx.volumetrics.froxelMaxDistanceMeters = 100
-rtx:rtx.volumetrics.froxelDepthSlices = 48
-
-## Textures
-rtx:rtx.enableMultiStageTextureFactorBlending = True
-
-## For API Lights
-rtx:rtx.neeCache.enableAnalyticalLight = False
-rtx:rtx.risLightSampleCount = 32
-rtx:rtx.di.initialSampleCount = 32
-rtx:rtx.di.spatialSamples = 4
-rtx:rtx.di.enableBestLightSampling = True
-rtx:rtx.di.maxHistoryLength = 1
-rtx:rtx.di.enableRayTracedBiasCorrection = True
-rtx:rtx.di.enableSpatialReuse = True
-rtx:rtx.di.enableDenoiserConfidence = True
-rtx:rtx.di.enableDenoiserGradient = True
-rtx:rtx.denoiseDirectAndIndirectLightingSeparately = True
-
-### Post FX
-rtx:rtx.autoExposure.enabled = True
-rtx:rtx.autoExposure.evMinValue = -2
-rtx:rtx.autoExposure.evMaxValue = 4
-rtx:rtx.tonemap.exposureBias = 0
-rtx:rtx.tonemap.dynamicRange = 15
-rtx:rtx.tonemappingMode = 1
-rtx:rtx.autoExposure.exposureCenterMeteringEnabled = True
-rtx:rtx.localtonemap.exposure = 0.6
-rtx:rtx.localtonemap.useAgX = True
-rtx:rtx.localtonemap.finalizeWithACES = False
-
-## Alpha
-rtx:rtx.enableStochasticAlphaBlend = True
-
-### Misc
-rtx:rtx.viewModel.enable = True
-rtx:rtx.viewModel.scale = 0.250
-rtx:rtx.skyAutoDetect = 2
-rtx:rtx.hideInstanceTextures = B85950B06260EF56,41C11B59983BC9E7
-rtx:rtx.neeCache.enable = True
-
-### Lights
-rtx:rtx.lightConversionSphereLightFixedRadius = 9
-rtx:rtx.suppressLightKeeping = True
-
-### Sky
-rtx:rtx.skyBrightness = 1
-rtx:rtx.skyReprojectScale = 17
-rtx:rtx.skyMinZThreshold = 0.999
+rtx:rtx.hideInstanceTextures = 41C11B59983BC9E7
 
 # Source Engine Settings
 ### Sky
