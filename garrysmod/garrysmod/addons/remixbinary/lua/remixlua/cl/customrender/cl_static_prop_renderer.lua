@@ -955,8 +955,19 @@ concommand.Add("rtx_spr_reload", function()
     timer.Simple(0.1, CacheMapStaticProps)
 end)
 
--- Disable engine props
-RunConsoleCommand("r_drawstaticprops", "0")
+-- Disable engine props only if custom renderer is enabled
+if convar_Enable:GetBool() then
+    RunConsoleCommand("r_drawstaticprops", "0")
+end
+
+-- ConVar Changes
+cvars.AddChangeCallback("rtx_spr_enable", function(_, _, new)
+    if tobool(new) then
+        RunConsoleCommand("r_drawstaticprops", "0")
+    else
+        RunConsoleCommand("r_drawstaticprops", "1")
+    end
+end, "RTXStaticPropEnable")
 
 print("[Custom Static Renderer] Loaded.")
 

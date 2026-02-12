@@ -22,6 +22,8 @@
 #include <remix/remix_c.h>
 #include "remixapi/remixapi.h"
 #include "d3d9_texture_tracker.h"
+#include "patch_manager.h"
+#include "culling_patches.h"
 #endif // _WIN64
 
 #ifdef GMOD_MAIN
@@ -30,7 +32,7 @@ extern IMaterialSystem* materials = NULL;
 
 #ifdef _WIN64
 // Global pointers for Remix and Source Engine interfaces
-IMaterialSystem* materials = nullptr;
+extern IMaterialSystem* materials;
 remix::Interface* g_remix = nullptr;
 IDirect3DDevice9Ex* g_d3dDevice = nullptr;
 
@@ -42,6 +44,7 @@ static void __stdcall RemixPresentCallback() {
         g_pfnAutoInstancePersistentLights();
     }
 }
+
 #endif
 
 using namespace GarrysMod::Lua;
@@ -134,6 +137,10 @@ GMOD_MODULE_OPEN() {
         configManager.SetConfigVariable("rtx.enableAdvancedMode", "1");
         configManager.SetConfigVariable("rtx.fallbackLightMode", "0");
 
+        // Register and apply runtime culling patches
+        InitCullingPatches();
+        RegisterCullingPatchLuaFunctions(LUA);
+
         #endif // _WIN64
 
         // Register Lua functions
@@ -155,6 +162,9 @@ GMOD_MODULE_CLOSE() {
         Msg("[gmRTX - Binary Module] Shutting down module...\n");
 
 #ifdef _WIN64
+        // Restore all runtime patches before shutdown
+        PatchManager::Instance().RestoreAll();
+
         RemixAPI::RemixAPI::Instance().Shutdown();
         g_d3dDevice = nullptr;
 

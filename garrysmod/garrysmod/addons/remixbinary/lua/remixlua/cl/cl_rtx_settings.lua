@@ -42,6 +42,20 @@ hook.Add( "PopulateToolMenu", "RTXOptionsClient_Performance", function()
         panel:CheckBox("Entity Anti-Culling", "rtx_rearview_enabled")
         panel:ControlHelp("Spawns a RT camera that renders almost every dynamic entity in the map. Prevents culling of engine rendered entities. This can severely impact performance.")
         panel:NumSlider("Distance (units)", "rtx_rearview_off_forward", 100, 5000, 0)
+
+        panel:CheckBox("Custom Rendering", "rtx_custom_render")
+        panel:ControlHelp("Enables custom world renderers to replace engine rendered world geometry.")
+
+        panel:AddControl("Header", {Description = "Engine Patches:"})
+
+	    panel:CheckBox("Disable Engine Frustum Culling", "rtx_patch_frustumcull_engine")
+        panel:CheckBox("Force Brush Entity Backfaces", "rtx_patch_brush_backfaces")
+        panel:CheckBox("Force World Backfaces #1", "rtx_patch_world_backfaces1")
+        panel:CheckBox("Force World Backfaces #2", "rtx_patch_world_backfaces2")
+        panel:CheckBox("Disable BSP Culling", "rtx_patch_cullnode")
+        panel:CheckBox("Disable Client Frustum Culling", "rtx_patch_frustumcull_client")
+        panel:CheckBox("Force NoVis (Disable PVS)", "rtx_patch_forcenovis")
+
     end )
 end )
 

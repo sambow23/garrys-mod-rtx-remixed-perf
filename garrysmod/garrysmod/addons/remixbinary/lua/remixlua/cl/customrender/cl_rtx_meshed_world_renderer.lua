@@ -661,7 +661,7 @@ RenderCore.Register("ShutDown", "RTXCustomWorldShutdown", function()
 end)
 
 -- ConVar Changes
-cvars.AddChangeCallback("rtx_mwr", function(_, _, new)
+cvars.AddChangeCallback("rtx_mwr_enable", function(_, _, new)
     if tobool(new) then
         EnableCustomRendering()
     else

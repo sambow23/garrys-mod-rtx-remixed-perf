@@ -713,6 +713,15 @@ RenderCore.RegisterStats("Displacements", function()
     return string.format("Disp draws: %d | chunks: %d%s", stats.draws or 0, stats.chunksVisited or 0, extra)
 end)
 
+-- ConVar Changes
+cvars.AddChangeCallback("rtx_dpr_enable", function(_, _, new)
+    if tobool(new) then
+        EnableRendering()
+    else
+        DisableRendering()
+    end
+end)
+
 -- Rebuild sink and debounced cvars
 RenderCore.RegisterRebuildSink("RTXDispRebuildSink", function(token, reason)
     Initialize(token)

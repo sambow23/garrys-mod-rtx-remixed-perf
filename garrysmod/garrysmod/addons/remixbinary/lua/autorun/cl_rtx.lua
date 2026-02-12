@@ -24,6 +24,7 @@ end
 local cv_custom_render = CreateClientConVar("rtx_custom_render", "0", true, false, "Toggle Remix custom render preset")
 
 local function ApplyCustomRenderPreset(enable)
+    RunConsoleCommand("r_drawworld", enable and "0" or "1")
     RunConsoleCommand("r_drawopaqueworld", enable and "0" or "1")
     RunConsoleCommand("r_drawstaticprops", enable and "0" or "1")
     RunConsoleCommand("r_DrawDisp", enable and "0" or "1")
@@ -31,7 +32,7 @@ local function ApplyCustomRenderPreset(enable)
     RunConsoleCommand("r_DrawDetailProps", enable and "0" or "1")
     RunConsoleCommand("rtx_mwr_enable", enable and "1" or "0")
     RunConsoleCommand("rtx_spr_enable", enable and "1" or "0")
-    RunConsoleCommand("rtx_cdr_enable", enable and "1" or "0")
+    RunConsoleCommand("rtx_dpr_enable", enable and "1" or "0")
 end
 
 cvars.AddChangeCallback("rtx_custom_render", function(name, oldValue, newValue)
@@ -123,6 +124,17 @@ hook.Add("Think", "RemixGCTuning", function()
     if now - lastGCTune > 1 then  -- Tune every second
         ConfigureGC()
         lastGCTune = now
+    end
+end)
+
+-- Sync engine patches with ConVar values periodically // Kinda cursed but it works :3 
+local lastPatchSync = 0
+hook.Add("Think", "RemixPatchSync", function()
+    if not RTX_SyncPatches then return end
+    local now = SysTime()
+    if now - lastPatchSync > 0.5 then
+        RTX_SyncPatches()
+        lastPatchSync = now
     end
 end)
 
